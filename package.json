@@ -1,0 +1,21 @@
+{
+  "name": "smart-agriculture",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Smart Agriculture monorepo: Next web platform + Python soil moisture agent + Docker infrastructure.",
+  "scripts": {
+    "dev:web": "npm --prefix apps/web run dev",
+    "dev:agent": "sh -c 'PYTHONPATH=apps/agent .venv/bin/python -m uvicorn app.main:app --reload --app-dir apps/agent --host 0.0.0.0 --port ${AGENT_PORT:-18010}'",
+    "build:web": "npm --prefix apps/web run build",
+    "start:web": "npm --prefix apps/web run start",
+    "start:agent": "sh -c 'PYTHONPATH=apps/agent .venv/bin/python -m uvicorn app.main:app --app-dir apps/agent --host 0.0.0.0 --port ${AGENT_PORT:-18010}'",
+    "setup:agent": ".venv/bin/pip install --disable-pip-version-check -r apps/agent/requirements.txt",
+    "test:agent": "PYTHONPATH=apps/agent .venv/bin/python -m unittest discover -s apps/agent/tests -p '*_unittest.py' -v",
+    "test:web": "npm --prefix apps/web test",
+    "health": "bash scripts/health/check-local.sh"
+  },
+  "workspaces": [
+    "apps/web",
+    "packages/*"
+  ]
+}
