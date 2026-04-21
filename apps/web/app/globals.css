@@ -335,27 +335,68 @@ body,
   font-weight: 700;
 }
 
-.workspace-userbar {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.workspace-menu-root {
+  position: relative;
 }
 
-.workspace-user {
-  padding: 8px 12px;
-  border-radius: 999px;
-  background: var(--panel-soft);
-  color: var(--muted);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.workspace-logout {
+.workspace-menu-trigger {
   border: 1px solid var(--border);
-  border-radius: 12px;
+  border-radius: 999px;
   padding: 10px 14px;
-  background: var(--panel);
+  background: var(--panel-soft);
+  color: var(--text);
+  font: inherit;
   font-weight: 600;
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+}
+
+.workspace-menu-panel {
+  position: absolute;
+  top: calc(100% + 10px);
+  right: 0;
+  min-width: 176px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  background: var(--panel);
+  box-shadow: var(--shadow);
+  display: grid;
+  gap: 4px;
+  z-index: 10;
+}
+
+.workspace-menu-item {
+  width: 100%;
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 12px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  font: inherit;
+}
+
+.workspace-menu-item:hover {
+  background: var(--panel-soft);
+}
+
+.workspace-menu-item[aria-current='page'] {
+  background: var(--accent-soft);
+  color: #047857;
+  font-weight: 700;
+}
+
+.workspace-menu-item-meta {
+  color: var(--muted);
+  cursor: default;
+}
+
+.workspace-menu-item-meta:hover {
+  background: transparent;
+}
+
+.workspace-menu-item-danger {
+  color: #b91c1c;
 }
 
 .chat-panel {
@@ -907,15 +948,6 @@ body,
   .composer {
     grid-template-columns: 1fr;
   }
-}
-
-.workspace-nav-button {
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 8px 12px;
-  background: var(--panel-soft);
-  color: var(--text);
-  font-weight: 700;
 }
 
 .soil-admin-page {

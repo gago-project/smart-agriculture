@@ -1,17 +1,21 @@
 'use client';
 
 import { useEffect, useState } from 'react';
+import { usePathname, useRouter } from 'next/navigation';
 import { ChatPanel } from './components/ChatPanel';
 import { Composer } from './components/Composer';
 import { LoginPage } from './components/LoginPage';
 import { SessionSidebar } from './components/SessionSidebar';
 import { AgentLogPage } from './components/AgentLogPage';
 import { SoilAdminPage } from './components/SoilAdminPage';
+import { WorkspaceUserMenu } from './components/WorkspaceUserMenu';
 import { useChatActions } from './hooks/useChatActions';
 import { useAuthStore } from './store/authStore';
 import { useChatStore } from './store/chatStore';
 
 export default function App() {
+  const pathname = usePathname();
+  const router = useRouter();
   const authStatus = useAuthStore((state) => state.status);
   const authUser = useAuthStore((state) => state.user);
   const initAuth = useAuthStore((state) => state.initAuth);
@@ -21,25 +25,44 @@ export default function App() {
   const { activeSession, error, isSending, retryForMessage, sendQuestion } = useChatActions();
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<'chat' | 'soil-admin' | 'agent-logs'>('chat');
   const canManageSoilAdmin = authUser?.role === 'admin';
   const canViewAgentLogs = authUser?.role === 'admin' || authUser?.role === 'developer';
+  const isRedirectingWorkspaceRoute =
+    authStatus === 'authenticated' &&
+    Boolean(authUser) &&
+    (pathname === '/' ||
+      (pathname === '/admin' && !canManageSoilAdmin) ||
+      (pathname === '/query-logs' && !canViewAgentLogs));
+  const currentView =
+    pathname === '/admin' && canManageSoilAdmin
+      ? 'soil-admin'
+      : pathname === '/query-logs' && canViewAgentLogs
+        ? 'agent-logs'
+        : 'chat';
 
   useEffect(() => {
     void initAuth();
   }, [initAuth]);
 
   useEffect(() => {
-    if (!canManageSoilAdmin && workspaceView === 'soil-admin') {
-      setWorkspaceView('chat');
+    if (authStatus !== 'authenticated' || !authUser) {
+      return;
     }
-  }, [canManageSoilAdmin, workspaceView]);
 
-  useEffect(() => {
-    if (!canViewAgentLogs && workspaceView === 'agent-logs') {
-      setWorkspaceView('chat');
+    if (pathname === '/') {
+      router.replace('/chat');
+      return;
     }
-  }, [canViewAgentLogs, workspaceView]);
+
+    if (pathname === '/admin' && !canManageSoilAdmin) {
+      router.replace('/chat');
+      return;
+    }
+
+    if (pathname === '/query-logs' && !canViewAgentLogs) {
+      router.replace('/chat');
+    }
+  }, [authStatus, authUser, canManageSoilAdmin, canViewAgentLogs, pathname, router]);
 
   if (authStatus === 'idle' || authStatus === 'checking') {
     return (
@@ -69,6 +92,14 @@ export default function App() {
     );
   }
 
+  if (isRedirectingWorkspaceRoute) {
+    return (
+      <div className="auth-shell">
+        <div className="auth-card auth-loading">正在跳转工作台...</div>
+      </div>
+    );
+  }
+
   return (
     <div className="layout">
       <SessionSidebar
@@ -84,26 +115,17 @@ export default function App() {
           <div>
             <h1 className="workspace-title">AI 农情工作台</h1>
           </div>
-          <div className="workspace-userbar">
-            {canManageSoilAdmin ? (
-              <button className="workspace-nav-button" onClick={() => setWorkspaceView(workspaceView === 'soil-admin' ? 'chat' : 'soil-admin')}>
-                {workspaceView === 'soil-admin' ? '返回问答' : '墒情管理'}
-              </button>
-            ) : null}
-            {canViewAgentLogs ? (
-              <button className="workspace-nav-button" onClick={() => setWorkspaceView(workspaceView === 'agent-logs' ? 'chat' : 'agent-logs')}>
-                {workspaceView === 'agent-logs' ? '返回问答' : '查询日志'}
-              </button>
-            ) : null}
-            <span className="workspace-user">{authUser.username}</span>
-            <button className="workspace-logout" onClick={() => void logout()}>
-              退出登录
-            </button>
-          </div>
+          <WorkspaceUserMenu
+            username={authUser.username}
+            currentPath={pathname}
+            canManageSoilAdmin={canManageSoilAdmin}
+            canViewAgentLogs={canViewAgentLogs}
+            onLogout={() => void logout()}
+          />
         </header>
-        {workspaceView === 'soil-admin' ? (
+        {currentView === 'soil-admin' ? (
           <SoilAdminPage />
-        ) : workspaceView === 'agent-logs' ? (
+        ) : currentView === 'agent-logs' ? (
           <AgentLogPage />
         ) : (
           <>

@@ -4,10 +4,46 @@ import { readFileSync, existsSync } from 'node:fs';
 
 const root = new URL('..', import.meta.url);
 
-test('web has required visible pages', () => {
+test('web has route files for chat admin and query logs', () => {
   assert.equal(existsSync(new URL('../app/page.tsx', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/chat/page.tsx', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/admin/page.tsx', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../app/query-logs/page.tsx', import.meta.url)), true);
+});
+
+test('workspace app uses route state instead of local workspaceView state', () => {
+  const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /usePathname/);
+  assert.match(appSource, /useRouter/);
+  assert.doesNotMatch(appSource, /workspaceView/);
+});
+
+test('workspace app redirects authenticated root users to chat', () => {
+  const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /pathname === '\/'/);
+  assert.match(appSource, /router\.replace\('\/chat'\)/);
+});
+
+test('workspace app keeps route permission boundaries in one place', () => {
+  const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /canManageSoilAdmin/);
+  assert.match(appSource, /canViewAgentLogs/);
+  assert.match(appSource, /pathname === '\/admin'/);
+  assert.match(appSource, /pathname === '\/query-logs'/);
+  assert.match(appSource, /router\.replace\('\/chat'\)/);
+});
+
+test('workspace app renders neutral loading while redirecting guarded routes', () => {
+  const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /isRedirectingWorkspaceRoute/);
+  assert.match(appSource, /pathname === '\/'/);
+  assert.match(appSource, /pathname === '\/admin' && !canManageSoilAdmin/);
+  assert.match(appSource, /pathname === '\/query-logs' && !canViewAgentLogs/);
+  assert.match(appSource, /auth-loading/);
 });
 
 test('agent chat route proxies to configured AGENT_BASE_URL', () => {
@@ -37,10 +73,11 @@ test('developer workspace can view agent query logs without soil admin access', 
   assert.equal(existsSync(new URL('../workspace/services/agentLogApi.ts', import.meta.url)), true);
 
   const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+  const menuSource = readFileSync(new URL('../workspace/components/WorkspaceUserMenu.tsx', import.meta.url), 'utf8');
   assert.match(appSource, /canViewAgentLogs/);
   assert.match(appSource, /authUser\?\.role === 'developer'/);
   assert.match(appSource, /AgentLogPage/);
-  assert.match(appSource, /查询日志/);
+  assert.match(menuSource, /查询日志/);
   assert.doesNotMatch(appSource, /开发日志/);
 });
 
@@ -49,6 +86,52 @@ test('workspace no longer renders the right-side evidence analysis panel', () =>
 
   assert.doesNotMatch(appSource, /EvidencePanel/);
   assert.doesNotMatch(appSource, /selectedEvidenceMessage/);
+});
+
+test('workspace header uses a dedicated user menu instead of nav buttons row', () => {
+  const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+
+  assert.match(appSource, /WorkspaceUserMenu/);
+  assert.doesNotMatch(appSource, /workspace-nav-button/);
+});
+
+test('workspace user menu contains route items username and logout entry', () => {
+  const menuSource = readFileSync(new URL('../workspace/components/WorkspaceUserMenu.tsx', import.meta.url), 'utf8');
+
+  assert.match(menuSource, /问答工作台/);
+  assert.match(menuSource, /墒情管理/);
+  assert.match(menuSource, /查询日志/);
+  assert.match(menuSource, /用户名/);
+  assert.match(menuSource, /退出登录/);
+  assert.match(menuSource, /router\.push/);
+});
+
+test('workspace user menu avoids misleading menu roles and guards current route push', () => {
+  const menuSource = readFileSync(new URL('../workspace/components/WorkspaceUserMenu.tsx', import.meta.url), 'utf8');
+
+  assert.match(menuSource, /targetPath !== currentPath/);
+  assert.doesNotMatch(menuSource, /role="menu"/);
+  assert.doesNotMatch(menuSource, /role="menuitem"/);
+});
+
+test('globals include workspace dropdown menu styles', () => {
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(globalsSource, /\.workspace-menu-trigger/);
+  assert.match(globalsSource, /\.workspace-menu-panel/);
+  assert.match(globalsSource, /\.workspace-menu-item/);
+});
+
+test('workspace user menu uses final dropdown class names', () => {
+  const menuSource = readFileSync(new URL('../workspace/components/WorkspaceUserMenu.tsx', import.meta.url), 'utf8');
+
+  assert.match(menuSource, /workspace-menu-root/);
+  assert.match(menuSource, /workspace-menu-trigger/);
+  assert.match(menuSource, /workspace-menu-panel/);
+  assert.match(menuSource, /workspace-menu-item/);
+  assert.match(menuSource, /currentPath === '\/chat'/);
+  assert.match(menuSource, /navigateTo\('\/chat'\)/);
+  assert.match(menuSource, /targetPath !== currentPath/);
 });
 
 test('chat panel no longer renders AI involvement badge in message list', () => {
