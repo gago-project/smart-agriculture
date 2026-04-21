@@ -78,6 +78,22 @@ test('query log repository pages ids before loading wide log fields', () => {
   assert.doesNotMatch(source, /SELECT[\s\S]*executed_result_json[\s\S]*FROM agent_query_log[\s\S]*ORDER BY created_at DESC/);
 });
 
+test('authoritative agent plan includes query log request and routing context fields', () => {
+  const planSource = readFileSync(
+    new URL('../../agent/plans/1/1.2026-04-20-soil-moisture-agent-plan.md', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(planSource, /request_text\s+text\s+null/i);
+  assert.match(planSource, /response_text\s+text\s+null/i);
+  assert.match(planSource, /input_type\s+varchar\(32\)\s+null/i);
+  assert.match(planSource, /intent\s+varchar\(64\)\s+null/i);
+  assert.match(planSource, /answer_type\s+varchar\(64\)\s+null/i);
+  assert.match(planSource, /final_status\s+varchar\(64\)\s+null/i);
+  assert.match(planSource, /executed_result_json\s+json\s+null/i);
+  assert.doesNotMatch(planSource, /result_preview_json/i);
+});
+
 test('agent summary route must surface upstream errors instead of fake fallback data', () => {
   const source = readFileSync(new URL('../app/api/agent/summary/route.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /待连接/);

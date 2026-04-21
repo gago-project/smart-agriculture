@@ -186,6 +186,28 @@ BEGIN
   END IF;
 END//
 
+DROP PROCEDURE IF EXISTS drop_column_if_exists//
+
+CREATE PROCEDURE drop_column_if_exists(
+  IN in_table_name VARCHAR(64),
+  IN in_column_name VARCHAR(64),
+  IN in_column_sql TEXT
+)
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = in_table_name
+      AND column_name = in_column_name
+  ) THEN
+    SET @drop_column_sql = in_column_sql;
+    PREPARE drop_column_stmt FROM @drop_column_sql;
+    EXECUTE drop_column_stmt;
+    DEALLOCATE PREPARE drop_column_stmt;
+  END IF;
+END//
+
 DELIMITER ;
 
 CALL ensure_column('agent_query_log', 'request_text', 'ALTER TABLE agent_query_log ADD COLUMN request_text TEXT NULL AFTER turn_id');
@@ -196,6 +218,7 @@ CALL ensure_column('agent_query_log', 'answer_type', 'ALTER TABLE agent_query_lo
 CALL ensure_column('agent_query_log', 'final_status', 'ALTER TABLE agent_query_log ADD COLUMN final_status VARCHAR(64) NULL AFTER answer_type');
 CALL ensure_column('agent_query_log', 'executed_sql_text', 'ALTER TABLE agent_query_log ADD COLUMN executed_sql_text TEXT NULL AFTER sql_fingerprint');
 CALL ensure_column('agent_query_log', 'executed_result_json', 'ALTER TABLE agent_query_log ADD COLUMN executed_result_json JSON NULL AFTER row_count');
+CALL drop_column_if_exists('agent_query_log', 'result_preview_json', 'ALTER TABLE agent_query_log DROP COLUMN result_preview_json');
 
 CALL ensure_index('fact_soil_moisture', 'idx_soil_sample_time', 'CREATE INDEX idx_soil_sample_time ON fact_soil_moisture (sample_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_batch_id', 'CREATE INDEX idx_soil_batch_id ON fact_soil_moisture (batch_id)');
@@ -210,3 +233,4 @@ CALL ensure_index('agent_query_log', 'idx_aql_status_created_at', 'CREATE INDEX 
 
 DROP PROCEDURE IF EXISTS ensure_index;
 DROP PROCEDURE IF EXISTS ensure_column;
+DROP PROCEDURE IF EXISTS drop_column_if_exists;

@@ -48,6 +48,12 @@ test('warning_template and agent_query_log columns follow plans', () => {
   assert.doesNotMatch(sql, /result_preview_json\s+JSON\s+NULL/i);
 });
 
+test('mysql init drops deprecated query log preview column on existing databases', () => {
+  assert.match(sql, /DROP PROCEDURE IF EXISTS drop_column_if_exists\/\//i);
+  assert.match(sql, /CREATE PROCEDURE drop_column_if_exists\(/i);
+  assert.match(sql, /CALL drop_column_if_exists\('agent_query_log', 'result_preview_json'/i);
+});
+
 test('auth tables use database-backed user and session design', () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS auth_user/i);
   assert.match(sql, /username\s+VARCHAR\(64\)\s+NOT NULL/i);
