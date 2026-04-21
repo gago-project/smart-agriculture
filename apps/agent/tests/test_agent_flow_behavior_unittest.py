@@ -103,6 +103,10 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(latest_log["query_type"], "recent_summary")
         self.assertEqual(latest_log["session_id"], "log")
         self.assertEqual(latest_log["turn_id"], 1)
+        self.assertIn("SELECT", latest_log["executed_sql_text"])
+        self.assertIn("FROM fact_soil_moisture", latest_log["executed_sql_text"])
+        self.assertIn("records", latest_log["executed_result_json"])
+        self.assertGreater(len(latest_log["executed_result_json"]["records"]), 0)
 
 
 if __name__ == "__main__":

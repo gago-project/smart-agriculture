@@ -53,7 +53,7 @@ class FakeRepository:
 
 
 class QueryLogRepositoryTest(unittest.TestCase):
-    def test_append_serializes_decimal_preview_and_commits(self) -> None:
+    def test_append_serializes_decimal_result_and_commits(self) -> None:
         connection = FakeConnection()
         repository = QueryLogRepository(FakeRepository(connection))
 
@@ -70,10 +70,12 @@ class QueryLogRepositoryTest(unittest.TestCase):
                 "final_status": "verified_end",
                 "query_type": "recent_summary",
                 "query_plan_json": {"sql_template": "SQL-01"},
+                "sql_fingerprint": "SQL-01",
+                "executed_sql_text": "SELECT * FROM fact_soil_moisture LIMIT 1",
                 "time_range_json": {},
                 "filters_json": {},
                 "row_count": 1,
-                "result_preview_json": [{"water20cm": Decimal("41.20")}],
+                "executed_result_json": {"records": [{"water20cm": Decimal("41.20")}]},
                 "status": "success",
             }
         )
@@ -85,8 +87,10 @@ class QueryLogRepositoryTest(unittest.TestCase):
         _, params = connection.cursor_instance.executed[0]
         self.assertEqual(params[3], "最近墒情怎么样")
         self.assertEqual(params[4], "当前样本整体墒情概况")
-        result_preview_json = json.loads(params[19])
-        self.assertEqual(result_preview_json, [{"water20cm": 41.2}])
+        self.assertEqual(params[11], "SQL-01")
+        self.assertEqual(params[12], "SELECT * FROM fact_soil_moisture LIMIT 1")
+        executed_result_json = json.loads(params[20])
+        self.assertEqual(executed_result_json, {"records": [{"water20cm": 41.2}]})
 
     def test_append_raises_and_does_not_keep_memory_log_when_mysql_write_fails(self) -> None:
         connection = FakeConnection(should_fail=True)

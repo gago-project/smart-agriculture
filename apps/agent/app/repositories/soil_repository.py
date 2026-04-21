@@ -131,6 +131,157 @@ class SoilRepository:
         except Exception as exc:
             raise DatabaseUnavailableError(f"MySQL 连接失败，已禁止使用种子数据兜底：{exc}") from exc
 
+    @staticmethod
+    def _soil_select_columns_sql() -> str:
+        return """
+        SELECT batch_id, device_sn, device_name, city_name, county_name, town_name,
+               DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s') AS sample_time,
+               DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
+               water20cm, water40cm, water60cm, water80cm, t20cm, t40cm, t60cm, t80cm,
+               soil_anomaly_type, soil_anomaly_score, source_file, source_sheet, source_row
+        FROM fact_soil_moisture
+        """.strip()
+
+    @staticmethod
+    def _normalize_sql_literal(value: Any) -> str:
+        if value is None:
+            return "NULL"
+        if isinstance(value, bool):
+            return "1" if value else "0"
+        if isinstance(value, (int, float)):
+            return str(value)
+        escaped = str(value).replace("'", "''")
+        return f"'{escaped}'"
+
+    @staticmethod
+    def _filter_specs(
+        *,
+        city_name: str | None = None,
+        county_name: str | None = None,
+        town_name: str | None = None,
+        device_sn: str | None = None,
+        batch_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> list[tuple[str, str, str, Any]]:
+        return [
+            ("city_name", "=", "city_name", city_name),
+            ("county_name", "=", "county_name", county_name),
+            ("town_name", "=", "town_name", town_name),
+            ("device_sn", "=", "device_sn", device_sn),
+            ("batch_id", "=", "batch_id", batch_id),
+            ("sample_time", ">=", "start_time", start_time),
+            ("sample_time", "<=", "end_time", end_time),
+        ]
+
+    def _build_filter_records_query_pyformat(
+        self,
+        *,
+        city_name: str | None = None,
+        county_name: str | None = None,
+        town_name: str | None = None,
+        device_sn: str | None = None,
+        batch_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        for column_name, operator, _param_name, value in self._filter_specs(
+            city_name=city_name,
+            county_name=county_name,
+            town_name=town_name,
+            device_sn=device_sn,
+            batch_id=batch_id,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            if value is None:
+                continue
+            clauses.append(f"{column_name} {operator} %s")
+            params.append(value)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_sql = f"LIMIT {int(limit)}" if limit else ""
+        sql = f"""
+        {self._soil_select_columns_sql()}
+        {where_sql}
+        ORDER BY sample_time DESC
+        {limit_sql}
+        """
+        return sql, tuple(params)
+
+    def _build_filter_records_query_named(
+        self,
+        *,
+        city_name: str | None = None,
+        county_name: str | None = None,
+        town_name: str | None = None,
+        device_sn: str | None = None,
+        batch_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        clauses: list[str] = []
+        params: dict[str, Any] = {}
+        for column_name, operator, param_name, value in self._filter_specs(
+            city_name=city_name,
+            county_name=county_name,
+            town_name=town_name,
+            device_sn=device_sn,
+            batch_id=batch_id,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            if value is None:
+                continue
+            clauses.append(f"{column_name} {operator} :{param_name}")
+            params[param_name] = value
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_sql = f"LIMIT {int(limit)}" if limit else ""
+        sql = f"""
+        {self._soil_select_columns_sql()}
+        {where_sql}
+        ORDER BY sample_time DESC
+        {limit_sql}
+        """
+        return sql, params
+
+    def build_filter_records_audit_sql(
+        self,
+        *,
+        city_name: str | None = None,
+        county_name: str | None = None,
+        town_name: str | None = None,
+        device_sn: str | None = None,
+        batch_id: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        limit: int | None = None,
+    ) -> str:
+        clauses: list[str] = []
+        for column_name, operator, _param_name, value in self._filter_specs(
+            city_name=city_name,
+            county_name=county_name,
+            town_name=town_name,
+            device_sn=device_sn,
+            batch_id=batch_id,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            if value is None:
+                continue
+            clauses.append(f"{column_name} {operator} {self._normalize_sql_literal(value)}")
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_sql = f"LIMIT {int(limit)}" if limit else ""
+        return (
+            f"{self._soil_select_columns_sql()}\n"
+            f"{where_sql}\n"
+            "ORDER BY sample_time DESC\n"
+            f"{limit_sql}"
+        ).strip()
+
     def latest_records(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return latest records synchronously for legacy callers."""
         return self.filter_records(limit=limit)
@@ -154,48 +305,20 @@ class SoilRepository:
         """Filter soil facts with optional region/device/batch/time predicates."""
         connection = self._connect()
         try:
-            clauses = []
-            params: list[Any] = []
-            if city_name:
-                clauses.append("city_name = %s")
-                params.append(city_name)
-            if county_name:
-                clauses.append("county_name = %s")
-                params.append(county_name)
-            if town_name:
-                clauses.append("town_name = %s")
-                params.append(town_name)
-            if device_sn:
-                clauses.append("device_sn = %s")
-                params.append(device_sn)
-            if batch_id:
-                clauses.append("batch_id = %s")
-                params.append(batch_id)
-            if start_time:
-                clauses.append("sample_time >= %s")
-                params.append(start_time)
-            if end_time:
-                clauses.append("sample_time <= %s")
-                params.append(end_time)
-            where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-            limit_sql = f"LIMIT {int(limit)}" if limit else ""
+            sql, params = self._build_filter_records_query_pyformat(
+                city_name=city_name,
+                county_name=county_name,
+                town_name=town_name,
+                device_sn=device_sn,
+                batch_id=batch_id,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
+            )
             with connection.cursor() as cursor:
                 # The SQL is built from a fixed column list and fixed optional
                 # predicates.  User values always enter through parameters.
-                cursor.execute(
-                    f"""
-                    SELECT batch_id, device_sn, device_name, city_name, county_name, town_name,
-                           DATE_FORMAT(sample_time, '%%Y-%%m-%%d %%H:%%i:%%s') AS sample_time,
-                           DATE_FORMAT(create_time, '%%Y-%%m-%%d %%H:%%i:%%s') AS create_time,
-                           water20cm, water40cm, water60cm, water80cm, t20cm, t40cm, t60cm, t80cm,
-                           soil_anomaly_type, soil_anomaly_score, source_file, source_sheet, source_row
-                    FROM fact_soil_moisture
-                    {where_sql}
-                    ORDER BY sample_time DESC
-                    {limit_sql}
-                    """,
-                    tuple(params),
-                )
+                cursor.execute(sql, params)
                 rows = cursor.fetchall()
                 enriched = [{**row, **_evaluate_record_status(row)} for row in rows]
                 return enriched
@@ -264,44 +387,17 @@ class SoilRepository:
                 from sqlalchemy import text
             except Exception:
                 return None
-            clauses = []
-            params: dict[str, Any] = {}
-            if city_name:
-                clauses.append("city_name = :city_name")
-                params["city_name"] = city_name
-            if county_name:
-                clauses.append("county_name = :county_name")
-                params["county_name"] = county_name
-            if town_name:
-                clauses.append("town_name = :town_name")
-                params["town_name"] = town_name
-            if device_sn:
-                clauses.append("device_sn = :device_sn")
-                params["device_sn"] = device_sn
-            if batch_id:
-                clauses.append("batch_id = :batch_id")
-                params["batch_id"] = batch_id
-            if start_time:
-                clauses.append("sample_time >= :start_time")
-                params["start_time"] = start_time
-            if end_time:
-                clauses.append("sample_time <= :end_time")
-                params["end_time"] = end_time
-            where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-            limit_sql = f"LIMIT {int(limit)}" if limit else ""
-            sql = text(
-                f"""
-                SELECT batch_id, device_sn, device_name, city_name, county_name, town_name,
-                       DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s') AS sample_time,
-                       DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
-                       water20cm, water40cm, water60cm, water80cm, t20cm, t40cm, t60cm, t80cm,
-                       soil_anomaly_type, soil_anomaly_score, source_file, source_sheet, source_row
-                FROM fact_soil_moisture
-                {where_sql}
-                ORDER BY sample_time DESC
-                {limit_sql}
-                """
+            sql_text, params = self._build_filter_records_query_named(
+                city_name=city_name,
+                county_name=county_name,
+                town_name=town_name,
+                device_sn=device_sn,
+                batch_id=batch_id,
+                start_time=start_time,
+                end_time=end_time,
+                limit=limit,
             )
+            sql = text(sql_text)
             async with engine.connect() as connection:
                 result = await connection.execute(sql, params)
                 rows = [dict(row._mapping) for row in result]

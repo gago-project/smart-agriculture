@@ -40,7 +40,8 @@ test('developer workspace can view agent query logs without soil admin access', 
   assert.match(appSource, /canViewAgentLogs/);
   assert.match(appSource, /authUser\?\.role === 'developer'/);
   assert.match(appSource, /AgentLogPage/);
-  assert.match(appSource, /开发日志/);
+  assert.match(appSource, /查询日志/);
+  assert.doesNotMatch(appSource, /开发日志/);
 });
 
 test('workspace no longer renders the right-side evidence analysis panel', () => {

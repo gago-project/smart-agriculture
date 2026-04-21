@@ -43,6 +43,9 @@ test('warning_template and agent_query_log columns follow plans', () => {
   assert.match(sql, /intent\s+VARCHAR\(64\)\s+NULL/i);
   assert.match(sql, /answer_type\s+VARCHAR\(64\)\s+NULL/i);
   assert.match(sql, /final_status\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(sql, /executed_sql_text\s+TEXT\s+NULL/i);
+  assert.match(sql, /executed_result_json\s+JSON\s+NULL/i);
+  assert.doesNotMatch(sql, /result_preview_json\s+JSON\s+NULL/i);
 });
 
 test('auth tables use database-backed user and session design', () => {

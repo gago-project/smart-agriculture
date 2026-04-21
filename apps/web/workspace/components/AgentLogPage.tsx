@@ -67,6 +67,13 @@ function preview(value: string | null | undefined, maxLength = 80) {
   return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
 }
 
+function previewJson(value: unknown, maxLength = 80) {
+  if (value === null || value === undefined) return '-';
+  const normalized = JSON.stringify(value);
+  if (!normalized) return '-';
+  return normalized.length > maxLength ? `${normalized.slice(0, maxLength)}...` : normalized;
+}
+
 export function AgentLogPage() {
   const [filters, setFilters] = useState<Filters>(initialFilters);
   const [page, setPage] = useState(1);
@@ -97,11 +104,11 @@ export function AgentLogPage() {
   }
 
   return (
-    <section className="soil-admin-page" aria-label="开发查询日志">
+    <section className="soil-admin-page" aria-label="查询日志">
       <header className="soil-admin-header">
         <div>
-          <h2>开发查询日志</h2>
-          <p>只读查看用户问题、最终回答、意图、查询计划、数据行数和执行状态，方便排查和优化 Agent。</p>
+          <h2>查询日志</h2>
+          <p>只读查看用户问题、最终回答、意图、查询计划、执行 SQL、执行结果、数据行数和执行状态，方便排查和优化 Agent。</p>
         </div>
         <button onClick={() => void loadLogs(page)} disabled={isLoading}>刷新</button>
       </header>
@@ -171,6 +178,8 @@ export function AgentLogPage() {
               <th>意图 / 类型</th>
               <th>状态</th>
               <th>行数</th>
+              <th>SQL</th>
+              <th>执行结果</th>
               <th>Session</th>
             </tr>
           </thead>
@@ -183,12 +192,28 @@ export function AgentLogPage() {
                 <td>{log.intent || '-'} / {log.answer_type || log.query_type || '-'}</td>
                 <td>{log.status}</td>
                 <td>{log.row_count}</td>
+                <td>
+                  {log.executed_sql_text ? (
+                    <details>
+                      <summary>{preview(log.executed_sql_text, 56)}</summary>
+                      <pre>{log.executed_sql_text}</pre>
+                    </details>
+                  ) : '-'}
+                </td>
+                <td>
+                  {log.executed_result_json ? (
+                    <details>
+                      <summary>{previewJson(log.executed_result_json, 56)}</summary>
+                      <pre>{JSON.stringify(log.executed_result_json, null, 2)}</pre>
+                    </details>
+                  ) : '-'}
+                </td>
                 <td>{log.session_id}#{log.turn_id}</td>
               </tr>
             ))}
             {data.rows.length === 0 ? (
               <tr>
-                <td colSpan={7}>暂无查询日志</td>
+                <td colSpan={9}>暂无查询日志</td>
               </tr>
             ) : null}
           </tbody>

@@ -92,7 +92,7 @@ export default function App() {
             ) : null}
             {canViewAgentLogs ? (
               <button className="workspace-nav-button" onClick={() => setWorkspaceView(workspaceView === 'agent-logs' ? 'chat' : 'agent-logs')}>
-                {workspaceView === 'agent-logs' ? '返回问答' : '开发日志'}
+                {workspaceView === 'agent-logs' ? '返回问答' : '查询日志'}
               </button>
             ) : null}
             <span className="workspace-user">{authUser.username}</span>

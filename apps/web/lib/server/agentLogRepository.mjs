@@ -34,6 +34,7 @@ function fromDbLog(row) {
     final_status: row.final_status,
     query_type: row.query_type,
     sql_fingerprint: row.sql_fingerprint,
+    executed_sql_text: row.executed_sql_text,
     row_count: row.row_count,
     status: row.status,
     error_message: row.error_message,
@@ -41,7 +42,7 @@ function fromDbLog(row) {
     query_plan_json: parseJsonValue(row.query_plan_json),
     time_range_json: parseJsonValue(row.time_range_json),
     filters_json: parseJsonValue(row.filters_json),
-    result_preview_json: parseJsonValue(row.result_preview_json),
+    executed_result_json: parseJsonValue(row.executed_result_json),
     source_files_json: parseJsonValue(row.source_files_json),
   };
 }
@@ -58,8 +59,8 @@ export async function listAgentQueryLogs(query) {
 
     const keyword = String(query.keyword || '').trim();
     if (keyword) {
-      filters.push('(request_text LIKE ? OR response_text LIKE ? OR query_id LIKE ? OR session_id LIKE ?)');
-      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
+      filters.push('(request_text LIKE ? OR response_text LIKE ? OR query_id LIKE ? OR session_id LIKE ? OR executed_sql_text LIKE ?)');
+      params.push(`%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`, `%${keyword}%`);
     }
 
     appendFilter(filters, params, 'created_at >= ?', query.created_at_from);
@@ -88,6 +89,7 @@ export async function listAgentQueryLogs(query) {
          final_status,
          query_type,
          sql_fingerprint,
+         executed_sql_text,
          row_count,
          status,
          error_message,
@@ -95,7 +97,7 @@ export async function listAgentQueryLogs(query) {
          query_plan_json,
          time_range_json,
          filters_json,
-         result_preview_json,
+         executed_result_json,
          source_files_json
        FROM agent_query_log
        ${whereClause}

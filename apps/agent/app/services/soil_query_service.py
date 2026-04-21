@@ -125,6 +125,16 @@ class SoilQueryService:
         time_range = dict(query_plan.get("time_range") or {})
         if query_type == "fallback":
             return await self._execute_fallback(query_plan)
+        executed_sql_text = self.repository.build_filter_records_audit_sql(
+            city_name=filters.get("city_name"),
+            county_name=filters.get("county_name"),
+            town_name=filters.get("town_name"),
+            device_sn=filters.get("device_sn"),
+            batch_id=filters.get("batch_id"),
+            start_time=time_range.get("start_time"),
+            end_time=time_range.get("end_time"),
+            limit=query_plan.get("limit_size"),
+        )
         records = await self.repository.filter_records_async(
             city_name=filters.get("city_name"),
             county_name=filters.get("county_name"),
@@ -136,15 +146,20 @@ class SoilQueryService:
             limit=query_plan.get("limit_size"),
         )
         if query_type == "recent_summary":
-            return {"records": records}
+            return {"records": records, "executed_sql_text": executed_sql_text}
         if query_type == "severity_ranking":
             # Ranking still uses the returned records; ordering semantics are
             # carried in the plan/result metadata for downstream explanation.
             aggregation = query_plan.get("slots", {}).get("aggregation", "county")
-            return {"records": records, "aggregation": aggregation, "top_n": int(query_plan.get("slots", {}).get("top_n") or 5)}
+            return {
+                "records": records,
+                "aggregation": aggregation,
+                "top_n": int(query_plan.get("slots", {}).get("top_n") or 5),
+                "executed_sql_text": executed_sql_text,
+            }
         if query_type in {"region_detail", "device_detail", "latest_record", "anomaly_list"}:
-            return {"records": records[:20]}
-        return {"records": records}
+            return {"records": records[:20], "executed_sql_text": executed_sql_text}
+        return {"records": records, "executed_sql_text": executed_sql_text}
 
     def build_query_log_entry(self, *, state, query_plan: dict[str, Any], query_result: dict[str, Any]) -> dict[str, Any]:
         """Translate one executed query into the `agent_query_log` row shape."""
@@ -156,7 +171,7 @@ class SoilQueryService:
             row_count = int(query_result.get("device_record_count") or 0)
         elif "region_record_count" in query_result:
             row_count = int(query_result.get("region_record_count") or 0)
-        preview = records[:2] if records else {key: value for key, value in query_result.items() if key != "records"}
+        executed_result = {key: value for key, value in query_result.items() if key != "executed_sql_text"}
         source_files = sorted({item.get("source_file") for item in records if item.get("source_file")})
         audit = query_plan.get("audit") or {}
         return {
@@ -166,6 +181,7 @@ class SoilQueryService:
             "query_type": query_plan.get("query_type"),
             "query_plan_json": query_plan,
             "sql_fingerprint": query_plan.get("sql_template"),
+            "executed_sql_text": query_result.get("executed_sql_text"),
             "time_range_json": query_plan.get("time_range") or {},
             "filters_json": query_plan.get("filters") or {},
             "group_by_json": query_plan.get("group_by"),
@@ -173,7 +189,7 @@ class SoilQueryService:
             "order_by_json": query_plan.get("order_by"),
             "limit_size": query_plan.get("limit_size"),
             "row_count": row_count,
-            "result_preview_json": preview,
+            "executed_result_json": executed_result,
             "source_files_json": source_files,
             "status": "empty" if row_count == 0 else "success",
         }
@@ -183,6 +199,16 @@ class SoilQueryService:
         scenario = query_plan.get("fallback_scenario")
         filters = dict(query_plan.get("filters") or {})
         time_range = dict(query_plan.get("time_range") or {})
+        executed_sql_text = self.repository.build_filter_records_audit_sql(
+            city_name=filters.get("city_name"),
+            county_name=filters.get("county_name"),
+            town_name=filters.get("town_name"),
+            device_sn=filters.get("device_sn"),
+            batch_id=filters.get("batch_id"),
+            start_time=time_range.get("start_time"),
+            end_time=time_range.get("end_time"),
+            limit=1 if scenario == "latest_business_time" else None,
+        )
         if scenario == "region_exists":
             return {
                 "region_record_count": await self.repository.region_record_count_async(
@@ -192,6 +218,7 @@ class SoilQueryService:
                     batch_id=filters.get("batch_id"),
                 ),
                 "latest_sample_time": await self.repository.latest_business_time_async(),
+                "executed_sql_text": executed_sql_text,
             }
         if scenario == "device_exists":
             return {
@@ -200,9 +227,10 @@ class SoilQueryService:
                     batch_id=filters.get("batch_id"),
                 ),
                 "latest_sample_time": await self.repository.latest_business_time_async(),
+                "executed_sql_text": executed_sql_text,
             }
         if scenario in {"period_exists", "latest_business_time"}:
-            return await self.repository.period_record_summary_async(
+            result = await self.repository.period_record_summary_async(
                 city_name=filters.get("city_name"),
                 county_name=filters.get("county_name"),
                 town_name=filters.get("town_name"),
@@ -211,7 +239,11 @@ class SoilQueryService:
                 start_time=time_range.get("start_time"),
                 end_time=time_range.get("end_time"),
             )
-        return {"latest_sample_time": await self.repository.latest_business_time_async()}
+            return {**result, "executed_sql_text": executed_sql_text}
+        return {
+            "latest_sample_time": await self.repository.latest_business_time_async(),
+            "executed_sql_text": executed_sql_text,
+        }
 
 
 __all__ = ["SoilQueryService"]

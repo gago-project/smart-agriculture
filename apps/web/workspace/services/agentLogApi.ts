@@ -12,6 +12,7 @@ export interface AgentQueryLog {
   final_status?: string | null;
   query_type?: string | null;
   sql_fingerprint?: string | null;
+  executed_sql_text?: string | null;
   row_count: number;
   status: string;
   error_message?: string | null;
@@ -19,7 +20,7 @@ export interface AgentQueryLog {
   query_plan_json?: unknown;
   time_range_json?: unknown;
   filters_json?: unknown;
-  result_preview_json?: unknown;
+  executed_result_json?: unknown;
   source_files_json?: unknown;
 }
 

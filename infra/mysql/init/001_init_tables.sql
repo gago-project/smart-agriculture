@@ -125,6 +125,7 @@ CREATE TABLE IF NOT EXISTS agent_query_log (
   query_type VARCHAR(64) NOT NULL,
   query_plan_json JSON NOT NULL,
   sql_fingerprint VARCHAR(255) NULL,
+  executed_sql_text TEXT NULL,
   time_range_json JSON NOT NULL,
   filters_json JSON NOT NULL,
   group_by_json JSON NULL,
@@ -132,7 +133,7 @@ CREATE TABLE IF NOT EXISTS agent_query_log (
   order_by_json JSON NULL,
   limit_size INT NULL,
   row_count INT NOT NULL,
-  result_preview_json JSON NULL,
+  executed_result_json JSON NULL,
   source_files_json JSON NULL,
   status VARCHAR(32) NOT NULL,
   error_message TEXT NULL,
@@ -193,6 +194,8 @@ CALL ensure_column('agent_query_log', 'input_type', 'ALTER TABLE agent_query_log
 CALL ensure_column('agent_query_log', 'intent', 'ALTER TABLE agent_query_log ADD COLUMN intent VARCHAR(64) NULL AFTER input_type');
 CALL ensure_column('agent_query_log', 'answer_type', 'ALTER TABLE agent_query_log ADD COLUMN answer_type VARCHAR(64) NULL AFTER intent');
 CALL ensure_column('agent_query_log', 'final_status', 'ALTER TABLE agent_query_log ADD COLUMN final_status VARCHAR(64) NULL AFTER answer_type');
+CALL ensure_column('agent_query_log', 'executed_sql_text', 'ALTER TABLE agent_query_log ADD COLUMN executed_sql_text TEXT NULL AFTER sql_fingerprint');
+CALL ensure_column('agent_query_log', 'executed_result_json', 'ALTER TABLE agent_query_log ADD COLUMN executed_result_json JSON NULL AFTER row_count');
 
 CALL ensure_index('fact_soil_moisture', 'idx_soil_sample_time', 'CREATE INDEX idx_soil_sample_time ON fact_soil_moisture (sample_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_batch_id', 'CREATE INDEX idx_soil_batch_id ON fact_soil_moisture (batch_id)');

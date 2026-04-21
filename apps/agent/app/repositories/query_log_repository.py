@@ -57,6 +57,7 @@ class QueryLogRepository:
             "query_type": payload.get("query_type"),
             "query_plan_json": dict(payload.get("query_plan_json") or {}),
             "sql_fingerprint": payload.get("sql_fingerprint"),
+            "executed_sql_text": payload.get("executed_sql_text"),
             "time_range_json": dict(payload.get("time_range_json") or {}),
             "filters_json": dict(payload.get("filters_json") or {}),
             "group_by_json": payload.get("group_by_json"),
@@ -64,7 +65,7 @@ class QueryLogRepository:
             "order_by_json": payload.get("order_by_json"),
             "limit_size": payload.get("limit_size"),
             "row_count": int(payload.get("row_count") or 0),
-            "result_preview_json": payload.get("result_preview_json"),
+            "executed_result_json": payload.get("executed_result_json"),
             "source_files_json": payload.get("source_files_json"),
             "status": payload.get("status") or "success",
             "error_message": payload.get("error_message"),
@@ -98,14 +99,14 @@ class QueryLogRepository:
                       query_id, session_id, turn_id, request_text, response_text,
                       input_type, intent, answer_type, final_status,
                       query_type, query_plan_json,
-                      sql_fingerprint, time_range_json, filters_json, group_by_json,
+                      sql_fingerprint, executed_sql_text, time_range_json, filters_json, group_by_json,
                       metrics_json, order_by_json, limit_size, row_count,
-                      result_preview_json, source_files_json, status, error_message, created_at
+                      executed_result_json, source_files_json, status, error_message, created_at
                     ) VALUES (
                       %s, %s, %s, %s, %s,
                       %s, %s, %s, %s,
                       %s, %s,
-                      %s, %s, %s, %s,
+                      %s, %s, %s, %s, %s,
                       %s, %s, %s, %s,
                       %s, %s, %s, %s, %s
                     )
@@ -119,6 +120,7 @@ class QueryLogRepository:
                       query_type = VALUES(query_type),
                       query_plan_json = VALUES(query_plan_json),
                       sql_fingerprint = VALUES(sql_fingerprint),
+                      executed_sql_text = VALUES(executed_sql_text),
                       time_range_json = VALUES(time_range_json),
                       filters_json = VALUES(filters_json),
                       group_by_json = VALUES(group_by_json),
@@ -126,7 +128,7 @@ class QueryLogRepository:
                       order_by_json = VALUES(order_by_json),
                       limit_size = VALUES(limit_size),
                       row_count = VALUES(row_count),
-                      result_preview_json = VALUES(result_preview_json),
+                      executed_result_json = VALUES(executed_result_json),
                       source_files_json = VALUES(source_files_json),
                       status = VALUES(status),
                       error_message = VALUES(error_message),
@@ -145,6 +147,7 @@ class QueryLogRepository:
                         payload["query_type"],
                         self._json_dumps(payload["query_plan_json"]),
                         payload["sql_fingerprint"],
+                        payload["executed_sql_text"],
                         self._json_dumps(payload["time_range_json"]),
                         self._json_dumps(payload["filters_json"]),
                         self._json_dumps(payload["group_by_json"]) if payload.get("group_by_json") is not None else None,
@@ -152,7 +155,7 @@ class QueryLogRepository:
                         self._json_dumps(payload["order_by_json"]) if payload.get("order_by_json") is not None else None,
                         payload["limit_size"],
                         payload["row_count"],
-                        self._json_dumps(payload["result_preview_json"]) if payload.get("result_preview_json") is not None else None,
+                        self._json_dumps(payload["executed_result_json"]) if payload.get("executed_result_json") is not None else None,
                         self._json_dumps(payload["source_files_json"]) if payload.get("source_files_json") is not None else None,
                         payload["status"],
                         payload["error_message"],
@@ -185,16 +188,16 @@ class QueryLogRepository:
                               query_id, session_id, turn_id, request_text, response_text,
                               input_type, intent, answer_type, final_status,
                               query_type, query_plan_json,
-                              sql_fingerprint, time_range_json, filters_json, group_by_json,
+                              sql_fingerprint, executed_sql_text, time_range_json, filters_json, group_by_json,
                               metrics_json, order_by_json, limit_size, row_count,
-                              result_preview_json, source_files_json, status, error_message, created_at
+                              executed_result_json, source_files_json, status, error_message, created_at
                             ) VALUES (
                               :query_id, :session_id, :turn_id, :request_text, :response_text,
                               :input_type, :intent, :answer_type, :final_status,
                               :query_type, :query_plan_json,
-                              :sql_fingerprint, :time_range_json, :filters_json, :group_by_json,
+                              :sql_fingerprint, :executed_sql_text, :time_range_json, :filters_json, :group_by_json,
                               :metrics_json, :order_by_json, :limit_size, :row_count,
-                              :result_preview_json, :source_files_json, :status, :error_message, :created_at
+                              :executed_result_json, :source_files_json, :status, :error_message, :created_at
                             )
                             """
                         ),
@@ -211,6 +214,7 @@ class QueryLogRepository:
                             "query_type": payload["query_type"],
                             "query_plan_json": self._json_dumps(payload["query_plan_json"]),
                             "sql_fingerprint": payload["sql_fingerprint"],
+                            "executed_sql_text": payload["executed_sql_text"],
                             "time_range_json": self._json_dumps(payload["time_range_json"]),
                             "filters_json": self._json_dumps(payload["filters_json"]),
                             "group_by_json": self._json_dumps(payload["group_by_json"]) if payload.get("group_by_json") is not None else None,
@@ -218,7 +222,7 @@ class QueryLogRepository:
                             "order_by_json": self._json_dumps(payload["order_by_json"]) if payload.get("order_by_json") is not None else None,
                             "limit_size": payload["limit_size"],
                             "row_count": payload["row_count"],
-                            "result_preview_json": self._json_dumps(payload["result_preview_json"]) if payload.get("result_preview_json") is not None else None,
+                            "executed_result_json": self._json_dumps(payload["executed_result_json"]) if payload.get("executed_result_json") is not None else None,
                             "source_files_json": self._json_dumps(payload["source_files_json"]) if payload.get("source_files_json") is not None else None,
                             "status": payload["status"],
                             "error_message": payload["error_message"],
