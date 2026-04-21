@@ -3,9 +3,7 @@ import type { Message, Session } from '../types/chat';
 interface ChatPanelProps {
   session: Session | null;
   error: string | null;
-  selectedEvidenceMessageId: string | null;
   onRetry: (message: Message) => Promise<void>;
-  onSelectEvidenceMessage: (messageId: string) => void;
 }
 
 function findPreviousUserMessage(messages: Message[], index: number): Message | null {
@@ -17,7 +15,7 @@ function findPreviousUserMessage(messages: Message[], index: number): Message | 
   return null;
 }
 
-export function ChatPanel({ session, error, selectedEvidenceMessageId, onRetry, onSelectEvidenceMessage }: ChatPanelProps) {
+export function ChatPanel({ session, error, onRetry }: ChatPanelProps) {
   if (!session) {
     return (
       <section className="chat-panel empty">
@@ -51,30 +49,12 @@ export function ChatPanel({ session, error, selectedEvidenceMessageId, onRetry, 
       <div className="messages" aria-label="消息列表">
         {session.messages.map((message, index) => {
           const retryMessage = message.status === 'error' ? findPreviousUserMessage(session.messages, index) : null;
-          const selectable = message.role === 'assistant' && Boolean(message.meta);
-          const selected = selectable && message.id === selectedEvidenceMessageId;
           const aiInvolvement = message.role === 'assistant' ? message.meta?.processing?.ai_involvement : null;
 
           return (
             <article key={message.id} className={`message-row ${message.role}`}>
               <div className={`message-avatar ${message.role}`}>{message.role === 'user' ? '你' : 'AI'}</div>
-              <div
-                className={`message ${message.role}${selectable ? ' selectable' : ''}${selected ? ' selected' : ''}`}
-                role={selectable ? 'button' : undefined}
-                tabIndex={selectable ? 0 : undefined}
-                aria-pressed={selectable ? selected : undefined}
-                onClick={selectable ? () => onSelectEvidenceMessage(message.id) : undefined}
-                onKeyDown={
-                  selectable
-                    ? (event) => {
-                        if (event.key === 'Enter' || event.key === ' ') {
-                          event.preventDefault();
-                          onSelectEvidenceMessage(message.id);
-                        }
-                      }
-                    : undefined
-                }
-              >
+              <div className={`message ${message.role}`}>
                 {aiInvolvement ? (
                   <header className="message-header message-header-badge-only">
                     <span className={`ai-badge ai-${aiInvolvement}`}>AI参与度 {aiInvolvement}</span>

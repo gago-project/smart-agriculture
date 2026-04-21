@@ -1,11 +1,11 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ChatPanel } from './components/ChatPanel';
 import { Composer } from './components/Composer';
-import { EvidencePanel } from './components/EvidencePanel';
 import { LoginPage } from './components/LoginPage';
 import { SessionSidebar } from './components/SessionSidebar';
+import { AgentLogPage } from './components/AgentLogPage';
 import { SoilAdminPage } from './components/SoilAdminPage';
 import { useChatActions } from './hooks/useChatActions';
 import { useAuthStore } from './store/authStore';
@@ -18,27 +18,12 @@ export default function App() {
   const login = useAuthStore((state) => state.login);
   const logout = useAuthStore((state) => state.logout);
   const { sessions, activeSessionId, createSession, switchSession, renameSession, deleteSession } = useChatStore();
-  const { activeSession, error, isSending, latestEvidenceMessage, retryForMessage, sendQuestion } = useChatActions();
-  const [selectedEvidenceMessageId, setSelectedEvidenceMessageId] = useState<string | null>(null);
+  const { activeSession, error, isSending, retryForMessage, sendQuestion } = useChatActions();
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
-  const [workspaceView, setWorkspaceView] = useState<'chat' | 'soil-admin'>('chat');
-  const previousSessionIdRef = useRef<string | null>(null);
-  const previousLatestEvidenceIdRef = useRef<string | null>(null);
+  const [workspaceView, setWorkspaceView] = useState<'chat' | 'soil-admin' | 'agent-logs'>('chat');
   const canManageSoilAdmin = authUser?.role === 'admin';
-
-  const evidenceMessages = useMemo(
-    () => activeSession?.messages.filter((message) => message.role === 'assistant' && Boolean(message.meta)) ?? [],
-    [activeSession]
-  );
-
-  const selectedEvidenceMessage = useMemo(() => {
-    if (selectedEvidenceMessageId) {
-      const selected = evidenceMessages.find((message) => message.id === selectedEvidenceMessageId);
-      if (selected) return selected;
-    }
-    return latestEvidenceMessage;
-  }, [evidenceMessages, latestEvidenceMessage, selectedEvidenceMessageId]);
+  const canViewAgentLogs = authUser?.role === 'admin' || authUser?.role === 'developer';
 
   useEffect(() => {
     void initAuth();
@@ -51,24 +36,10 @@ export default function App() {
   }, [canManageSoilAdmin, workspaceView]);
 
   useEffect(() => {
-    const sessionChanged = previousSessionIdRef.current !== activeSessionId;
-    const previousLatestId = previousLatestEvidenceIdRef.current;
-
-    previousSessionIdRef.current = activeSessionId;
-    previousLatestEvidenceIdRef.current = latestEvidenceMessage?.id ?? null;
-
-    setSelectedEvidenceMessageId((current) => {
-      if (!latestEvidenceMessage) return null;
-      const stillExists = current ? evidenceMessages.some((message) => message.id === current) : false;
-      const shouldFollowLatest =
-        sessionChanged ||
-        current === null ||
-        !stillExists ||
-        current === previousLatestId;
-
-      return shouldFollowLatest ? latestEvidenceMessage.id : current;
-    });
-  }, [activeSessionId, evidenceMessages, latestEvidenceMessage]);
+    if (!canViewAgentLogs && workspaceView === 'agent-logs') {
+      setWorkspaceView('chat');
+    }
+  }, [canViewAgentLogs, workspaceView]);
 
   if (authStatus === 'idle' || authStatus === 'checking') {
     return (
@@ -119,6 +90,11 @@ export default function App() {
                 {workspaceView === 'soil-admin' ? '返回问答' : '墒情管理'}
               </button>
             ) : null}
+            {canViewAgentLogs ? (
+              <button className="workspace-nav-button" onClick={() => setWorkspaceView(workspaceView === 'agent-logs' ? 'chat' : 'agent-logs')}>
+                {workspaceView === 'agent-logs' ? '返回问答' : '开发日志'}
+              </button>
+            ) : null}
             <span className="workspace-user">{authUser.username}</span>
             <button className="workspace-logout" onClick={() => void logout()}>
               退出登录
@@ -127,20 +103,19 @@ export default function App() {
         </header>
         {workspaceView === 'soil-admin' ? (
           <SoilAdminPage />
+        ) : workspaceView === 'agent-logs' ? (
+          <AgentLogPage />
         ) : (
           <>
             <ChatPanel
               session={activeSession}
               error={error}
-              selectedEvidenceMessageId={selectedEvidenceMessageId}
               onRetry={async (message) => retryForMessage(activeSessionId!, message)}
-              onSelectEvidenceMessage={setSelectedEvidenceMessageId}
             />
             <Composer isSending={isSending} onSend={sendQuestion} />
           </>
         )}
       </main>
-      <EvidencePanel message={workspaceView === 'soil-admin' ? null : selectedEvidenceMessage} />
     </div>
   );
 }

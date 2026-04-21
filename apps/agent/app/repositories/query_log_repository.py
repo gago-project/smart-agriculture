@@ -14,7 +14,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
-from app.repositories.soil_repository import SoilRepository
+from app.repositories.soil_repository import DatabaseQueryError, SoilRepository
 
 
 class QueryLogRepository:
@@ -28,8 +28,8 @@ class QueryLogRepository:
     def append(self, payload: dict[str, Any]) -> None:
         """Synchronous insert helper used by legacy tests."""
         normalized = self._normalize(payload)
-        self.logs.append(dict(normalized))
         self._write_to_mysql(normalized)
+        self.logs.append(dict(normalized))
 
     async def insert_query_log(self, payload: dict[str, Any]) -> None:
         """Insert one query-log payload asynchronously."""
@@ -39,8 +39,8 @@ class QueryLogRepository:
         """Normalize and persist multiple query-log entries."""
         for entry in entries:
             normalized = self._normalize(entry)
-            self.logs.append(dict(normalized))
             await self._write_to_storage_async(normalized)
+            self.logs.append(dict(normalized))
 
     def _normalize(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Fill defaults and coerce types before writing to storage."""
@@ -48,6 +48,12 @@ class QueryLogRepository:
             "query_id": payload.get("query_id"),
             "session_id": payload.get("session_id"),
             "turn_id": int(payload.get("turn_id") or 0),
+            "request_text": payload.get("request_text"),
+            "response_text": payload.get("response_text"),
+            "input_type": payload.get("input_type"),
+            "intent": payload.get("intent"),
+            "answer_type": payload.get("answer_type"),
+            "final_status": payload.get("final_status"),
             "query_type": payload.get("query_type"),
             "query_plan_json": dict(payload.get("query_plan_json") or {}),
             "sql_fingerprint": payload.get("sql_fingerprint"),
@@ -89,17 +95,27 @@ class QueryLogRepository:
                 cursor.execute(
                     """
                     INSERT INTO agent_query_log (
-                      query_id, session_id, turn_id, query_type, query_plan_json,
+                      query_id, session_id, turn_id, request_text, response_text,
+                      input_type, intent, answer_type, final_status,
+                      query_type, query_plan_json,
                       sql_fingerprint, time_range_json, filters_json, group_by_json,
                       metrics_json, order_by_json, limit_size, row_count,
                       result_preview_json, source_files_json, status, error_message, created_at
                     ) VALUES (
                       %s, %s, %s, %s, %s,
                       %s, %s, %s, %s,
+                      %s, %s,
+                      %s, %s, %s, %s,
                       %s, %s, %s, %s,
                       %s, %s, %s, %s, %s
                     )
                     ON DUPLICATE KEY UPDATE
+                      request_text = VALUES(request_text),
+                      response_text = VALUES(response_text),
+                      input_type = VALUES(input_type),
+                      intent = VALUES(intent),
+                      answer_type = VALUES(answer_type),
+                      final_status = VALUES(final_status),
                       query_type = VALUES(query_type),
                       query_plan_json = VALUES(query_plan_json),
                       sql_fingerprint = VALUES(sql_fingerprint),
@@ -120,6 +136,12 @@ class QueryLogRepository:
                         payload["query_id"],
                         payload["session_id"],
                         payload["turn_id"],
+                        payload["request_text"],
+                        payload["response_text"],
+                        payload["input_type"],
+                        payload["intent"],
+                        payload["answer_type"],
+                        payload["final_status"],
                         payload["query_type"],
                         self._json_dumps(payload["query_plan_json"]),
                         payload["sql_fingerprint"],
@@ -138,8 +160,9 @@ class QueryLogRepository:
                     ),
                 )
             connection.commit()
-        except Exception:
+        except Exception as exc:
             connection.rollback()
+            raise DatabaseQueryError(f"agent_query_log 写入失败，已禁止内存日志兜底：{exc}") from exc
         finally:
             connection.close()
 
@@ -159,12 +182,16 @@ class QueryLogRepository:
                         text(
                             """
                             INSERT INTO agent_query_log (
-                              query_id, session_id, turn_id, query_type, query_plan_json,
+                              query_id, session_id, turn_id, request_text, response_text,
+                              input_type, intent, answer_type, final_status,
+                              query_type, query_plan_json,
                               sql_fingerprint, time_range_json, filters_json, group_by_json,
                               metrics_json, order_by_json, limit_size, row_count,
                               result_preview_json, source_files_json, status, error_message, created_at
                             ) VALUES (
-                              :query_id, :session_id, :turn_id, :query_type, :query_plan_json,
+                              :query_id, :session_id, :turn_id, :request_text, :response_text,
+                              :input_type, :intent, :answer_type, :final_status,
+                              :query_type, :query_plan_json,
                               :sql_fingerprint, :time_range_json, :filters_json, :group_by_json,
                               :metrics_json, :order_by_json, :limit_size, :row_count,
                               :result_preview_json, :source_files_json, :status, :error_message, :created_at
@@ -175,6 +202,12 @@ class QueryLogRepository:
                             "query_id": payload["query_id"],
                             "session_id": payload["session_id"],
                             "turn_id": payload["turn_id"],
+                            "request_text": payload["request_text"],
+                            "response_text": payload["response_text"],
+                            "input_type": payload["input_type"],
+                            "intent": payload["intent"],
+                            "answer_type": payload["answer_type"],
+                            "final_status": payload["final_status"],
                             "query_type": payload["query_type"],
                             "query_plan_json": self._json_dumps(payload["query_plan_json"]),
                             "sql_fingerprint": payload["sql_fingerprint"],

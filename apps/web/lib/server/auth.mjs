@@ -48,3 +48,15 @@ export async function requireAdminRequestUser(request) {
   }
   return session;
 }
+
+export async function requireRoleRequestUser(request, allowedRoles) {
+  const session = await requireRequestUser(request);
+  if (!session) {
+    throw new AuthRequestError('authentication required', 401);
+  }
+  const roles = new Set(allowedRoles);
+  if (!roles.has(session.user.role)) {
+    throw new AuthRequestError('permission denied', 403);
+  }
+  return session;
+}

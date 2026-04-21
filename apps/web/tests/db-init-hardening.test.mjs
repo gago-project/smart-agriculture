@@ -13,7 +13,7 @@ function read(relativePath) {
 test('docker mysql init contains only schema and business insert sql files', () => {
   const sqlFiles = readdirSync(initDir).filter((name) => name.endsWith('.sql')).sort();
 
-  assert.deepEqual(sqlFiles, ['001_init_tables.sql', '002_insert_data.sql']);
+  assert.deepEqual(sqlFiles, ['001_init_tables.sql', '002_insert_data.sql', '003_insert_soil_data.sql']);
 });
 
 test('executable mysql init sql never contains real authentication seed hashes', () => {
@@ -27,15 +27,35 @@ test('executable mysql init sql never contains real authentication seed hashes',
   assert.doesNotMatch(combined, /gago-admin.+13553bbfe83a68421de15373a6ca4555/is);
 });
 
-test('business insert sql seeds rules templates and soil facts idempotently', () => {
+test('business insert sql seeds rules and templates idempotently', () => {
   const insertSql = read('infra/mysql/init/002_insert_data.sql');
 
-  assert.match(insertSql, /INSERT INTO etl_import_batch/i);
+  assert.match(insertSql, /SET NAMES utf8mb4/i);
+  assert.match(insertSql, /SET character_set_client = utf8mb4/i);
   assert.match(insertSql, /INSERT INTO metric_rule/i);
   assert.match(insertSql, /INSERT INTO warning_template/i);
-  assert.match(insertSql, /INSERT INTO fact_soil_moisture/i);
   assert.match(insertSql, /ON DUPLICATE KEY UPDATE/i);
-  assert.match(insertSql, /土壤墒情仪数据\(2\)\.xlsx/);
+  assert.doesNotMatch(insertSql, /INSERT INTO etl_import_batch/i);
+  assert.doesNotMatch(insertSql, /INSERT INTO fact_soil_moisture/i);
+});
+
+test('business insert sql keeps Chinese seed text in utf8 and avoids mojibake', () => {
+  const insertSql = read('infra/mysql/init/002_insert_data.sql');
+
+  assert.match(insertSql, /墒情异常分析规则V1/);
+  assert.match(insertSql, /墒情预警模板V1/);
+  assert.doesNotMatch(insertSql, /å|æ|ä|Ž|é|è|ç/);
+});
+
+test('full soil data sql seeds import batch and fact rows idempotently', () => {
+  const insertSql = read('infra/mysql/init/003_insert_soil_data.sql');
+
+  assert.match(insertSql, /SET NAMES utf8mb4/i);
+  assert.match(insertSql, /DELETE FROM fact_soil_moisture WHERE source_file = '土壤墒情仪数据\(2\)\.xlsx'/i);
+  assert.match(insertSql, /DELETE FROM etl_import_batch WHERE source_file = '土壤墒情仪数据\(2\)\.xlsx'/i);
+  assert.match(insertSql, /INSERT INTO etl_import_batch/i);
+  assert.match(insertSql, /INSERT INTO fact_soil_moisture/i);
+  assert.match(insertSql, /145066/);
 });
 
 test('local-only auth seed template is outside docker init execution path', () => {
@@ -54,8 +74,11 @@ test('local init script exists and reads mysql credentials from environment', ()
   assert.match(script, /MYSQL_HOST/);
   assert.match(script, /MYSQL_USER/);
   assert.match(script, /MYSQL_PASSWORD/);
+  assert.match(script, /MYSQL_APPLY_USER:-\$\{MYSQL_USER:-\$\{MYSQL_ROOT_USER:-root\}\}/);
+  assert.match(script, /MYSQL_APPLY_PASSWORD:-\$\{MYSQL_PASSWORD:-\$\{MYSQL_ROOT_PASSWORD:-/);
   assert.match(script, /001_init_tables\.sql/);
   assert.match(script, /002_insert_data\.sql/);
+  assert.match(script, /003_insert_soil_data\.sql/);
   assert.doesNotMatch(script, /smart_agriculture_pwd/);
   assert.doesNotMatch(script, /root_pwd/);
 });

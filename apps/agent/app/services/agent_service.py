@@ -170,6 +170,7 @@ class SoilAgentService:
             timezone=timezone,
         )
         final_state = await self.orchestrator.run(state)
+        self._enrich_query_log_entries(final_state)
         await self.query_log_repository.insert_many(final_state.query_log_entries)
         await self.save_context_if_business_success(final_state)
         # `should_query` represents whether the request actually planned a data
@@ -220,6 +221,28 @@ class SoilAgentService:
         if all(value in ({}, [], "", None) for value in payload.values()):
             return {}
         return payload
+
+    def _enrich_query_log_entries(self, final_state) -> None:
+        """Attach turn-level question/answer context to each SQL audit row."""
+        final_answer = getattr(final_state.answer_bundle, "final_answer", "")
+        for entry in final_state.query_log_entries:
+            entry.update(
+                {
+                    "request_text": final_state.user_input,
+                    "response_text": final_answer,
+                    "input_type": self._enum_text(final_state.input_type),
+                    "intent": self._enum_text(final_state.intent),
+                    "answer_type": self._enum_text(final_state.answer_type),
+                    "final_status": final_state.final_status,
+                }
+            )
+
+    @staticmethod
+    def _enum_text(value) -> str | None:
+        """Return plain enum/string values for persistence and JSON APIs."""
+        if value is None:
+            return None
+        return getattr(value, "value", str(value))
 
     def get_summary_payload(self) -> dict[str, Any]:
         """Return a lightweight dashboard summary for `/api/agent/summary`.

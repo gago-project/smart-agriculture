@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS agent_query_log (
   query_id VARCHAR(64) PRIMARY KEY,
   session_id VARCHAR(64) NOT NULL,
   turn_id INT NOT NULL,
+  request_text TEXT NULL,
+  response_text TEXT NULL,
+  input_type VARCHAR(32) NULL,
+  intent VARCHAR(64) NULL,
+  answer_type VARCHAR(64) NULL,
+  final_status VARCHAR(64) NULL,
   query_type VARCHAR(64) NOT NULL,
   query_plan_json JSON NOT NULL,
   sql_fingerprint VARCHAR(255) NULL,
@@ -157,7 +163,36 @@ BEGIN
   END IF;
 END//
 
+DROP PROCEDURE IF EXISTS ensure_column//
+
+CREATE PROCEDURE ensure_column(
+  IN in_table_name VARCHAR(64),
+  IN in_column_name VARCHAR(64),
+  IN in_column_sql TEXT
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = DATABASE()
+      AND table_name = in_table_name
+      AND column_name = in_column_name
+  ) THEN
+    SET @ensure_column_sql = in_column_sql;
+    PREPARE ensure_column_stmt FROM @ensure_column_sql;
+    EXECUTE ensure_column_stmt;
+    DEALLOCATE PREPARE ensure_column_stmt;
+  END IF;
+END//
+
 DELIMITER ;
+
+CALL ensure_column('agent_query_log', 'request_text', 'ALTER TABLE agent_query_log ADD COLUMN request_text TEXT NULL AFTER turn_id');
+CALL ensure_column('agent_query_log', 'response_text', 'ALTER TABLE agent_query_log ADD COLUMN response_text TEXT NULL AFTER request_text');
+CALL ensure_column('agent_query_log', 'input_type', 'ALTER TABLE agent_query_log ADD COLUMN input_type VARCHAR(32) NULL AFTER response_text');
+CALL ensure_column('agent_query_log', 'intent', 'ALTER TABLE agent_query_log ADD COLUMN intent VARCHAR(64) NULL AFTER input_type');
+CALL ensure_column('agent_query_log', 'answer_type', 'ALTER TABLE agent_query_log ADD COLUMN answer_type VARCHAR(64) NULL AFTER intent');
+CALL ensure_column('agent_query_log', 'final_status', 'ALTER TABLE agent_query_log ADD COLUMN final_status VARCHAR(64) NULL AFTER answer_type');
 
 CALL ensure_index('fact_soil_moisture', 'idx_soil_sample_time', 'CREATE INDEX idx_soil_sample_time ON fact_soil_moisture (sample_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_batch_id', 'CREATE INDEX idx_soil_batch_id ON fact_soil_moisture (batch_id)');
@@ -171,3 +206,4 @@ CALL ensure_index('agent_query_log', 'idx_aql_query_type_created_at', 'CREATE IN
 CALL ensure_index('agent_query_log', 'idx_aql_status_created_at', 'CREATE INDEX idx_aql_status_created_at ON agent_query_log (status, created_at)');
 
 DROP PROCEDURE IF EXISTS ensure_index;
+DROP PROCEDURE IF EXISTS ensure_column;

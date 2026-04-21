@@ -131,7 +131,7 @@ body,
 
 .layout {
   display: grid;
-  grid-template-columns: 260px minmax(0, 1fr) 340px;
+  grid-template-columns: 260px minmax(0, 1fr);
   height: 100vh;
   gap: 16px;
   padding: 16px;
@@ -869,7 +869,7 @@ body,
 @media (max-width: 1024px) {
   .layout {
     grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr auto;
+    grid-template-rows: auto 1fr;
     height: 100vh;
   }
 
@@ -880,10 +880,6 @@ body,
   .main {
     order: 1;
     min-height: 0;
-  }
-
-  .evidence-panel {
-    order: 3;
   }
 
   .suggestion-grid {
@@ -1040,6 +1036,41 @@ body,
   top: 0;
   background: var(--panel-soft);
   z-index: 1;
+}
+
+.admin-table tbody tr.selected {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+.agent-log-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px;
+}
+
+.agent-log-detail-grid p {
+  margin: 6px 0 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.agent-log-json-grid {
+  margin-top: 14px;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.agent-log-json-grid pre {
+  margin: 6px 0 0;
+  padding: 10px;
+  border-radius: 12px;
+  background: white;
+  border: 1px solid var(--border);
+  min-height: 140px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
 }
 
 .edit-inline {

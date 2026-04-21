@@ -9,6 +9,29 @@ fi
 ROOT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 ENV_FILE="${ROOT_DIR}/.env"
 EXCLUDE_PATTERN="${LOAD_ROOT_ENV_EXCLUDE_PATTERN:-}"
+KEYCHAIN_SERVICE="${SMART_AGRICULTURE_KEYCHAIN_SERVICE:-smart-agriculture-local}"
+
+load_secret_from_keychain() {
+  local key_name=$1
+  local key_value
+
+  if [ -n "${!key_name:-}" ]; then
+    return 0
+  fi
+
+  if ! command -v security >/dev/null 2>&1; then
+    return 0
+  fi
+
+  if key_value=$(security find-generic-password -a "${key_name}" -s "${KEYCHAIN_SERVICE}" -w 2>/dev/null); then
+    if [ -n "${key_value}" ]; then
+      export "${key_name}=${key_value}"
+    fi
+  fi
+}
+
+load_secret_from_keychain "QWEN_API_KEY"
+load_secret_from_keychain "SONIOX_API_KEY"
 
 if [ ! -f "${ENV_FILE}" ]; then
   return 0

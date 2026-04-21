@@ -37,6 +37,12 @@ test('warning_template and agent_query_log columns follow plans', () => {
   assert.match(sql, /CREATE TABLE IF NOT EXISTS agent_query_log/i);
   assert.match(sql, /query_id\s+VARCHAR\(64\)\s+PRIMARY KEY/i);
   assert.match(sql, /query_plan_json\s+JSON\s+NOT NULL/i);
+  assert.match(sql, /request_text\s+TEXT\s+NULL/i);
+  assert.match(sql, /response_text\s+TEXT\s+NULL/i);
+  assert.match(sql, /input_type\s+VARCHAR\(32\)\s+NULL/i);
+  assert.match(sql, /intent\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(sql, /answer_type\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(sql, /final_status\s+VARCHAR\(64\)\s+NULL/i);
 });
 
 test('auth tables use database-backed user and session design', () => {

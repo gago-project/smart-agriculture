@@ -41,6 +41,17 @@ test('admin routes require admin role instead of generic authenticated user', ()
   }
 });
 
+test('developer log route allows admin and developer roles only', () => {
+  const authHelperSource = readFileSync(new URL('../lib/server/auth.mjs', import.meta.url), 'utf8');
+  const routeSource = readFileSync(new URL('../app/api/developer/agent/query-logs/route.ts', import.meta.url), 'utf8');
+
+  assert.match(authHelperSource, /export async function requireRoleRequestUser/);
+  assert.match(routeSource, /requireRoleRequestUser/);
+  assert.match(routeSource, /'admin'/);
+  assert.match(routeSource, /'developer'/);
+  assert.doesNotMatch(routeSource, /requireAdminRequestUser/);
+});
+
 test('local health smoke uses the seeded database admin account', () => {
   assert.match(healthScriptSource, /HEALTH_USERNAME=\$\{HEALTH_USERNAME:-gago-admin\}/);
   assert.doesNotMatch(healthScriptSource, /HEALTH_USERNAME=\$\{HEALTH_USERNAME:-admin\}/);

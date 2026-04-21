@@ -18,13 +18,17 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
     def test_latest_batch_summary_should_bind_latest_batch_id(self):
         result = self.service.chat("这批数据整体情况如何", session_id="batch", turn_id=1)
+        expected_batch_id = self.service.repository.latest_batch_id()
+        expected_count = len(
+            [record for record in self.service.repository.records if record.get("batch_id") == expected_batch_id]
+        )
 
         self.assertEqual(result["answer_type"], "soil_summary_answer")
         self.assertEqual(result["merged_slots"].get("batch_id"), "latest_batch")
-        self.assertEqual(result["business_time"].get("latest_batch_id"), "11111111-1111-1111-1111-111111111111")
-        self.assertEqual(result["query_plan"].get("filters", {}).get("batch_id"), "11111111-1111-1111-1111-111111111111")
-        self.assertEqual(len(result["query_result"].get("records", [])), 22)
-        self.assertIn("22 条", result["final_answer"])
+        self.assertEqual(result["business_time"].get("latest_batch_id"), expected_batch_id)
+        self.assertEqual(result["query_plan"].get("filters", {}).get("batch_id"), expected_batch_id)
+        self.assertEqual(len(result["query_result"].get("records", [])), expected_count)
+        self.assertIn(f"{expected_count} 条", result["final_answer"])
 
     def test_now_summary_should_resolve_from_latest_business_time(self):
         result = self.service.chat("现在的墒情", session_id="latest", turn_id=1)

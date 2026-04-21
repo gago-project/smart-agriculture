@@ -9,7 +9,7 @@
 - 建库建表脚本
 - 业务规则
 - 预警模板
-- 可公开的演示/样例业务数据
+- 可公开的全量业务初始化数据
 
 不适合提交的是：
 
@@ -41,7 +41,10 @@ cp infra/mysql/local/seed_auth_users.local.sql.example infra/mysql/local/seed_au
 
 ## 本地土壤 Excel 怎么处理
 
-如果需要把完整土壤墒情原始 Excel 导入本机 MySQL，可以：
+默认 `db:init:local` 会执行 `infra/mysql/init/003_insert_soil_data.sql`，写入当前提交版的
+全量墒情事实数据。
+
+如果后续需要用新的土壤墒情原始 Excel 覆盖同源数据，可以：
 
 1. 将文件放到 `infra/mysql/local/soil_data.local.xlsx`，或
 2. 在执行 `db:init:local` 前设置 `SOIL_EXCEL_SOURCE=/your/path/to/file.xlsx`

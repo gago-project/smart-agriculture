@@ -19,8 +19,8 @@ fi
 
 MYSQL_PORT_FOR_LOCAL=${LOCAL_MYSQL_PORT:-${MYSQL_PORT:-3306}}
 MYSQL_DATABASE_FOR_LOCAL=${MYSQL_DATABASE:-smart_agriculture}
-MYSQL_USER_FOR_LOCAL=${MYSQL_APPLY_USER:-${MYSQL_ROOT_USER:-root}}
-MYSQL_PASSWORD_FOR_LOCAL=${MYSQL_APPLY_PASSWORD:-${MYSQL_ROOT_PASSWORD:-${MYSQL_PASSWORD:-}}}
+MYSQL_USER_FOR_LOCAL=${MYSQL_APPLY_USER:-${MYSQL_USER:-${MYSQL_ROOT_USER:-root}}}
+MYSQL_PASSWORD_FOR_LOCAL=${MYSQL_APPLY_PASSWORD:-${MYSQL_PASSWORD:-${MYSQL_ROOT_PASSWORD:-}}}
 
 if [ -z "$MYSQL_USER_FOR_LOCAL" ]; then
   echo "缺少 MYSQL_APPLY_USER 或可用的 root 用户配置，无法初始化本地 MySQL。"
@@ -58,6 +58,7 @@ run_node_local() {
 echo "初始化本地 MySQL：host=${MYSQL_HOST_FOR_LOCAL} port=${MYSQL_PORT_FOR_LOCAL} database=${MYSQL_DATABASE_FOR_LOCAL} user=${MYSQL_USER_FOR_LOCAL}"
 run_sql "infra/mysql/init/001_init_tables.sql"
 run_sql "infra/mysql/init/002_insert_data.sql"
+run_sql "infra/mysql/init/003_insert_soil_data.sql"
 
 LOCAL_AUTH_USERS_JSON_PATH=${LOCAL_AUTH_USERS_JSON:-infra/mysql/local/auth_users.local.json}
 if [ -n "${LOCAL_AUTH_USERS_JSON:-}" ] || [ -f "$LOCAL_AUTH_USERS_JSON_PATH" ]; then
@@ -73,7 +74,7 @@ if [ -n "${SOIL_EXCEL_SOURCE:-}" ] || [ -f "$LOCAL_SOIL_EXCEL_PATH" ]; then
   echo "检测到本地土壤 Excel，执行 apps/web/scripts/import-local-soil-excel.mjs"
   SOIL_EXCEL_SOURCE="$LOCAL_SOIL_EXCEL_PATH" run_node_local "apps/web/scripts/import-local-soil-excel.mjs"
 else
-  echo "未检测到本地土壤 Excel，保留 002_insert_data.sql 的公开样例数据。"
+  echo "未检测到本地土壤 Excel，保留 003_insert_soil_data.sql 的全量初始化数据。"
 fi
 
 MYSQL_PWD="$MYSQL_PASSWORD_FOR_LOCAL" mysql "${MYSQL_ARGS[@]}" -e "USE \`${MYSQL_DATABASE_FOR_LOCAL}\`; SELECT COUNT(*) AS fact_soil_moisture_count FROM fact_soil_moisture;"

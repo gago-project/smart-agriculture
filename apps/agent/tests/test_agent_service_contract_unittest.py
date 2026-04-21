@@ -67,7 +67,14 @@ class AgentServiceContractTest(unittest.TestCase):
         result = asyncio.run(service.achat("最近墒情怎么样", session_id="s1", turn_id=1))
 
         self.assertEqual(result["final_answer"], "ok")
-        self.assertEqual(log_repository.batches, [[{"query_id": "q1"}]])
+        self.assertEqual(len(log_repository.batches), 1)
+        self.assertEqual(len(log_repository.batches[0]), 1)
+        self.assertEqual(log_repository.batches[0][0]["query_id"], "q1")
+        self.assertEqual(log_repository.batches[0][0]["request_text"], "最近墒情怎么样")
+        self.assertEqual(log_repository.batches[0][0]["response_text"], "ok")
+        self.assertEqual(log_repository.batches[0][0]["intent"], "soil_recent_summary")
+        self.assertEqual(log_repository.batches[0][0]["answer_type"], "soil_summary_answer")
+        self.assertEqual(log_repository.batches[0][0]["final_status"], "verified_end")
         self.assertEqual(len(context_repository.saved), 1)
         self.assertEqual(final_state.context_to_save["last_intent"], "soil_recent_summary")
 

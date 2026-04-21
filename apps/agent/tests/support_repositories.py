@@ -9,7 +9,7 @@ from app.repositories.soil_repository import DEFAULT_WARNING_TEMPLATE_TEXT, Soil
 
 
 FACT_INSERT_RE = re.compile(
-    r"INSERT INTO fact_soil_moisture\s*\(.+?\)\s*VALUES\s*(?P<values>.+?)\s*ON DUPLICATE KEY",
+    r"INSERT INTO fact_soil_moisture\s*\(.+?\)\s*VALUES\s*(?P<values>.+?)(?:ON DUPLICATE KEY UPDATE|;)",
     re.IGNORECASE | re.DOTALL,
 )
 
@@ -30,44 +30,45 @@ def _coerce_value(value: str) -> Any:
 
 
 def _load_seed_records() -> list[dict[str, Any]]:
-    seed_path = Path(__file__).resolve().parents[3] / "infra/mysql/init/002_insert_data.sql"
+    init_dir = Path(__file__).resolve().parents[3] / "infra/mysql/init"
+    seed_path = init_dir / "003_insert_soil_data.sql"
+    if not seed_path.exists():
+        seed_path = init_dir / "002_insert_data.sql"
     seed_sql = seed_path.read_text(encoding="utf-8")
-    match = FACT_INSERT_RE.search(seed_sql)
-    if not match:
-        return []
     records: list[dict[str, Any]] = []
-    values_block = match.group("values").strip().rstrip(";")
-    tuple_lines = [line.strip().rstrip(",") for line in values_block.splitlines() if line.strip().startswith("(")]
-    for tuple_line in tuple_lines:
-        values = [_coerce_value(item) for item in _parse_sql_tuple(tuple_line[1:-1])]
-        records.append(
-            {
-                "record_id": values[0],
-                "batch_id": values[1],
-                "device_sn": values[2],
-                "device_name": values[6],
-                "city_name": values[7],
-                "county_name": values[8],
-                "town_name": values[9],
-                "sample_time": values[10],
-                "create_time": values[11],
-                "water20cm": values[12],
-                "water40cm": values[13],
-                "water60cm": values[14],
-                "water80cm": values[15],
-                "t20cm": values[16],
-                "t40cm": values[17],
-                "t60cm": values[18],
-                "t80cm": values[19],
-                "soil_anomaly_type": values[28],
-                "soil_anomaly_score": values[29],
-                "longitude": values[30],
-                "latitude": values[31],
-                "source_file": values[32],
-                "source_sheet": values[33],
-                "source_row": values[34],
-            }
-        )
+    for match in FACT_INSERT_RE.finditer(seed_sql):
+        values_block = match.group("values").strip().rstrip(";")
+        tuple_lines = [line.strip().rstrip(",") for line in values_block.splitlines() if line.strip().startswith("(")]
+        for tuple_line in tuple_lines:
+            values = [_coerce_value(item) for item in _parse_sql_tuple(tuple_line[1:-1])]
+            records.append(
+                {
+                    "record_id": values[0],
+                    "batch_id": values[1],
+                    "device_sn": values[2],
+                    "device_name": values[6],
+                    "city_name": values[7],
+                    "county_name": values[8],
+                    "town_name": values[9],
+                    "sample_time": values[10],
+                    "create_time": values[11],
+                    "water20cm": values[12],
+                    "water40cm": values[13],
+                    "water60cm": values[14],
+                    "water80cm": values[15],
+                    "t20cm": values[16],
+                    "t40cm": values[17],
+                    "t60cm": values[18],
+                    "t80cm": values[19],
+                    "soil_anomaly_type": values[28],
+                    "soil_anomaly_score": values[29],
+                    "longitude": values[30],
+                    "latitude": values[31],
+                    "source_file": values[32],
+                    "source_sheet": values[33],
+                    "source_row": values[34],
+                }
+            )
     return records
 
 
