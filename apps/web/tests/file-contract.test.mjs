@@ -161,23 +161,34 @@ test('query log repository pages ids before loading wide log fields', () => {
   assert.doesNotMatch(source, /SELECT[\s\S]*executed_result_json[\s\S]*FROM agent_query_log[\s\S]*ORDER BY created_at DESC/);
 });
 
-test('authoritative agent plan includes query log request and routing context fields', () => {
-  const planSource = readFileSync(
-    new URL('../../agent/plans/1/1.2026-04-20-soil-moisture-agent-plan.md', import.meta.url),
+test('database query log docs include request and routing context fields', () => {
+  const docsSource = readFileSync(
+    new URL('../../../infra/mysql/docs/agent_query_log.md', import.meta.url),
+    'utf8',
+  );
+  const ddlSource = readFileSync(
+    new URL('../../../infra/mysql/init/001_init_tables.sql', import.meta.url),
     'utf8',
   );
 
-  assert.match(planSource, /request_text\s+text\s+null/i);
-  assert.match(planSource, /response_text\s+text\s+null/i);
-  assert.match(planSource, /input_type\s+varchar\(32\)\s+null/i);
-  assert.match(planSource, /intent\s+varchar\(64\)\s+null/i);
-  assert.match(planSource, /answer_type\s+varchar\(64\)\s+null/i);
-  assert.match(planSource, /final_status\s+varchar\(64\)\s+null/i);
-  assert.match(planSource, /executed_result_json\s+json\s+null/i);
-  assert.doesNotMatch(planSource, /result_preview_json/i);
+  assert.match(docsSource, /`request_text`/);
+  assert.match(docsSource, /`response_text`/);
+  assert.match(docsSource, /`input_type`/);
+  assert.match(docsSource, /`intent`/);
+  assert.match(docsSource, /`answer_type`/);
+  assert.match(docsSource, /`final_status`/);
+  assert.match(docsSource, /`executed_result_json`/);
+  assert.match(ddlSource, /request_text\s+TEXT\s+NULL/i);
+  assert.match(ddlSource, /response_text\s+TEXT\s+NULL/i);
+  assert.match(ddlSource, /input_type\s+VARCHAR\(32\)\s+NULL/i);
+  assert.match(ddlSource, /intent\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(ddlSource, /answer_type\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(ddlSource, /final_status\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(ddlSource, /executed_result_json\s+JSON\s+NULL/i);
+  assert.doesNotMatch(docsSource, /result_preview_json\s+JSON\s+NULL/i);
 });
 
-test('agent region alias design document exists under apps plans', () => {
+test('region alias design document lives under infra mysql docs', () => {
   const readmeSource = readFileSync(new URL('../../agent/plans/1/README.md', import.meta.url), 'utf8');
   const mainPlanSource = readFileSync(
     new URL('../../agent/plans/1/1.2026-04-20-soil-moisture-agent-plan.md', import.meta.url),
@@ -188,17 +199,17 @@ test('agent region alias design document exists under apps plans', () => {
     'utf8',
   );
   const planSource = readFileSync(
-    new URL('../../agent/plans/1/9.2026-04-22-soil-region-alias-resolution-design.md', import.meta.url),
+    new URL('../../../infra/mysql/docs/region-alias-resolution.md', import.meta.url),
     'utf8',
   );
 
-  assert.match(readmeSource, /9\.2026-04-22-soil-region-alias-resolution-design\.md/);
+  assert.match(readmeSource, /infra\/mysql\/docs\/README\.md/);
   assert.match(mainPlanSource, /region_alias/);
-  assert.match(mainPlanSource, /唯一高置信/);
+  assert.match(mainPlanSource, /infra\/mysql\/docs\/region-alias-resolution\.md/);
   assert.match(matrixSource, /南京最近一个月的数据/);
   assert.match(matrixSource, /苏洲最近一个月的数据/);
   assert.match(matrixSource, /新区最近怎么样/);
-  assert.match(planSource, /地区别名补全与模糊匹配设计/);
+  assert.match(planSource, /地区别名解析与 `region_alias` 使用设计/);
   assert.match(planSource, /南京[\s\S]*南京市/);
   assert.match(planSource, /静态种子/);
   assert.match(planSource, /多候选/);
