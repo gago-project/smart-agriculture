@@ -51,6 +51,13 @@ test('workspace no longer renders the right-side evidence analysis panel', () =>
   assert.doesNotMatch(appSource, /selectedEvidenceMessage/);
 });
 
+test('chat panel no longer renders AI involvement badge in message list', () => {
+  const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(chatPanelSource, /AI参与度/);
+  assert.doesNotMatch(chatPanelSource, /ai_involvement/);
+});
+
 test('developer log filters use selects and keep the table focused on rows', () => {
   const pageSource = readFileSync(new URL('../workspace/components/AgentLogPage.tsx', import.meta.url), 'utf8');
 

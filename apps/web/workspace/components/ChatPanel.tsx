@@ -49,17 +49,11 @@ export function ChatPanel({ session, error, onRetry }: ChatPanelProps) {
       <div className="messages" aria-label="消息列表">
         {session.messages.map((message, index) => {
           const retryMessage = message.status === 'error' ? findPreviousUserMessage(session.messages, index) : null;
-          const aiInvolvement = message.role === 'assistant' ? message.meta?.processing?.ai_involvement : null;
 
           return (
             <article key={message.id} className={`message-row ${message.role}`}>
               <div className={`message-avatar ${message.role}`}>{message.role === 'user' ? '你' : 'AI'}</div>
               <div className={`message ${message.role}`}>
-                {aiInvolvement ? (
-                  <header className="message-header message-header-badge-only">
-                    <span className={`ai-badge ai-${aiInvolvement}`}>AI参与度 {aiInvolvement}</span>
-                  </header>
-                ) : null}
                 <p>{message.content || (message.status === 'streaming' ? '...' : '')}</p>
                 {message.status === 'error' && retryMessage ? (
                   <button className="retry" onClick={() => onRetry(retryMessage)}>
