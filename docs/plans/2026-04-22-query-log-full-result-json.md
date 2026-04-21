@@ -4,7 +4,7 @@
 
 **Goal:** 将查询日志从“结果预览”升级为“完整 SQL 查询结果”记录与展示，并移除 `result_preview_json` 的旧设计，保证库表、代码、测试与 plans 一致。
 
-**Architecture:** 用一个语义明确的新字段承载完整执行结果 JSON，替代现有 `result_preview_json`。Agent 查询执行完成后，将完整 `query_result` 的可展示部分写入该字段；Web 查询日志 API 与页面同步读取并展示这个完整结果，plans 中同步移除“预览”语义。
+**Architecture:** 用一个语义明确的新字段承载完整执行结果 JSON，替代现有 `result_preview_json`。Agent 查询执行完成后，将完整 `query_result` 的可展示部分写入该字段；Web 查询日志 API 与页面同步读取并展示这个完整结果，plans 中同步移除“预览”语义。除这次替换外，查询日志表既有的请求/回答与路由上下文字段（`request_text`、`response_text`、`input_type`、`intent`、`answer_type`、`final_status`）继续保留，不在本计划中删除。
 
 **Tech Stack:** Python、Next.js、MySQL、Node test、unittest、Markdown plans
 
@@ -44,6 +44,7 @@
 - 新增完整结果 JSON 字段
 - 移除 `result_preview_json` 的 schema 设计
 - 保持幂等加列/清理逻辑
+- 不改动既有的请求/回答与路由上下文字段
 
 **Step 2: 更新查询日志构造**
 

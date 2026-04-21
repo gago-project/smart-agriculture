@@ -4,7 +4,7 @@
 
 **Goal:** 将工作台中的“开发日志”统一改为“查询日志”，并为 `agent_query_log` 增加可执行审计 SQL 记录能力，同时同步更新权威 plans 文档，确保实现与设计一致。
 
-**Architecture:** 在 Agent 实际执行 SQL 的仓库层生成本次查询的完整审计 SQL 文本，并沿 `query_result -> query_log_entry -> agent_query_log -> web query logs API -> 查询日志页` 这条链路向上透传。现有 `sql_fingerprint` 保留用于模板标识，新增 `executed_sql_text` 用于精确排障；前端列表页展示 SQL 摘要并支持查看完整 SQL。
+**Architecture:** 在 Agent 实际执行 SQL 的仓库层生成本次查询的完整审计 SQL 文本，并沿 `query_result -> query_log_entry -> agent_query_log -> web query logs API -> 查询日志页` 这条链路向上透传。现有 `sql_fingerprint` 保留用于模板标识，新增 `executed_sql_text` 用于精确排障；前端列表页展示 SQL 摘要并支持查看完整 SQL。查询日志表还会保留请求/回答与路由上下文字段（如 `request_text`、`response_text`、`input_type`、`intent`、`answer_type`、`final_status`），本计划不改动这些既有字段。
 
 **Tech Stack:** Python、Next.js、MySQL、Node test、unittest、仓库内 plans Markdown
 
