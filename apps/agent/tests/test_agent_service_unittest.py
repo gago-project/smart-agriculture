@@ -1,11 +1,12 @@
 import unittest
 
 from app.services.agent_service import SoilAgentService
+from support_repositories import SeedSoilRepository
 
 
 class AgentServiceTest(unittest.TestCase):
     def setUp(self):
-        self.service = SoilAgentService(repository=None)
+        self.service = SoilAgentService(repository=SeedSoilRepository())
 
     def test_meaningless_input_returns_safe_hint_without_query(self):
         result = self.service.chat("h d k j h sa d k l j", session_id="s1", turn_id=1)

@@ -1,0 +1,8 @@
+[
+  {
+    "username": "REPLACE_WITH_USERNAME",
+    "password": "REPLACE_WITH_PASSWORD",
+    "role": "admin",
+    "is_active": true
+  }
+]

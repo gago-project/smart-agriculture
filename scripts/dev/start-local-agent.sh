@@ -4,6 +4,10 @@ set -euo pipefail
 ROOT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
 cd "$ROOT_DIR"
 
+LOAD_ROOT_ENV_EXCLUDE_PATTERN='^(AGENT_PORT|AGENT_BASE_URL|WEB_PORT|NEXT_PUBLIC_BASE_URL)$'
+source "${ROOT_DIR}/scripts/dev/load-root-env.sh"
+unset LOAD_ROOT_ENV_EXCLUDE_PATTERN
+
 if [ ! -x ".venv/bin/python" ]; then
   echo "缺少 .venv/bin/python，请先在项目根目录创建虚拟环境。"
   exit 1

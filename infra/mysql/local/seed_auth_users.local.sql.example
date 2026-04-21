@@ -1,0 +1,35 @@
+-- Local-only auth user seed template.
+--
+-- Copy this file to `seed_auth_users.local.sql` and replace every
+-- `REPLACE_WITH_*` placeholder with locally generated values.
+--
+-- Do not place real password hashes or salts in `infra/mysql/init/*.sql`.
+-- Docker executes init SQL automatically, so executable init scripts must not
+-- contain real credentials.
+
+USE smart_agriculture;
+
+INSERT INTO auth_user (
+  username,
+  password_hash,
+  password_salt,
+  role,
+  is_active,
+  created_at,
+  updated_at
+) VALUES
+  (
+    'REPLACE_WITH_USERNAME',
+    'REPLACE_WITH_PASSWORD_HASH',
+    'REPLACE_WITH_PASSWORD_SALT',
+    'admin',
+    1,
+    NOW(),
+    NOW()
+  )
+ON DUPLICATE KEY UPDATE
+  password_hash = VALUES(password_hash),
+  password_salt = VALUES(password_salt),
+  role = VALUES(role),
+  is_active = VALUES(is_active),
+  updated_at = NOW();

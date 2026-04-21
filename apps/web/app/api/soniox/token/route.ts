@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server';
+import { requireRequestUser } from '../../../../lib/server/auth.mjs';
 
 const SONIOX_TEMP_KEY_URL = 'https://api.soniox.com/v1/auth/temporary-api-key';
 const SONIOX_WEBSOCKET_URL = 'wss://stt-rt.soniox.com/transcribe-websocket';
+const SONIOX_MODEL = 'stt-rt-preview';
 
-export async function POST() {
+export async function POST(request: Request) {
+  const session = await requireRequestUser(request);
+  if (!session) {
+    return NextResponse.json({ error: 'authentication required' }, { status: 401 });
+  }
   const sonioxApiKey = process.env.SONIOX_API_KEY ?? '';
   const expiresInSeconds = Number(process.env.SONIOX_TEMP_KEY_EXPIRES_IN_SECONDS ?? '300');
 
@@ -30,7 +36,8 @@ export async function POST() {
     return NextResponse.json({
       api_key: payload.api_key,
       expires_at: payload.expires_at,
-      websocket_url: SONIOX_WEBSOCKET_URL
+      websocket_url: SONIOX_WEBSOCKET_URL,
+      model: SONIOX_MODEL
     });
   } catch (error) {
     return NextResponse.json({

@@ -47,7 +47,7 @@ services:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
-      REDIS_URL: ${REDIS_URL}
+      REDIS_URL: redis://redis:6379/0
       QWEN_API_KEY: ${QWEN_API_KEY}
     depends_on:
       mysql:
@@ -69,13 +69,20 @@ services:
     container_name: smart-agriculture-web
     restart: unless-stopped
     environment:
-      AGENT_BASE_URL: ${AGENT_BASE_URL}
+      AGENT_BASE_URL: http://agent:8000
+      MYSQL_HOST: mysql
+      MYSQL_PORT: ${MYSQL_PORT}
+      MYSQL_DATABASE: ${MYSQL_DATABASE}
+      MYSQL_USER: ${MYSQL_USER}
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME}
       SONIOX_API_KEY: ${SONIOX_API_KEY}
       SONIOX_TEMP_KEY_EXPIRES_IN_SECONDS: ${SONIOX_TEMP_KEY_EXPIRES_IN_SECONDS}
       NEXT_PUBLIC_BASE_URL: http://web:3000
     depends_on:
       agent:
+        condition: service_healthy
+      mysql:
         condition: service_healthy
     ports:
       - "3000:3000"

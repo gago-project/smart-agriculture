@@ -1,11 +1,12 @@
 import unittest
 
 from app.services.agent_service import SoilAgentService
+from support_repositories import SeedSoilRepository
 
 
 class AgentSummaryTest(unittest.TestCase):
     def test_summary_payload_includes_devices(self):
-        service = SoilAgentService(repository=None)
+        service = SoilAgentService(repository=SeedSoilRepository())
         summary = service.get_summary_payload()
 
         self.assertIn('latest_time', summary)

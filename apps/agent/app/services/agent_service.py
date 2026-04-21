@@ -1,134 +1,247 @@
 from __future__ import annotations
 
-import re
-from statistics import mean
+"""Top-level application service that assembles and runs the Soil Agent.
+
+`SoilAgentService` is the only class the API layer should call for agent
+behavior.  It owns dependency wiring, restricted Flow construction, query-log
+writeback, context persistence, and response serialization.  Login/admin APIs
+belong to the Next app and intentionally do not live here.
+"""
+
+import asyncio
+import os
 from typing import Any
 
+from app.flow.nodes import (
+    AdviceComposeNode,
+    AnswerVerifyNode,
+    DataFactCheckNode,
+    ExecutionGateNode,
+    FallbackGuardNode,
+    HistoryContextMergeNode,
+    InputGuardNode,
+    IntentSlotExtractNode,
+    RegionResolveNode,
+    ResponseGenerateNode,
+    SoilDataQueryNode,
+    SoilRuleEngineNode,
+    TemplateRenderNode,
+    TimeResolveNode,
+)
+from app.flow.orchestrator import SoilMoistureFlowOrchestrator
+from app.llm.qwen_client import QwenClient
+from app.repositories.query_log_repository import QueryLogRepository
 from app.repositories.soil_repository import SoilRepository
-
-
-MEANINGLESS_RE = re.compile(r"^[a-zA-Z\s\?？!！。,.，、]{8,}$")
-DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
+from app.flow.state_builder import build_flow_state
+from app.repositories.session_context_repository import SessionContextRepository
+from app.services.advice_service import AdviceService
+from app.services.answer_verify_service import AnswerVerifyService
+from app.services.context_service import ContextService
+from app.services.debug_service import DebugService
+from app.services.execution_gate_service import ExecutionGateService
+from app.services.fact_check_service import FactCheckService
+from app.services.input_guard_service import InputGuardService
+from app.services.intent_slot_service import IntentSlotService
+from app.services.region_service import RegionResolveService
+from app.services.response_service import ResponseService
+from app.services.rule_engine_service import SoilRuleEngineService
+from app.services.soil_query_service import SoilQueryService
+from app.services.template_service import TemplateService
+from app.services.time_service import TimeResolveService
 
 
 class SoilAgentService:
-    def __init__(self, repository: SoilRepository | None = None):
+    """Facade around the full plans-defined Soil Moisture Agent Flow."""
+
+    def __init__(
+        self,
+        repository: SoilRepository | None = None,
+        context_store: SessionContextRepository | None = None,
+        query_log_repository: QueryLogRepository | None = None,
+        qwen_client: QwenClient | None = None,
+        debug_service: DebugService | None = None,
+    ):
+        """Wire repositories, optional LLM client, services, and Flow nodes.
+
+        The node registration order mirrors the architecture documents.  Each
+        node receives a small service object so business logic remains testable
+        without booting FastAPI or Docker.
+        """
         self.repository = repository or SoilRepository.from_env()
+        self.context_store = context_store or SessionContextRepository()
+        self.query_log_repository = query_log_repository or QueryLogRepository(self.repository)
+        self.qwen_client = qwen_client or QwenClient(api_key=os.getenv("QWEN_API_KEY", ""))
+        self.debug_service = debug_service or DebugService()
 
-    def chat(self, user_input: str, *, session_id: str, turn_id: int) -> dict[str, Any]:
-        text = user_input.strip()
-        input_type = self._classify_input(text)
-        if input_type in {"meaningless_input", "greeting", "capability_question", "out_of_domain"}:
-            return self._safe_or_boundary(text, input_type, session_id, turn_id)
-        if input_type == "ambiguous_low_confidence":
-            return self._clarify(session_id, turn_id)
+        self.context_service = ContextService(self.context_store)
+        self.soil_query_service = SoilQueryService(self.repository)
+        self.orchestrator = SoilMoistureFlowOrchestrator(
+            debug_service=self.debug_service,
+            nodes={
+                # Input/intent/context resolution nodes prepare a constrained
+                # request state before any SQL planning is allowed.
+                "input_guard": InputGuardNode(InputGuardService()),
+                "intent_slot_extract": IntentSlotExtractNode(IntentSlotService(self.repository, qwen_client=self.qwen_client)),
+                "history_context_merge": HistoryContextMergeNode(self.context_service),
+                "time_resolve": TimeResolveNode(TimeResolveService(self.repository), self.soil_query_service),
+                "region_resolve": RegionResolveNode(RegionResolveService(self.repository)),
+                # Gate/query/rule/template nodes are the data authority path.
+                # If the gate blocks, later data nodes should never run.
+                "execution_gate": ExecutionGateNode(ExecutionGateService()),
+                "soil_data_query": SoilDataQueryNode(self.soil_query_service),
+                "soil_rule_engine": SoilRuleEngineNode(SoilRuleEngineService()),
+                "template_render": TemplateRenderNode(TemplateService(self.repository)),
+                "advice_compose": AdviceComposeNode(AdviceService()),
+                # Generation is followed by fact checking and final answer
+                # verification so LLM wording cannot overwrite data facts.
+                "response_generate": ResponseGenerateNode(ResponseService(qwen_client=self.qwen_client)),
+                "data_fact_check": DataFactCheckNode(FactCheckService()),
+                "answer_verify": AnswerVerifyNode(AnswerVerifyService()),
+                "fallback_guard": FallbackGuardNode(),
+            }
+        )
 
-        device_sn = self._extract_device(text)
-        if "预警" in text or "模板" in text:
-            return self._warning_answer(text, device_sn, session_id, turn_id)
-        if device_sn or "设备" in text or "异常" in text:
-            return self._detail_answer(text, device_sn, session_id, turn_id)
-        if any(keyword in text for keyword in ["建议", "怎么办", "注意", "什么意思"]):
-            return self._advice_answer(text, device_sn, session_id, turn_id)
-        return self._summary_answer(text, session_id, turn_id)
+    def chat(
+        self,
+        user_input: str,
+        *,
+        session_id: str,
+        turn_id: int,
+        request_id: str | None = None,
+        channel: str = "web",
+        timezone: str = "Asia/Shanghai",
+    ) -> dict[str, Any]:
+        """Synchronous wrapper for tests or scripts that are not async-aware.
 
-    def _classify_input(self, text: str) -> str:
-        if not text or text in {"？？？", "???", "..."}:
-            return "meaningless_input"
-        if text in {"你好", "在吗", "hello", "hi"}:
-            return "greeting"
-        if "能做什么" in text or "你是谁" in text:
-            return "capability_question"
-        if any(keyword in text for keyword in ["天气", "写首诗", "股票"]):
-            return "out_of_domain"
-        compact = text.replace(" ", "")
-        if MEANINGLESS_RE.match(text) and not any(ch >= "\u4e00" and ch <= "\u9fff" for ch in text):
-            return "meaningless_input"
-        if compact in {"看看", "查一下", "帮我查一下", "情况"}:
-            return "ambiguous_low_confidence"
-        return "business_direct"
+        FastAPI calls `achat` directly.  This method exists for unittest and
+        local utility usage where creating an event loop at the call site would
+        add noise.
+        """
+        try:
+            return asyncio.run(
+                self.achat(
+                    user_input,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    request_id=request_id,
+                    channel=channel,
+                    timezone=timezone,
+                )
+            )
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            try:
+                return loop.run_until_complete(
+                    self.achat(
+                        user_input,
+                        session_id=session_id,
+                        turn_id=turn_id,
+                        request_id=request_id,
+                        channel=channel,
+                        timezone=timezone,
+                    )
+                )
+            finally:
+                loop.close()
 
-    def _extract_device(self, text: str) -> str | None:
-        match = DEVICE_RE.search(text)
-        return match.group(0).upper() if match else None
+    async def achat(
+        self,
+        user_input: str,
+        *,
+        session_id: str,
+        turn_id: int,
+        request_id: str | None = None,
+        channel: str = "web",
+        timezone: str = "Asia/Shanghai",
+    ) -> dict[str, Any]:
+        """Run one user turn through the restricted Flow and serialize output.
 
-    def _safe_or_boundary(self, text: str, input_type: str, session_id: str, turn_id: int) -> dict[str, Any]:
-        if input_type == "out_of_domain":
-            return self._response("out_of_scope", "boundary_answer", "我当前只支持土壤墒情相关的数据查询、异常分析、预警判断和管理建议。你可以问：最近墒情怎么样？某个设备是否需要预警？", session_id, turn_id, should_query=False, input_type=input_type)
-        return self._response("none", "safe_hint_answer", "我是墒情智能助手，可以帮你查询墒情数据、分析异常、判断预警并给出处置建议。你可以问：最近墒情怎么样？SNS00204333 需要发预警吗？", session_id, turn_id, should_query=False, input_type=input_type)
+        The order after `orchestrator.run` matters:
+        1. write query logs produced by data nodes;
+        2. save business context only when the final answer is verified;
+        3. return the full contract to Web/BFF/test callers.
+        """
+        state = build_flow_state(
+            user_input=user_input,
+            session_id=session_id,
+            turn_id=turn_id,
+            request_id=request_id,
+            channel=channel,
+            timezone=timezone,
+        )
+        final_state = await self.orchestrator.run(state)
+        await self.query_log_repository.insert_many(final_state.query_log_entries)
+        await self.save_context_if_business_success(final_state)
+        # `should_query` represents whether the request actually planned a data
+        # query.  Guardrail responses and non-business inputs must report false.
+        should_query = final_state.final_status in {"verified_end", "fallback_end"} and bool(final_state.query_plan.query_type)
+        return {
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "request_id": final_state.request_id,
+            "trace_id": final_state.trace_id,
+            "input_type": final_state.input_type,
+            "intent": final_state.intent,
+            "answer_type": final_state.answer_type,
+            "final_answer": final_state.answer_bundle.get("final_answer", ""),
+            "should_query": should_query,
+            "status": "ok",
+            "merged_slots": final_state.merged_slots.model_dump(exclude_none=True),
+            "context_used": final_state.context_used,
+            "business_time": self._dump_bundle(final_state.business_time),
+            "execution_gate_result": self._dump_bundle(final_state.execution_gate_result),
+            "query_plan": self._dump_bundle(final_state.query_plan),
+            "query_result": self._dump_bundle(final_state.query_result),
+            "rule_result": self._dump_bundle(final_state.rule_result),
+            "template_result": self._dump_bundle(final_state.template_result),
+            "advice_result": self._dump_bundle(final_state.advice_result),
+            "node_trace": final_state.node_trace,
+            "final_status": final_state.final_status,
+        }
 
-    def _clarify(self, session_id: str, turn_id: int) -> dict[str, Any]:
-        return self._response("clarification_needed", "clarification_answer", "你想查看哪类墒情信息？可以补充地区、设备或时间，例如：如东县最近墒情怎么样、SNS00204333 是否异常、过去一个月哪里最严重。", session_id, turn_id, should_query=False, input_type="ambiguous_low_confidence")
+    async def save_context_if_business_success(self, final_state) -> None:
+        """Persist Redis conversation context only for verified business turns."""
+        if not self.context_service.should_save_business_context(final_state):
+            return
+        turn_context = self.context_service.build_turn_context(
+            intent=final_state.intent or "",
+            merged_slots=final_state.merged_slots,
+        )
+        final_state.context_to_save = turn_context
+        await self.context_store.save_turn_context(
+            session_id=final_state.session_id,
+            turn_id=final_state.turn_id,
+            turn_context=turn_context,
+        )
 
-    def _summary_answer(self, text: str, session_id: str, turn_id: int) -> dict[str, Any]:
-        records = self.repository.latest_records()
-        water_values = [float(r["water20cm"]) for r in records if r.get("water20cm") is not None]
-        avg_water = round(mean(water_values), 2) if water_values else None
-        latest_time = records[0].get("record_time") if records else "暂无"
-        risky = [r for r in records if self._status_for_record(r)["soil_status"] != "not_triggered"]
-        answer = f"整体墒情概况：当前样本 {len(records)} 条，最新业务时间 {latest_time}，20cm 平均相对含水量 {avg_water}% ，需关注点位 {len(risky)} 个。数据来源为 smart_agriculture.fact_soil_moisture。"
-        return self._response("soil_recent_summary", "soil_summary_answer", answer, session_id, turn_id, input_type="business_direct")
-
-    def _detail_answer(self, text: str, device_sn: str | None, session_id: str, turn_id: int) -> dict[str, Any]:
-        record = self.repository.latest_record_by_device(device_sn) if device_sn else self.repository.latest_records(1)[0]
-        if not record:
-            return self._response("soil_device_query", "fallback_answer", "没有找到该设备的墒情数据，请核对设备 SN 或导入最新数据。", session_id, turn_id)
-        status = self._status_for_record(record)
-        answer = f"设备 {record['device_sn']} 最新监测时间为 {record['record_time']}，位于{record['city_name']}{record['county_name']}，20cm 相对含水量 {record['water20cm']}%，规则判断为{status['display_label']}。"
-        return self._response("soil_device_query", "soil_detail_answer", answer, session_id, turn_id)
-
-    def _warning_answer(self, text: str, device_sn: str | None, session_id: str, turn_id: int) -> dict[str, Any]:
-        record = self.repository.latest_record_by_device(device_sn or "SNS00204333")
-        if not record:
-            return self._response("soil_warning_generation", "fallback_answer", "没有找到可用于预警判断的最新墒情记录。", session_id, turn_id)
-        status = self._status_for_record(record)
-        if status["soil_status"] == "not_triggered":
-            answer = f"设备 {record['device_sn']} 最新记录未达到墒情预警条件。监测时间 {record['record_time']}，20cm 相对含水量 {record['water20cm']}%，内部状态为 not_triggered，warning_level=none。"
-        else:
-            answer = f"{record['record_time']} {record['city_name']}{record['county_name']} SN 编号 {record['device_sn']} 土壤墒情仪监测到相对含水量 {record['water20cm']}%，预警等级 {status['display_label']}，请相关主体关注！"
-        return self._response("soil_warning_generation", "soil_warning_answer", answer, session_id, turn_id)
-
-    def _advice_answer(self, text: str, device_sn: str | None, session_id: str, turn_id: int) -> dict[str, Any]:
-        answer = "建议：先结合最近墒情记录确认地块水分状态；如偏旱，优先小水慢灌；如偏湿，注意排水降渍。该建议仅作管理参考，具体措施需结合现场土壤、作物和天气情况。"
-        return self._response("soil_management_advice", "soil_advice_answer", answer, session_id, turn_id)
-
+    def _dump_bundle(self, bundle) -> dict[str, Any]:
+        """Convert a Pydantic bundle to a compact response dictionary."""
+        payload = bundle.model_dump(exclude_none=True)
+        if all(value in ({}, [], "", None) for value in payload.values()):
+            return {}
+        return payload
 
     def get_summary_payload(self) -> dict[str, Any]:
-        records = self.repository.latest_records()
-        latest_time = records[0].get("record_time") if records else "暂无"
-        water_values = [float(r["water20cm"]) for r in records if r.get("water20cm") is not None]
-        avg_water = round(mean(water_values), 2) if water_values else None
+        """Return a lightweight dashboard summary for `/api/agent/summary`.
+
+        This is intentionally read-only and repository-backed; it should never
+        fabricate totals if MySQL is unavailable.
+        """
+        records = self.repository.filter_records()
+        latest_time = self.repository.latest_business_time()
         devices = []
         risky = 0
         for record in records[:10]:
-            status = self._status_for_record(record)
-            if status["soil_status"] != "not_triggered":
+            enriched = {**record, **self.repository.evaluate_status(record)}
+            if enriched["soil_status"] != "not_triggered":
                 risky += 1
-            devices.append({**record, **status})
+            devices.append(enriched)
+        water_values = [float(r["water20cm"]) for r in records if r.get("water20cm") is not None]
+        avg_water = round(sum(water_values) / len(water_values), 2) if water_values else None
         return {
             "latest_time": latest_time,
             "total_records": len(records),
             "risky_devices": risky,
             "avg_water20cm": avg_water,
             "devices": devices,
-        }
-
-    def _status_for_record(self, record: dict[str, Any]) -> dict[str, str]:
-        water20 = float(record.get("water20cm") or 0)
-        if water20 < 50:
-            return {"soil_status": "heavy_drought", "warning_level": "heavy_drought", "display_label": "重旱"}
-        if water20 >= 150:
-            return {"soil_status": "waterlogging", "warning_level": "waterlogging", "display_label": "涝渍"}
-        return {"soil_status": "not_triggered", "warning_level": "none", "display_label": "未达到预警条件"}
-
-    def _response(self, intent: str, answer_type: str, final_answer: str, session_id: str, turn_id: int, *, should_query: bool = True, input_type: str = "business_direct") -> dict[str, Any]:
-        return {
-            "session_id": session_id,
-            "turn_id": turn_id,
-            "input_type": input_type,
-            "intent": intent,
-            "answer_type": answer_type,
-            "final_answer": final_answer,
-            "should_query": should_query,
-            "status": "ok",
         }

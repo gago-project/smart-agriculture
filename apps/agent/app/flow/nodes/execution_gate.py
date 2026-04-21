@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+from app.flow.nodes.base import BaseNode
+from app.schemas.state import FlowState, NodeResult
+from app.services.execution_gate_service import ExecutionGateService
+
+
+class ExecutionGateNode(BaseNode):
+    def __init__(self, service: ExecutionGateService):
+        super().__init__(
+            "execution_gate",
+            ("clarify_end", "block_end", "shrink_and_continue", "continue"),
+            ("execution_gate_result", "answer_type", "answer_bundle", "business_time", "merged_slots"),
+        )
+        self.service = service
+
+    async def run(self, state: FlowState) -> NodeResult:
+        result = self.service.evaluate(intent=state.intent or "", slots=state.merged_slots, business_time=state.business_time)
+        if result["must_clarify"]:
+            return self.ensure_result(
+                NodeResult(
+                    next_action="clarify_end",
+                    state_patch={
+                        "execution_gate_result": result,
+                        "answer_type": "clarification_answer",
+                        "answer_bundle": {"final_answer": result["clarify_message"]},
+                    },
+                )
+            )
+        if result["blocked"]:
+            return self.ensure_result(
+                NodeResult(
+                    next_action="block_end",
+                    state_patch={
+                        "execution_gate_result": result,
+                        "answer_type": "clarification_answer",
+                        "answer_bundle": {"final_answer": result["block_message"]},
+                    },
+                )
+            )
+        if result["shrink_applied"]:
+            return self.ensure_result(
+                NodeResult(
+                    next_action="shrink_and_continue",
+                    state_patch={
+                        "execution_gate_result": result,
+                        "business_time": result["effective_business_time"],
+                        "merged_slots": result["effective_slots"],
+                    },
+                )
+            )
+        return self.ensure_result(NodeResult(next_action="continue", state_patch={"execution_gate_result": result}))

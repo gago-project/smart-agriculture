@@ -14,5 +14,12 @@ htmlcov
 .coverage
 mysql-data
 redis-data
+infra/mysql/local/*.local.sql
+infra/mysql/local/*.local.sql.gz
+infra/mysql/local/*seed*.sql
+infra/mysql/local/*.local.json
+infra/mysql/local/*.local.xlsx
+!infra/mysql/local/*.sql.example
+!infra/mysql/local/*.json.example
 .npm-cache
 legacy

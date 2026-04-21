@@ -3,8 +3,8 @@
 ## Runtime Services
 
 - `web`: Next.js main platform. It serves pages, Admin entry, Chat UI, Soniox token API, and BFF routes.
-- `agent`: Python FastAPI service. It follows the restricted Flow design in `/Users/mac/Desktop/gago-cloud/plans/4~8`.
-- `mysql`: Isolated `smart_agriculture` schema. It stores soil measurements, import batch, rules, templates, users, and admin logs.
+- `agent`: Python FastAPI service. It follows the restricted Flow design in `${GAGO_CLOUD_ROOT}/plans/4~8`.
+- `mysql`: Isolated `smart_agriculture` schema. It stores soil measurements, import batch, rules, templates, query logs, and admin logs.
 - `redis`: Runtime context/cache service. It must not store full `FlowState`.
 
 ## Service Boundaries
@@ -22,6 +22,7 @@
 - `/api/health`: web health check.
 - `agent:/health`: agent health check.
 - `/api/agent/chat`: web BFF to agent chat.
+- `/api/agent/summary`: web BFF to agent summary.
 
 ## Validation Basis
 

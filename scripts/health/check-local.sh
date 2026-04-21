@@ -2,6 +2,13 @@
 set -euo pipefail
 
 BASE_WEB=${BASE_WEB:-http://localhost:3000}
+HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
+HEALTH_PASSWORD=${HEALTH_PASSWORD:-}
+
+if [ -z "$HEALTH_PASSWORD" ]; then
+  echo "请通过 HEALTH_PASSWORD 提供 ${HEALTH_USERNAME} 的数据库登录密码，脚本不再内置默认密码。"
+  exit 1
+fi
 
 if [ -z "${BASE_AGENT:-}" ]; then
   ROOT_DIR=$(cd "$(dirname "$0")/../.." && pwd)
@@ -30,6 +37,18 @@ echo "[2/3] agent health"
 curl -fsS "$BASE_AGENT/health" | print_json
 
 echo "[3/3] agent chat smoke"
+AUTH_PAYLOAD=$(printf '{"username":"%s","password":"%s"}' "$HEALTH_USERNAME" "$HEALTH_PASSWORD")
+AUTH_RESPONSE=$(curl -fsS -X POST "$BASE_WEB/api/auth/login" \
+  -H 'Content-Type: application/json' \
+  -d "$AUTH_PAYLOAD")
+AUTH_TOKEN=$(printf '%s' "$AUTH_RESPONSE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
+
+if [ -z "$AUTH_TOKEN" ]; then
+  echo "登录失败，未获取到 token"
+  exit 1
+fi
+
 curl -fsS -X POST "$BASE_WEB/api/agent/chat" \
   -H 'Content-Type: application/json' \
-  -d '{"message":"最近墒情怎么样","session_id":"health-check","turn_id":1}' | print_json
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -d '{"question":"最近墒情怎么样","thread_id":"health-check","history":[]}' | print_json

@@ -3,7 +3,7 @@
 ## Start
 
 ```bash
-cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
+cd ${GAGO_CLOUD_ROOT}/code/smart-agriculture
 cp .env.example .env
 # Fill QWEN_API_KEY and SONIOX_API_KEY in .env when available.
 docker compose --env-file .env -f infra/docker/docker-compose.yml up --build
