@@ -448,6 +448,32 @@ class SoilRepository:
         """Async wrapper for latest batch id lookup."""
         return await asyncio.to_thread(self.latest_batch_id)
 
+    def region_alias_rows(self) -> list[dict[str, Any]]:
+        """Return enabled region alias mappings for parser normalization."""
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT alias_name, canonical_name, region_level, parent_city_name, parent_county_name, alias_source
+                    FROM region_alias
+                    WHERE enabled = 1
+                    ORDER BY alias_name ASC, canonical_name ASC
+                    """
+                )
+                return [dict(row) for row in cursor.fetchall()]
+        except Exception as exc:
+            message = str(exc)
+            if "region_alias" in message and ("1146" in message or "doesn't exist" in message):
+                return []
+            raise DatabaseQueryError(f"MySQL 查询地区别名失败，已禁止使用种子数据兜底：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def region_alias_rows_async(self) -> list[dict[str, Any]]:
+        """Async wrapper for region alias lookup."""
+        return await asyncio.to_thread(self.region_alias_rows)
+
     def known_region_names(self) -> set[str]:
         """Return known city/county/town names observed in the fact table."""
         names = set()

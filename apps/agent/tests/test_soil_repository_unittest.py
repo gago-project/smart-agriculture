@@ -17,6 +17,12 @@ class SoilRepositoryPathTest(unittest.TestCase):
         with patch.object(repository, "_connect", return_value=EmptyResultConnection()):
             self.assertEqual(repository.filter_records(), [])
 
+    def test_missing_region_alias_table_returns_empty_alias_rows(self):
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        with patch.object(repository, "_connect", return_value=MissingRegionAliasConnection()):
+            self.assertEqual(repository.region_alias_rows(), [])
+
 
 class EmptyResultCursor:
     def __enter__(self):
@@ -38,6 +44,32 @@ class EmptyResultConnection:
 
     def cursor(self):
         return EmptyResultCursor()
+
+    def close(self):
+        self.closed = True
+
+
+class MissingRegionAliasCursor:
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql, params=None):
+        del sql, params
+        raise Exception("(1146, \"Table 'smart_agriculture.region_alias' doesn't exist\")")
+
+    def fetchall(self):
+        return []
+
+
+class MissingRegionAliasConnection:
+    def __init__(self):
+        self.closed = False
+
+    def cursor(self):
+        return MissingRegionAliasCursor()
 
     def close(self):
         self.closed = True

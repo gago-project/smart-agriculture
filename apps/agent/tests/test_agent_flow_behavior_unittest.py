@@ -1,12 +1,13 @@
 import unittest
 
+from app.llm.qwen_client import QwenClient
 from app.services.agent_service import SoilAgentService
 from support_repositories import SeedSoilRepository
 
 
 class AgentFlowBehaviorTest(unittest.TestCase):
     def setUp(self):
-        self.service = SoilAgentService(repository=SeedSoilRepository())
+        self.service = SoilAgentService(repository=SeedSoilRepository(), qwen_client=QwenClient(api_key=""))
 
     def test_recent_summary_should_use_last_7_days_window(self):
         result = self.service.chat("最近墒情怎么样", session_id="summary", turn_id=1)

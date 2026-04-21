@@ -20,6 +20,20 @@ class InMemoryRedis:
         self.store.pop(key, None)
 
 
+class FailingRedis:
+    async def get(self, key: str) -> str | None:
+        del key
+        raise ConnectionError("redis down")
+
+    async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        del key, value, ex
+        raise ConnectionError("redis down")
+
+    async def delete(self, key: str) -> None:
+        del key
+        raise ConnectionError("redis down")
+
+
 class SessionContextRepositoryTest(unittest.TestCase):
     def test_save_turn_context_keeps_latest_five_turns_and_cas(self) -> None:
         async def run_case() -> None:
@@ -54,6 +68,25 @@ class SessionContextRepositoryTest(unittest.TestCase):
             self.assertEqual([item["turn_id"] for item in recent], [3, 4, 5, 6, 7])
             self.assertEqual(recent[-1]["region"]["county_name"], "区域-7")
             self.assertNotEqual(recent[0]["region"]["county_name"], "旧区域")
+
+        asyncio.run(run_case())
+
+    def test_redis_connection_failure_should_fallback_to_empty_context(self) -> None:
+        async def run_case() -> None:
+            repository = SessionContextRepository(redis_client=FailingRedis())
+            recent = await repository.load_recent_context("session-1")
+            self.assertEqual(recent, [])
+            await repository.save_turn_context(
+                session_id="session-1",
+                turn_id=1,
+                turn_context={
+                    "domain": "soil_moisture",
+                    "region": {"county_name": "如东县"},
+                    "time_window": "last_7_days",
+                    "entity_reference": {"county_name": "如东县"},
+                    "last_intent": "soil_recent_summary",
+                },
+            )
 
         asyncio.run(run_case())
 

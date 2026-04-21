@@ -14,6 +14,8 @@ from typing import Any
 
 from app.llm.qwen_client import QwenClient
 from app.repositories.soil_repository import SoilRepository
+from app.schemas.enums import AnswerType, IntentType
+from app.services.region_service import RegionAliasResolver
 
 
 DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
@@ -37,6 +39,7 @@ class IntentSlotService:
         """Keep repository access for known-region matching and optional Qwen."""
         self.repository = repository
         self.qwen_client = qwen_client
+        self.region_alias_resolver = RegionAliasResolver(repository)
 
     async def parse(self, user_input: str, session_id: str) -> ParseResult:
         """Return a single best intent, answer type, and slot dictionary."""
@@ -52,17 +55,11 @@ class IntentSlotService:
         if date_match:
             slots["target_date"] = date_match.group(1)
 
-        for region_name in await self.repository.known_region_names_async():
-            # Region resolution is conservative: the first known city/county/
-            # town name found in the input becomes the explicit region slot.
-            if region_name and region_name in text:
-                if region_name.endswith("市"):
-                    slots["city_name"] = region_name
-                elif region_name.endswith("县") or region_name.endswith("区"):
-                    slots["county_name"] = region_name
-                else:
-                    slots["town_name"] = region_name
-                break
+        region_resolution = await self.region_alias_resolver.resolve_from_text(text)
+        if region_resolution["status"] == "matched":
+            slots.update(region_resolution["slots"])
+        elif region_resolution["status"] == "ambiguous":
+            return ParseResult("clarification_needed", "clarification_answer", slots)
 
         if "乡镇" in text and "town_name" not in slots:
             candidate = text.split("乡镇")[0]
@@ -148,6 +145,13 @@ class IntentSlotService:
         slots = result.get("slots")
         if not isinstance(intent, str) or not isinstance(answer_type, str) or not isinstance(slots, dict):
             return None
+        if intent not in {item.value for item in IntentType}:
+            return None
+        if answer_type not in {item.value for item in AnswerType}:
+            return None
+        slots = await self.region_alias_resolver.normalize_slots(slots)
+        if slots.get("_region_resolution_status") == "ambiguous":
+            return ParseResult("clarification_needed", "clarification_answer", {})
         return ParseResult(intent, answer_type, slots)
 
     def _parse_time_range(self, text: str) -> str:

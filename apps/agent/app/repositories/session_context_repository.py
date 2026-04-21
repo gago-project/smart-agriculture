@@ -43,7 +43,10 @@ class SessionContextRepository:
 
     async def load_recent_context(self, session_id: str) -> list[dict[str, Any]]:
         """Load the most recent five business turns for a session."""
-        raw = await self.redis_client.get(self._key(session_id))
+        try:
+            raw = await self.redis_client.get(self._key(session_id))
+        except Exception:
+            return []
         if not raw:
             return []
         snapshot = json.loads(raw)
@@ -52,7 +55,10 @@ class SessionContextRepository:
     async def save_turn_context(self, session_id: str, turn_id: int, turn_context: dict[str, Any]) -> None:
         """Save one verified business turn with turn-id ordering protection."""
         key = self._key(session_id)
-        raw = await self.redis_client.get(key)
+        try:
+            raw = await self.redis_client.get(key)
+        except Exception:
+            return
         snapshot = json.loads(raw) if raw else {"latest_business_turns": []}
         turns = list(snapshot.get("latest_business_turns", []))
         latest_turn_id = max([item.get("turn_id", 0) for item in turns], default=0)
@@ -71,11 +77,17 @@ class SessionContextRepository:
         turns = [item for item in turns if item.get("turn_id") != turn_id]
         turns.append(filtered)
         turns = sorted(turns, key=lambda item: item.get("turn_id", 0))[-5:]
-        await self.redis_client.set(key, json.dumps({"latest_business_turns": turns}, ensure_ascii=False), ex=self.ttl_seconds)
+        try:
+            await self.redis_client.set(key, json.dumps({"latest_business_turns": turns}, ensure_ascii=False), ex=self.ttl_seconds)
+        except Exception:
+            return
 
     async def clear_context(self, session_id: str) -> None:
         """Clear all remembered context for a session."""
-        await self.redis_client.delete(self._key(session_id))
+        try:
+            await self.redis_client.delete(self._key(session_id))
+        except Exception:
+            return
 
     def _key(self, session_id: str) -> str:
         """Build the Redis key namespace for chat-session context."""

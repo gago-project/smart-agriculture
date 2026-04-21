@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import unittest
 
-from app.repositories.soil_repository import SoilRepository
 from app.services.intent_slot_service import IntentSlotService
 from app.services.response_service import ResponseService
 from app.services.template_service import TemplateService
@@ -26,14 +25,42 @@ class FakeQwenClient:
         return "这是来自千问受控生成的回答。"
 
 
+class FakeInvalidQwenClient(FakeQwenClient):
+    async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        del user_input, session_id
+        return {
+            "intent": "查询土壤墒情异常",
+            "answer_type": "详情回答",
+            "slots": {},
+        }
+
+
+class FakeRegionRepository:
+    async def region_alias_rows_async(self):
+        return []
+
+    async def known_region_names_async(self):
+        return set()
+
+
 class LlmTemplateContractTest(unittest.TestCase):
     def test_intent_slot_service_can_use_qwen_result(self) -> None:
         async def run_case() -> None:
-            service = IntentSlotService(repository=SoilRepository(), qwen_client=FakeQwenClient())
+            service = IntentSlotService(repository=FakeRegionRepository(), qwen_client=FakeQwenClient())
             result = await service.parse("最近墒情怎么样", "session-1")
             self.assertEqual(result.intent, "soil_recent_summary")
             self.assertEqual(result.answer_type, "soil_summary_answer")
             self.assertEqual(result.slots["time_range"], "last_7_days")
+
+        asyncio.run(run_case())
+
+    def test_intent_slot_service_rejects_invalid_qwen_enum_and_falls_back(self) -> None:
+        async def run_case() -> None:
+            service = IntentSlotService(repository=FakeRegionRepository(), qwen_client=FakeInvalidQwenClient())
+            result = await service.parse("SNS00204333 最近有没有异常", "session-1")
+            self.assertEqual(result.intent, "soil_device_query")
+            self.assertEqual(result.answer_type, "soil_detail_answer")
+            self.assertEqual(result.slots["device_sn"], "SNS00204333")
 
         asyncio.run(run_case())
 
@@ -55,7 +82,7 @@ class LlmTemplateContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
     def test_template_service_renders_with_jinja_templates(self) -> None:
-        service = TemplateService(repository=SoilRepository())
+        service = TemplateService(repository=FakeRegionRepository())
         result = service.render(
             answer_type="soil_warning_answer",
             query_result={"records": [{"sample_time": "2026-04-21 09:00:00", "city_name": "南京市", "county_name": "玄武区", "device_sn": "SNS00204333", "water20cm": 44, "display_label": "重旱"}]},

@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from app.repositories.soil_repository import DEFAULT_WARNING_TEMPLATE_TEXT, SoilRepository, _evaluate_record_status
+from app.services.region_service import build_generated_region_alias_rows
 
 
 FACT_INSERT_RE = re.compile(
@@ -76,6 +77,7 @@ class SeedSoilRepository(SoilRepository):
     def __init__(self) -> None:
         super().__init__()
         self.records = _load_seed_records()
+        self.extra_region_aliases: list[dict[str, Any]] = []
 
     def _connect(self):
         return None
@@ -126,3 +128,9 @@ class SeedSoilRepository(SoilRepository):
 
     def warning_template_text(self) -> str:
         return DEFAULT_WARNING_TEMPLATE_TEXT
+
+    def region_alias_rows(self) -> list[dict[str, Any]]:
+        return [*build_generated_region_alias_rows(self.records), *self.extra_region_aliases]
+
+    async def region_alias_rows_async(self) -> list[dict[str, Any]]:
+        return self.region_alias_rows()
