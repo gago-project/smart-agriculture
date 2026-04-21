@@ -101,7 +101,7 @@ export async function listSoilRecords(query) {
       `SELECT COUNT(*) AS total FROM fact_soil_moisture ${whereClause}`,
       params,
     );
-    const [rows] = await connection.execute(
+    const [rows] = await connection.query(
       `SELECT
          record_id,
          device_sn,
