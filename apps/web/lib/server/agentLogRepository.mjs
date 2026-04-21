@@ -76,7 +76,29 @@ export async function listAgentQueryLogs(query) {
       params,
     );
 
-    const [rows] = await connection.query(
+    const [pageRows] = await connection.query(
+      `SELECT query_id
+       FROM agent_query_log
+       ${whereClause}
+       ORDER BY created_at DESC
+       LIMIT ${pageSize} OFFSET ${offset}`,
+      params,
+    );
+
+    const total = Number(countRows[0]?.total || 0);
+    const pageIds = pageRows.map((row) => row.query_id).filter(Boolean);
+    if (pageIds.length === 0) {
+      return {
+        rows: [],
+        total,
+        page,
+        page_size: pageSize,
+        total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+      };
+    }
+
+    const detailPlaceholders = pageIds.map(() => '?').join(', ');
+    const [detailRows] = await connection.query(
       `SELECT
          query_id,
          session_id,
@@ -100,15 +122,13 @@ export async function listAgentQueryLogs(query) {
          executed_result_json,
          source_files_json
        FROM agent_query_log
-       ${whereClause}
-       ORDER BY created_at DESC
-       LIMIT ${pageSize} OFFSET ${offset}`,
-      params,
+       WHERE query_id IN (${detailPlaceholders})`,
+      pageIds,
     );
 
-    const total = Number(countRows[0]?.total || 0);
+    const rowsById = new Map(detailRows.map((row) => [row.query_id, row]));
     return {
-      rows: rows.map(fromDbLog),
+      rows: pageIds.map((queryId) => rowsById.get(queryId)).filter(Boolean).map(fromDbLog),
       total,
       page,
       page_size: pageSize,

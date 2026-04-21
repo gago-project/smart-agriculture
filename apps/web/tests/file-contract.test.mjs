@@ -70,6 +70,14 @@ test('developer log filters use selects and keep the table focused on rows', () 
   assert.doesNotMatch(pageSource, /agent-log-detail/);
 });
 
+test('query log repository pages ids before loading wide log fields', () => {
+  const source = readFileSync(new URL('../lib/server/agentLogRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(source, /SELECT\s+query_id\s+FROM agent_query_log[\s\S]*ORDER BY created_at DESC[\s\S]*LIMIT/);
+  assert.match(source, /WHERE query_id IN \(\$\{detailPlaceholders\}\)/);
+  assert.doesNotMatch(source, /SELECT[\s\S]*executed_result_json[\s\S]*FROM agent_query_log[\s\S]*ORDER BY created_at DESC/);
+});
+
 test('agent summary route must surface upstream errors instead of fake fallback data', () => {
   const source = readFileSync(new URL('../app/api/agent/summary/route.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /待连接/);
