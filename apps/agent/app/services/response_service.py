@@ -57,22 +57,16 @@ class ResponseService:
         unavailable, slow, or returns invalid JSON, the deterministic answer is
         returned unchanged so the agent remains stable in offline/local Docker.
         """
-        del intent
-        records = rule_result.get("evaluated_records") or query_result.get("records") or []
-        if answer_type == "soil_summary_answer":
-            fallback_answer = self._summary_answer(records, slots, business_time)
-        elif answer_type == "soil_ranking_answer":
-            fallback_answer = self._ranking_answer(records, query_result)
-        elif answer_type == "soil_detail_answer":
-            fallback_answer = self._detail_answer(records, slots)
-        elif answer_type == "soil_anomaly_answer":
-            fallback_answer = self._anomaly_answer(records)
-        elif answer_type == "soil_warning_answer":
-            fallback_answer = self._warning_answer(records, template_result, advice_result, slots)
-        elif answer_type == "soil_advice_answer":
-            fallback_answer = advice_result.get("advice_text", "当前暂无可用建议，请先确认查询对象和时间范围。")
-        else:
-            fallback_answer = "当前未能生成结构化回答，已切换到安全兜底。"
+        fallback_answer = self.build_deterministic_answer(
+            intent=intent,
+            answer_type=answer_type,
+            query_result=query_result,
+            rule_result=rule_result,
+            template_result=template_result,
+            advice_result=advice_result,
+            slots=slots,
+            business_time=business_time,
+        ) or "当前未能生成结构化回答，已切换到安全兜底。"
 
         qwen_answer = await self._try_qwen_answer(
             answer_type=answer_type,
@@ -85,6 +79,39 @@ class ResponseService:
             },
         )
         return {"final_answer": qwen_answer or fallback_answer}
+
+    def build_deterministic_answer(
+        self,
+        *,
+        intent: str,
+        answer_type: str,
+        query_result: dict[str, Any],
+        rule_result: dict[str, Any],
+        template_result: dict[str, Any],
+        advice_result: dict[str, Any],
+        slots: dict[str, Any],
+        business_time: dict[str, Any],
+    ) -> str | None:
+        """Build a deterministic answer without any LLM usage.
+
+        Returning `None` means the current state does not yet contain enough
+        structured data to synthesize a meaningful answer.
+        """
+        del intent
+        records = rule_result.get("evaluated_records") or query_result.get("records") or []
+        if answer_type == "soil_summary_answer" and records:
+            return self._summary_answer(records, slots, business_time)
+        if answer_type == "soil_ranking_answer" and records:
+            return self._ranking_answer(records, query_result)
+        if answer_type == "soil_detail_answer" and records:
+            return self._detail_answer(records, slots)
+        if answer_type == "soil_anomaly_answer" and records:
+            return self._anomaly_answer(records)
+        if answer_type == "soil_warning_answer" and (template_result.get("rendered_text") or records):
+            return self._warning_answer(records, template_result, advice_result, slots)
+        if answer_type == "soil_advice_answer" and advice_result.get("advice_text"):
+            return advice_result.get("advice_text")
+        return None
 
     def _summary_answer(self, records: list[dict[str, Any]], slots: dict[str, Any], business_time: dict[str, Any]) -> str:
         """Summarize the current scope using only returned MySQL records."""

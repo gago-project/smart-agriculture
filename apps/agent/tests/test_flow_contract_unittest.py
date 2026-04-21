@@ -2,19 +2,19 @@ import asyncio
 import unittest
 
 from app.flow.routes import ROUTES
+from app.flow.nodes.fallback_guard import FallbackGuardNode
 from app.flow.runner import FlowRunner, RouteRegistry
 from app.repositories.soil_repository import DatabaseUnavailableError
 from app.schemas.state import FlowState, NodeResult
 
 
 class StaticNode:
-    allowed_patch_fields = ("answer_bundle",)
-
-    def __init__(self, action, patch=None, *, name="static", allowed_next_actions=None):
+    def __init__(self, action, patch=None, *, name="static", allowed_next_actions=None, allowed_patch_fields=None):
         self.action = action
         self.patch = patch or {}
         self.name = name
         self.allowed_next_actions = allowed_next_actions or (action,)
+        self.allowed_patch_fields = allowed_patch_fields or ("answer_bundle",)
 
     async def run(self, state):
         return NodeResult(next_action=self.action, state_patch=self.patch)
@@ -28,6 +28,16 @@ class DatabaseFailingNode:
     async def run(self, state):
         del state
         raise DatabaseUnavailableError("mysql down")
+
+
+class ExplodingNode:
+    name = "response_generate"
+    allowed_next_actions = ("fallback",)
+    allowed_patch_fields = ()
+
+    async def run(self, state):
+        del state
+        raise RuntimeError("boom")
 
 
 class FlowContractTest(unittest.TestCase):
@@ -121,6 +131,49 @@ class FlowContractTest(unittest.TestCase):
 
         self.assertEqual(final_state.final_status, "fallback_end")
         self.assertEqual(final_state.answer_bundle["final_answer"], "safe fallback")
+
+    def test_failed_node_after_query_uses_data_backed_fallback(self):
+        async def run_case():
+            nodes = {
+                "input_guard": StaticNode(
+                    "continue",
+                    {
+                        "answer_type": "soil_detail_answer",
+                        "merged_slots": {"device_sn": "SNS00204333"},
+                        "query_result": {
+                            "records": [
+                                {
+                                    "device_sn": "SNS00204333",
+                                    "sample_time": "2026-04-21 10:00:00",
+                                    "city_name": "南京市",
+                                    "county_name": "江宁区",
+                                    "water20cm": 42,
+                                    "display_label": "重旱",
+                                }
+                            ]
+                        },
+                    },
+                    name="input_guard",
+                    allowed_patch_fields=("answer_type", "merged_slots", "query_result"),
+                ),
+                "response_generate": ExplodingNode(),
+                "fallback_guard": FallbackGuardNode(),
+            }
+            routes = RouteRegistry(
+                {
+                    "input_guard": {"continue": "response_generate"},
+                    "response_generate": {"fallback": "fallback_guard"},
+                    "fallback_guard": {"fallback_end": "fallback_end"},
+                }
+            )
+            runner = FlowRunner(nodes=nodes, routes=routes, entrypoint="input_guard", terminals={"fallback_end"})
+            return await runner.run(FlowState(request_id="r1", session_id="s1", turn_id=1, user_input="x"))
+
+        final_state = asyncio.run(run_case())
+
+        self.assertEqual(final_state.final_status, "fallback_end")
+        self.assertIn("SNS00204333", final_state.answer_bundle["final_answer"])
+        self.assertNotIn("当前请求处理过程中出现异常", final_state.answer_bundle["final_answer"])
 
     def test_route_registry_rejects_node_action_mismatch(self):
         node = StaticNode("continue", name="input_guard", allowed_next_actions=("continue", "fallback"))

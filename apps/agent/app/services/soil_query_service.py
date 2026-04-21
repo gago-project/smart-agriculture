@@ -68,9 +68,7 @@ class SoilQueryService:
         }
         group_by = [slots["aggregation"]] if slots.get("aggregation") else None
         order_by = ["soil_anomaly_score DESC"] if query_type == "severity_ranking" else ["sample_time DESC"]
-        # Summary queries intentionally keep all matching records because they
-        # need accurate totals/averages.  Other query types can be limited.
-        limit_size = None if query_type == "recent_summary" else int(slots.get("top_n") or 20)
+        limit_size = None
         return {
             "query_type": query_type,
             "sql_template": sql_template,
@@ -158,7 +156,7 @@ class SoilQueryService:
                 "executed_sql_text": executed_sql_text,
             }
         if query_type in {"region_detail", "device_detail", "latest_record", "anomaly_list"}:
-            return {"records": records[:20], "executed_sql_text": executed_sql_text}
+            return {"records": records, "executed_sql_text": executed_sql_text}
         return {"records": records, "executed_sql_text": executed_sql_text}
 
     def build_query_log_entry(self, *, state, query_plan: dict[str, Any], query_result: dict[str, Any]) -> dict[str, Any]:

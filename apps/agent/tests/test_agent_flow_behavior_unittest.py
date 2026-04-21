@@ -38,13 +38,13 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["business_time"].get("time_basis"), "latest_business_time")
         self.assertEqual(result["query_plan"].get("time_range", {}).get("mode"), "latest_business_time")
 
-    def test_top_100_ranking_should_clarify_before_query(self):
+    def test_top_100_ranking_should_query_without_clarify(self):
         result = self.service.chat("给我前100个最严重设备", session_id="rank", turn_id=1)
 
-        self.assertEqual(result["answer_type"], "clarification_answer")
-        self.assertFalse(result["should_query"])
-        self.assertIn("前 20", result["final_answer"])
-        self.assertEqual(result["execution_gate_result"].get("decision"), "clarify")
+        self.assertEqual(result["answer_type"], "soil_ranking_answer")
+        self.assertTrue(result["should_query"])
+        self.assertEqual(result["execution_gate_result"].get("decision"), "pass")
+        self.assertEqual(result["query_plan"].get("query_type"), "severity_ranking")
 
     def test_unknown_region_should_return_fallback(self):
         result = self.service.chat("XX乡镇最近怎么样", session_id="fb", turn_id=1)
@@ -71,14 +71,14 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertFalse(result["should_query"])
         self.assertEqual(result["intent"], "out_of_scope")
 
-    def test_all_devices_trend_should_block_before_query(self):
+    def test_all_devices_trend_should_query_without_block(self):
         result = self.service.chat("查所有设备最近90天趋势", session_id="gate", turn_id=1)
 
         self.assertEqual(result["intent"], "soil_device_query")
-        self.assertEqual(result["answer_type"], "clarification_answer")
-        self.assertFalse(result["should_query"])
-        self.assertEqual(result["execution_gate_result"].get("decision"), "block")
-        self.assertEqual(result["query_plan"], {})
+        self.assertEqual(result["answer_type"], "soil_detail_answer")
+        self.assertTrue(result["should_query"])
+        self.assertEqual(result["execution_gate_result"].get("decision"), "pass")
+        self.assertEqual(result["query_plan"].get("query_type"), "device_detail")
 
     def test_warning_strict_mode_should_keep_template_body(self):
         result = self.service.chat("按模板输出 SNS00204333 最新预警", session_id="warn", turn_id=1)
