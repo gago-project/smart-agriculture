@@ -177,6 +177,34 @@ test('authoritative agent plan includes query log request and routing context fi
   assert.doesNotMatch(planSource, /result_preview_json/i);
 });
 
+test('agent region alias design document exists under apps plans', () => {
+  const readmeSource = readFileSync(new URL('../../agent/plans/1/README.md', import.meta.url), 'utf8');
+  const mainPlanSource = readFileSync(
+    new URL('../../agent/plans/1/1.2026-04-20-soil-moisture-agent-plan.md', import.meta.url),
+    'utf8',
+  );
+  const matrixSource = readFileSync(
+    new URL('../../agent/plans/1/3.2026-04-20-soil-moisture-agent-task16-test-matrix.md', import.meta.url),
+    'utf8',
+  );
+  const planSource = readFileSync(
+    new URL('../../agent/plans/1/9.2026-04-22-soil-region-alias-resolution-design.md', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(readmeSource, /9\.2026-04-22-soil-region-alias-resolution-design\.md/);
+  assert.match(mainPlanSource, /region_alias/);
+  assert.match(mainPlanSource, /唯一高置信/);
+  assert.match(matrixSource, /南京最近一个月的数据/);
+  assert.match(matrixSource, /苏洲最近一个月的数据/);
+  assert.match(matrixSource, /新区最近怎么样/);
+  assert.match(planSource, /地区别名补全与模糊匹配设计/);
+  assert.match(planSource, /南京[\s\S]*南京市/);
+  assert.match(planSource, /静态种子/);
+  assert.match(planSource, /多候选/);
+  assert.match(planSource, /一编辑距离/);
+});
+
 test('agent summary route must surface upstream errors instead of fake fallback data', () => {
   const source = readFileSync(new URL('../app/api/agent/summary/route.ts', import.meta.url), 'utf8');
   assert.doesNotMatch(source, /待连接/);

@@ -87,6 +87,21 @@ CREATE TABLE IF NOT EXISTS warning_template (
   updated_at DATETIME NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS region_alias (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  alias_name VARCHAR(64) NOT NULL,
+  canonical_name VARCHAR(64) NOT NULL,
+  region_level VARCHAR(16) NOT NULL,
+  parent_city_name VARCHAR(64) NULL,
+  parent_county_name VARCHAR(64) NULL,
+  alias_source VARCHAR(32) NOT NULL,
+  enabled TINYINT NOT NULL DEFAULT 1,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_region_alias_mapping (alias_name, canonical_name, region_level, enabled),
+  KEY idx_region_alias_lookup (enabled, alias_name, region_level)
+);
+
 CREATE TABLE IF NOT EXISTS auth_user (
   id BIGINT PRIMARY KEY AUTO_INCREMENT,
   username VARCHAR(64) NOT NULL,

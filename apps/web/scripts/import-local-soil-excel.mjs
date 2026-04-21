@@ -4,6 +4,7 @@ import { basename, dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { withMysqlConnection } from '../lib/server/mysql.mjs';
+import { buildRegionAliasRows, upsertRegionAliasRows } from '../lib/server/regionAliasSeed.mjs';
 import { parseSoilWorkbookBuffer } from '../lib/server/soilImport.mjs';
 
 const scriptDir = dirname(fileURLToPath(import.meta.url));
@@ -167,6 +168,7 @@ async function main() {
   const sourceName = 'local_excel_import';
   const batchNote = 'Loaded from local Excel source via apps/web/scripts/import-local-soil-excel.mjs';
   let loadedRows = 0;
+  let aliasRows = 0;
 
   await withMysqlConnection(async (connection) => {
     await connection.execute(
@@ -191,6 +193,7 @@ async function main() {
          WHERE batch_id = ?`,
         [loadedRows, batchNote, batchId],
       );
+      aliasRows = await upsertRegionAliasRows(connection, buildRegionAliasRows(parsed.records));
     } catch (error) {
       try {
         await connection.rollback();
@@ -212,6 +215,7 @@ async function main() {
       filename,
       raw_rows: parsed.raw_rows,
       loaded_rows: loadedRows,
+      region_alias_rows: aliasRows,
       source: process.env.SOIL_EXCEL_SOURCE ? 'SOIL_EXCEL_SOURCE' : 'infra/mysql/local/soil_data.local.xlsx',
     }),
   );

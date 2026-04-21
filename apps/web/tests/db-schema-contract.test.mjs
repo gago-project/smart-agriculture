@@ -11,6 +11,7 @@ test('mysql core tables strictly follow plans', () => {
     'metric_rule',
     'admin_change_log',
     'warning_template',
+    'region_alias',
     'agent_query_log',
     'auth_user',
     'auth_session',
@@ -21,6 +22,17 @@ test('mysql core tables strictly follow plans', () => {
   for (const forbidden of ['users', 'soil_devices', 'soil_alert_templates']) {
     assert.doesNotMatch(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${forbidden}\\b`));
   }
+});
+
+test('region_alias table supports generated aliases and ambiguous mappings', () => {
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS region_alias/i);
+  assert.match(sql, /alias_name\s+VARCHAR\(64\)\s+NOT NULL/i);
+  assert.match(sql, /canonical_name\s+VARCHAR\(64\)\s+NOT NULL/i);
+  assert.match(sql, /region_level\s+VARCHAR\(16\)\s+NOT NULL/i);
+  assert.match(sql, /parent_city_name\s+VARCHAR\(64\)\s+NULL/i);
+  assert.match(sql, /alias_source\s+VARCHAR\(32\)\s+NOT NULL/i);
+  assert.match(sql, /UNIQUE KEY uk_region_alias_mapping/i);
+  assert.match(sql, /KEY idx_region_alias_lookup/i);
 });
 
 test('fact_soil_moisture uses plan column names', () => {

@@ -58,6 +58,24 @@ test('full soil data sql seeds import batch and fact rows idempotently', () => {
   assert.match(insertSql, /145066/);
 });
 
+test('full soil data sql includes static region alias seed generated from facts', () => {
+  const insertSql = read('infra/mysql/init/003_insert_soil_data.sql');
+
+  assert.match(insertSql, /BEGIN GENERATED REGION_ALIAS SEED/i);
+  assert.match(insertSql, /INSERT INTO region_alias/i);
+  assert.match(insertSql, /'南京'\s*,\s*'南京市'\s*,\s*'city'/);
+  assert.match(insertSql, /'如东'\s*,\s*'如东县'\s*,\s*'county'/);
+  assert.match(insertSql, /ON DUPLICATE KEY UPDATE/i);
+});
+
+test('region alias seed generator exists for refreshing static init sql', () => {
+  const script = read('apps/web/scripts/generate-region-alias-seed.mjs');
+
+  assert.match(script, /fact_soil_moisture/i);
+  assert.match(script, /region_alias/i);
+  assert.match(script, /alias_source/i);
+});
+
 test('local-only auth seed template is outside docker init execution path', () => {
   assert.equal(existsSync(new URL('README.md', localDir)), true);
   assert.equal(existsSync(new URL('seed_auth_users.local.sql.example', localDir)), true);
