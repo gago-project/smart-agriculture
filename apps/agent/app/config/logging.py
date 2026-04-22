@@ -1,6 +1,7 @@
+"""Logging setup for the Agent process."""
+
 from __future__ import annotations
 
-"""Logging setup for the Agent process."""
 
 import logging
 

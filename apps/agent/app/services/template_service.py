@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Template renderer for formal soil warning text.
 
 This service owns Jinja2 template rendering only.  It does not decide whether a
 warning should be issued; that decision is already made by the rule engine.
 Keeping rendering separate makes strict template tests easier to reason about.
 """
+
+from __future__ import annotations
+
 
 from pathlib import Path
 

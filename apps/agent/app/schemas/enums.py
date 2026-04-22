@@ -1,9 +1,12 @@
+"""Schema definitions for enums within the soil agent."""
+
 from __future__ import annotations
 
 from enum import StrEnum
 
 
 class InputType(StrEnum):
+    """Supported input categories recognized by the soil agent."""
     BUSINESS_DIRECT = "business_direct"
     BUSINESS_COLLOQUIAL = "business_colloquial"
     GREETING = "greeting"
@@ -14,6 +17,7 @@ class InputType(StrEnum):
 
 
 class IntentType(StrEnum):
+    """Supported business intents recognized by the soil agent."""
     SOIL_RECENT_SUMMARY = "soil_recent_summary"
     SOIL_SEVERITY_RANKING = "soil_severity_ranking"
     SOIL_REGION_QUERY = "soil_region_query"
@@ -27,6 +31,7 @@ class IntentType(StrEnum):
 
 
 class AnswerType(StrEnum):
+    """Supported answer types returned by the soil agent."""
     SAFE_HINT = "safe_hint_answer"
     CLARIFICATION = "clarification_answer"
     BOUNDARY = "boundary_answer"

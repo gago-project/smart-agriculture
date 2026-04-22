@@ -1,6 +1,7 @@
+"""Redis runtime wrapper for Agent conversation memory."""
+
 from __future__ import annotations
 
-"""Redis runtime wrapper for Agent conversation memory."""
 
 
 class RedisRuntime:

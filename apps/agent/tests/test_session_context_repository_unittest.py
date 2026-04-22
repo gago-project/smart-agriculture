@@ -1,3 +1,5 @@
+"""Unit tests for session context repository."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,35 +9,46 @@ from app.repositories.session_context_repository import SessionContextRepository
 
 
 class InMemoryRedis:
+    """Test double for in memory redis."""
     def __init__(self) -> None:
+        """Initialize the in memory redis."""
         self.store: dict[str, str] = {}
 
     async def get(self, key: str) -> str | None:
+        """Handle get on the in memory redis."""
         return self.store.get(key)
 
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        """Handle set on the in memory redis."""
         self.store[key] = value
 
     async def delete(self, key: str) -> None:
+        """Handle delete on the in memory redis."""
         self.store.pop(key, None)
 
 
 class FailingRedis:
+    """Test double for failing redis."""
     async def get(self, key: str) -> str | None:
+        """Handle get on the failing redis."""
         del key
         raise ConnectionError("redis down")
 
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
+        """Handle set on the failing redis."""
         del key, value, ex
         raise ConnectionError("redis down")
 
     async def delete(self, key: str) -> None:
+        """Handle delete on the failing redis."""
         del key
         raise ConnectionError("redis down")
 
 
 class SessionContextRepositoryTest(unittest.TestCase):
+    """Test cases for session context repository."""
     def test_save_turn_context_keeps_latest_five_turns_and_cas(self) -> None:
+        """Verify save turn context keeps latest five turns and cas."""
         async def run_case() -> None:
             repository = SessionContextRepository(redis_client=InMemoryRedis())
             for turn_id in range(1, 8):
@@ -72,6 +85,7 @@ class SessionContextRepositoryTest(unittest.TestCase):
         asyncio.run(run_case())
 
     def test_redis_connection_failure_should_fallback_to_empty_context(self) -> None:
+        """Verify redis connection failure should fallback to empty context."""
         async def run_case() -> None:
             repository = SessionContextRepository(redis_client=FailingRedis())
             recent = await repository.load_recent_context("session-1")

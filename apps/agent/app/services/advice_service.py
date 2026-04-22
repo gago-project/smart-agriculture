@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Conservative management-advice composer.
 
 Advice text is intentionally generic and cautious.  It can reference verified
 query/rule facts, but it should not become the source of factual conclusions.
 That boundary keeps "事实题" and "建议题" from contaminating each other.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """FastAPI application entrypoint for the Python Soil Moisture Agent.
 
 This file intentionally stays small: it wires logging once, creates the
@@ -7,6 +5,9 @@ FastAPI app, and mounts the routers that expose health, chat, and debug
 capabilities.  Business flow logic lives in `services/agent_service.py` and
 the `flow/` package so that startup concerns do not mix with agent reasoning.
 """
+
+from __future__ import annotations
+
 
 from fastapi import FastAPI
 

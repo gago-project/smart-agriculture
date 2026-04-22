@@ -1,3 +1,5 @@
+"""Restricted Flow node implementation for response generate."""
+
 from __future__ import annotations
 
 from app.flow.nodes.base import BaseNode
@@ -6,11 +8,14 @@ from app.services.response_service import ResponseService
 
 
 class ResponseGenerateNode(BaseNode):
+    """Flow node for the response generate stage."""
     def __init__(self, service: ResponseService):
+        """Initialize the response generate node."""
         super().__init__("response_generate", ("continue",), ("answer_bundle",))
         self.service = service
 
     async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
         answer_bundle = await self.service.generate(
             intent=state.intent or "",
             answer_type=state.answer_type or "",

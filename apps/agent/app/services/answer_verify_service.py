@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Final answer verifier for the restricted Flow.
 
 `FactCheckService` validates consistency against data.  This service performs
 the final product-level sanity check before `verified_end`, such as ensuring
 clarification answers actually ask the user to provide missing information.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

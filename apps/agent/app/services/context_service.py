@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Conversation context merge and persistence policy.
 
 Only business context is allowed to flow between turns.  The service may
@@ -7,6 +5,9 @@ inherit region, device, and time-window hints for clear follow-up questions,
 but it never inherits previous factual conclusions, rankings, or forecast-like
 outputs.  This prevents multi-turn memory from polluting new data queries.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

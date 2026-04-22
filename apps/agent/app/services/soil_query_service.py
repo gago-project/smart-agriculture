@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Query planning and execution service for soil data access.
 
 This layer turns resolved Flow state into one of the fixed SQL templates from
@@ -7,6 +5,9 @@ the plans.  It does not generate arbitrary SQL.  The repository remains the
 only place that actually talks to MySQL; this service mainly translates intents
 into query-plan dictionaries and standardized query-log records.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

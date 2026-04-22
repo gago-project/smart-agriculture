@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Execution policy gate for expensive or unsafe data requests.
 
 The gate runs after time/region resolution and before SQL execution.  Its job
@@ -7,6 +5,9 @@ is to either pass, ask for clarification, block, or shrink a request.  This is
 where we keep hard product limits so downstream query code can stay simple and
 does not need to second-guess user scope.
 """
+
+from __future__ import annotations
+
 
 from datetime import datetime, timedelta
 from typing import Any

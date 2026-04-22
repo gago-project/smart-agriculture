@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Restricted Flow runner used by the Soil Moisture Agent.
 
 This module is the execution kernel for the plans-defined agent architecture.
@@ -8,6 +6,9 @@ executes registered nodes, validates that each node returns an allowed action,
 merges the node patch into `FlowState`, records trace/debug snapshots, and
 applies hard safety limits around loops/retries/step count.
 """
+
+from __future__ import annotations
+
 
 from datetime import datetime
 from typing import Any, Protocol
@@ -31,7 +32,9 @@ class FlowNode(Protocol):
     allowed_next_actions: tuple[str, ...]
     allowed_patch_fields: tuple[str, ...]
 
-    async def run(self, state: FlowState) -> NodeResult: ...
+    async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
+        ...
 
 
 class RouteRegistry:

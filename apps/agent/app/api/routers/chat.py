@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """HTTP routes that expose the Soil Agent chat contract.
 
 The router deliberately performs only request/response adaptation.  All intent
@@ -8,6 +6,9 @@ fact checking, verification, logging, and context persistence happen inside
 `SoilAgentService`.  Database errors are not swallowed here because the product
 requirement is "连接失败就报错，不允许假 fallback 数据"。
 """
+
+from __future__ import annotations
+
 
 from fastapi import APIRouter, Depends, HTTPException
 

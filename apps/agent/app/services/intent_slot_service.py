@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Intent and slot extraction for soil-moisture questions.
 
 The parser is intentionally restricted.  It may ask Qwen for structured JSON,
@@ -7,6 +5,9 @@ but every request still has a deterministic regex/repository fallback so local
 Docker can answer without an LLM key.  The output is limited to known intents,
 answer types, and slots used by the Flow.
 """
+
+from __future__ import annotations
+
 
 import re
 from dataclasses import dataclass

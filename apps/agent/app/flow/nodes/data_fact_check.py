@@ -1,3 +1,5 @@
+"""Restricted Flow node implementation for data fact check."""
+
 from __future__ import annotations
 
 from app.flow.nodes.base import BaseNode
@@ -6,11 +8,14 @@ from app.services.fact_check_service import FactCheckService
 
 
 class DataFactCheckNode(BaseNode):
+    """Flow node for the data fact check stage."""
     def __init__(self, service: FactCheckService):
+        """Initialize the data fact check node."""
         super().__init__("data_fact_check", ("retry_response", "go_verify", "fallback"), ("retry_count", "answer_type", "answer_bundle"))
         self.service = service
 
     async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
         result = self.service.verify(answer_type=state.answer_type or "", answer_bundle=state.answer_bundle, query_result=state.query_result, rule_result=state.rule_result, template_result=state.template_result)
         if result["need_retry"]:
             if state.retry_count >= 2:

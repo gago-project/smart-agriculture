@@ -1,3 +1,5 @@
+"""Unit tests for agent summary."""
+
 import unittest
 
 from app.services.agent_service import SoilAgentService
@@ -5,7 +7,9 @@ from support_repositories import SeedSoilRepository
 
 
 class AgentSummaryTest(unittest.TestCase):
+    """Test cases for agent summary."""
     def test_summary_payload_includes_devices(self):
+        """Verify summary payload includes devices."""
         service = SoilAgentService(repository=SeedSoilRepository())
         summary = service.get_summary_payload()
 

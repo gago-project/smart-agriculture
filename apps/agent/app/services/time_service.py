@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Business-time resolver for soil data queries.
 
 All relative phrases such as "最近", "最近7天", "现在", and "这一批" are resolved
 against the latest business time/batch in MySQL, not the machine clock.  This
 keeps answers reproducible when imported agriculture data lags wall-clock time.
 """
+
+from __future__ import annotations
+
 
 from datetime import datetime, timedelta
 from typing import Any

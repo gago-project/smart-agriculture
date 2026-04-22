@@ -1,9 +1,12 @@
+"""Schema definitions for request within the soil agent."""
+
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ChatRequest(BaseModel):
+    """Request payload accepted by the soil agent chat endpoints."""
     model_config = ConfigDict(populate_by_name=True)
 
     request_id: str | None = None

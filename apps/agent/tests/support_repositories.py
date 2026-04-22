@@ -1,3 +1,5 @@
+"""Seed-data helpers and repository test doubles for agent tests."""
+
 from __future__ import annotations
 
 import csv
@@ -16,10 +18,12 @@ FACT_INSERT_RE = re.compile(
 
 
 def _parse_sql_tuple(values_text: str) -> list[str]:
+    """Parse one SQL tuple literal into a flat list of string values."""
     return next(csv.reader([values_text], delimiter=",", quotechar="'", skipinitialspace=True))
 
 
 def _coerce_value(value: str) -> Any:
+    """Convert one parsed SQL literal into its Python test value."""
     value = value.strip()
     if value == "NULL":
         return None
@@ -31,6 +35,7 @@ def _coerce_value(value: str) -> Any:
 
 
 def _load_seed_records() -> list[dict[str, Any]]:
+    """Load seed soil records from the committed MySQL init SQL."""
     init_dir = Path(__file__).resolve().parents[3] / "infra/mysql/init"
     seed_path = init_dir / "003_insert_soil_data.sql"
     if not seed_path.exists():
@@ -74,12 +79,15 @@ def _load_seed_records() -> list[dict[str, Any]]:
 
 
 class SeedSoilRepository(SoilRepository):
+    """Repository helper for seed soil."""
     def __init__(self) -> None:
+        """Initialize the seed soil repository."""
         super().__init__()
         self.records = _load_seed_records()
         self.extra_region_aliases: list[dict[str, Any]] = []
 
     def _connect(self):
+        """Return the backing connection used by this repository implementation."""
         return None
 
     def filter_records(
@@ -94,6 +102,7 @@ class SeedSoilRepository(SoilRepository):
         end_time: str | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
+        """Filter records."""
         records = [
             record
             for record in self.records
@@ -110,27 +119,35 @@ class SeedSoilRepository(SoilRepository):
         return enriched_records[:limit] if limit else enriched_records
 
     async def filter_records_async(self, **kwargs) -> list[dict[str, Any]]:
+        """Filter records async."""
         return self.filter_records(**kwargs)
 
     def latest_batch_id(self) -> str | None:
+        """Return the latest batch id."""
         latest_record = max(self.records, key=lambda item: str(item.get("sample_time") or ""), default=None)
         return str(latest_record.get("batch_id")) if latest_record else None
 
     async def latest_batch_id_async(self) -> str | None:
+        """Return the latest batch id async."""
         return self.latest_batch_id()
 
     def latest_business_time(self) -> str:
+        """Return the latest business time."""
         latest_record = max(self.records, key=lambda item: str(item.get("sample_time") or ""), default=None)
         return str(latest_record.get("sample_time")) if latest_record else "暂无"
 
     async def latest_business_time_async(self) -> str:
+        """Return the latest business time async."""
         return self.latest_business_time()
 
     def warning_template_text(self) -> str:
+        """Handle warning template text on the seed soil repository."""
         return DEFAULT_WARNING_TEMPLATE_TEXT
 
     def region_alias_rows(self) -> list[dict[str, Any]]:
+        """Return region alias rows."""
         return [*build_generated_region_alias_rows(self.records), *self.extra_region_aliases]
 
     async def region_alias_rows_async(self) -> list[dict[str, Any]]:
+        """Return region alias rows async."""
         return self.region_alias_rows()

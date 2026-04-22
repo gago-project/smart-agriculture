@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Top-level application service that assembles and runs the Soil Agent.
 
 `SoilAgentService` is the only class the API layer should call for agent
@@ -7,6 +5,9 @@ behavior.  It owns dependency wiring, restricted Flow construction, query-log
 writeback, context persistence, and response serialization.  Login/admin APIs
 belong to the Next app and intentionally do not live here.
 """
+
+from __future__ import annotations
+
 
 import asyncio
 import os

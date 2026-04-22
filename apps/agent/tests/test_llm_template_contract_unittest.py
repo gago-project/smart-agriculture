@@ -1,3 +1,5 @@
+"""Unit tests for llm template contract."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,10 +11,13 @@ from app.services.template_service import TemplateService
 
 
 class FakeQwenClient:
+    """Test double for fake qwen client."""
     def available(self) -> bool:
+        """Return whether this test double should be treated as available."""
         return True
 
     async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        """Handle extract intent slots on the fake qwen client."""
         del user_input, session_id
         return {
             "intent": "soil_recent_summary",
@@ -21,12 +26,15 @@ class FakeQwenClient:
         }
 
     async def generate_controlled_answer(self, **kwargs):
+        """Handle generate controlled answer on the fake qwen client."""
         del kwargs
         return "这是来自千问受控生成的回答。"
 
 
 class FakeInvalidQwenClient(FakeQwenClient):
+    """Test double for fake invalid qwen client."""
     async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        """Handle extract intent slots on the fake invalid qwen client."""
         del user_input, session_id
         return {
             "intent": "查询土壤墒情异常",
@@ -36,7 +44,9 @@ class FakeInvalidQwenClient(FakeQwenClient):
 
 
 class FakeClarifyingQwenClient(FakeQwenClient):
+    """Test double for fake clarifying qwen client."""
     async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        """Handle extract intent slots on the fake clarifying qwen client."""
         del user_input, session_id
         return {
             "intent": "clarification_needed",
@@ -46,15 +56,20 @@ class FakeClarifyingQwenClient(FakeQwenClient):
 
 
 class FakeRegionRepository:
+    """Repository helper for fake region."""
     async def region_alias_rows_async(self):
+        """Return region alias rows async."""
         return []
 
     async def known_region_names_async(self):
+        """Handle known region names async on the fake region repository."""
         return set()
 
 
 class LlmTemplateContractTest(unittest.TestCase):
+    """Test cases for llm template contract."""
     def test_intent_slot_service_can_use_qwen_result(self) -> None:
+        """Verify intent slot service can use qwen result."""
         async def run_case() -> None:
             service = IntentSlotService(repository=FakeRegionRepository(), qwen_client=FakeQwenClient())
             result = await service.parse("最近墒情怎么样", "session-1")
@@ -65,6 +80,7 @@ class LlmTemplateContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
     def test_intent_slot_service_rejects_invalid_qwen_enum_and_falls_back(self) -> None:
+        """Verify intent slot service rejects invalid qwen enum and falls back."""
         async def run_case() -> None:
             service = IntentSlotService(repository=FakeRegionRepository(), qwen_client=FakeInvalidQwenClient())
             result = await service.parse("SNS00204333 最近有没有异常", "session-1")
@@ -75,6 +91,7 @@ class LlmTemplateContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
     def test_intent_slot_service_prefers_deterministic_follow_up_over_qwen_clarify(self) -> None:
+        """Verify intent slot service prefers deterministic follow up over qwen clarify."""
         async def run_case() -> None:
             service = IntentSlotService(repository=FakeRegionRepository(), qwen_client=FakeClarifyingQwenClient())
             result = await service.parse("那上周的呢", "session-1")
@@ -86,6 +103,7 @@ class LlmTemplateContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
     def test_response_service_can_use_qwen_draft(self) -> None:
+        """Verify response service can use qwen draft."""
         async def run_case() -> None:
             service = ResponseService(qwen_client=FakeQwenClient())
             result = await service.generate(
@@ -103,6 +121,7 @@ class LlmTemplateContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
     def test_template_service_renders_with_jinja_templates(self) -> None:
+        """Verify template service renders with jinja templates."""
         service = TemplateService(repository=FakeRegionRepository())
         result = service.render(
             answer_type="soil_warning_answer",

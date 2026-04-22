@@ -1,6 +1,7 @@
+"""Orchestrator wrapper that binds registered nodes to the static Flow runner."""
+
 from __future__ import annotations
 
-"""Orchestrator wrapper that binds registered nodes to the static Flow runner."""
 
 from app.flow.runner import FlowRunner, RouteRegistry
 from app.flow.routes import ROUTES

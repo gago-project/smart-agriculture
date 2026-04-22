@@ -1,3 +1,5 @@
+"""Restricted Flow node implementation for execution gate."""
+
 from __future__ import annotations
 
 from app.flow.nodes.base import BaseNode
@@ -6,7 +8,9 @@ from app.services.execution_gate_service import ExecutionGateService
 
 
 class ExecutionGateNode(BaseNode):
+    """Flow node for the execution gate stage."""
     def __init__(self, service: ExecutionGateService):
+        """Initialize the execution gate node."""
         super().__init__(
             "execution_gate",
             ("clarify_end", "block_end", "shrink_and_continue", "continue"),
@@ -15,6 +19,7 @@ class ExecutionGateNode(BaseNode):
         self.service = service
 
     async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
         result = self.service.evaluate(intent=state.intent or "", slots=state.merged_slots, business_time=state.business_time)
         if result["must_clarify"]:
             return self.ensure_result(

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Post-generation fact checks before final answer verification.
 
 This service catches obvious mismatches between generated text and structured
@@ -7,6 +5,9 @@ facts.  It is deliberately small today, but it is the right extension point for
 future checks such as count consistency, device identity consistency, and
 template field completeness.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

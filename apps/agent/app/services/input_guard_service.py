@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Input boundary classifier for the restricted Soil Agent.
 
 This service is the first safety gate.  Its job is to decide whether a user
@@ -7,6 +5,9 @@ message should enter the business Flow at all.  It deliberately catches
 greetings, capability questions, out-of-domain topics, low-confidence vague
 requests, and random keyboard input before any database query can happen.
 """
+
+from __future__ import annotations
+
 
 import re
 from dataclasses import dataclass

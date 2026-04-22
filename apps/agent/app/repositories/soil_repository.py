@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """MySQL-backed repository for soil-moisture facts.
 
 This repository is the data authority for the Python Agent.  It intentionally
@@ -7,6 +5,9 @@ does not contain seed-data fallback behavior: missing credentials, connection
 failures, and SQL errors are surfaced as explicit exceptions so API callers see
 real operational failures instead of fabricated agriculture facts.
 """
+
+from __future__ import annotations
+
 
 import asyncio
 import os
@@ -133,6 +134,7 @@ class SoilRepository:
 
     @staticmethod
     def _soil_select_columns_sql() -> str:
+        """Return the shared SELECT column list for soil-record queries."""
         return """
         SELECT batch_id, device_sn, device_name, city_name, county_name, town_name,
                DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s') AS sample_time,
@@ -144,6 +146,7 @@ class SoilRepository:
 
     @staticmethod
     def _normalize_sql_literal(value: Any) -> str:
+        """Normalize a Python value into a SQL literal for audit output."""
         if value is None:
             return "NULL"
         if isinstance(value, bool):
@@ -164,6 +167,7 @@ class SoilRepository:
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> list[tuple[str, str, str, Any]]:
+        """Return the optional filter specifications used by record queries."""
         return [
             ("city_name", "=", "city_name", city_name),
             ("county_name", "=", "county_name", county_name),
@@ -186,6 +190,7 @@ class SoilRepository:
         end_time: str | None = None,
         limit: int | None = None,
     ) -> tuple[str, tuple[Any, ...]]:
+        """Build the pyformat SQL query and parameters for record filtering."""
         clauses: list[str] = []
         params: list[Any] = []
         for column_name, operator, _param_name, value in self._filter_specs(
@@ -224,6 +229,7 @@ class SoilRepository:
         end_time: str | None = None,
         limit: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
+        """Build the named-parameter SQL used for audit rendering."""
         clauses: list[str] = []
         params: dict[str, Any] = {}
         for column_name, operator, param_name, value in self._filter_specs(
@@ -261,6 +267,7 @@ class SoilRepository:
         end_time: str | None = None,
         limit: int | None = None,
     ) -> str:
+        """Render the filtered record SQL with normalized literals for audit logs."""
         clauses: list[str] = []
         for column_name, operator, _param_name, value in self._filter_specs(
             city_name=city_name,

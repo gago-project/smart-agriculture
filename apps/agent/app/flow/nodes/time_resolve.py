@@ -1,3 +1,5 @@
+"""Restricted Flow node implementation for time resolve."""
+
 from __future__ import annotations
 
 from app.flow.nodes.base import BaseNode
@@ -7,12 +9,15 @@ from app.services.time_service import TimeResolveService
 
 
 class TimeResolveNode(BaseNode):
+    """Flow node for the time resolve stage."""
     def __init__(self, service: TimeResolveService, soil_query_service: SoilQueryService):
+        """Initialize the time resolve node."""
         super().__init__("time_resolve", ("continue",), ("business_time",))
         self.service = service
         self.soil_query_service = soil_query_service
 
     async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
         latest_business_time = await self.soil_query_service.fetch_latest_business_time_if_needed(
             slots=state.merged_slots,
             intent=state.intent or "",

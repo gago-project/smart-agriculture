@@ -1,3 +1,5 @@
+"""Unit tests for agent service contract."""
+
 from __future__ import annotations
 
 import asyncio
@@ -8,18 +10,24 @@ from app.services.agent_service import SoilAgentService
 
 
 class StubQueryLogRepository:
+    """Repository helper for stub query log."""
     def __init__(self) -> None:
+        """Initialize the stub query log repository."""
         self.batches: list[list[dict]] = []
 
     async def insert_many(self, entries: list[dict]) -> None:
+        """Handle insert many on the stub query log repository."""
         self.batches.append(entries)
 
 
 class StubSessionContextRepository:
+    """Repository helper for stub session context."""
     def __init__(self) -> None:
+        """Initialize the stub session context repository."""
         self.saved: list[dict] = []
 
     async def save_turn_context(self, *, session_id: str, turn_id: int, turn_context: dict) -> None:
+        """Save turn context."""
         self.saved.append(
             {
                 "session_id": session_id,
@@ -29,19 +37,25 @@ class StubSessionContextRepository:
         )
 
     async def load_recent_context(self, session_id: str) -> list[dict]:
+        """Load recent context."""
         return []
 
 
 class StubOrchestrator:
+    """Test double for stub orchestrator."""
     def __init__(self, final_state: FlowState) -> None:
+        """Initialize the stub orchestrator."""
         self.final_state = final_state
 
     async def run(self, state: FlowState) -> FlowState:
+        """Handle run on the stub orchestrator."""
         return self.final_state
 
 
 class AgentServiceContractTest(unittest.TestCase):
+    """Test cases for agent service contract."""
     def test_chat_flushes_query_logs_and_saves_business_context(self) -> None:
+        """Verify chat flushes query logs and saves business context."""
         final_state = FlowState(
             request_id="r1",
             trace_id="t1",
@@ -79,6 +93,7 @@ class AgentServiceContractTest(unittest.TestCase):
         self.assertEqual(final_state.context_to_save["last_intent"], "soil_recent_summary")
 
     def test_non_business_result_does_not_save_context(self) -> None:
+        """Verify non business result does not save context."""
         final_state = FlowState(
             request_id="r1",
             trace_id="t1",

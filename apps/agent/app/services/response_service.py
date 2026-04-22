@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Controlled answer generation for the Soil Agent.
 
 The service first builds deterministic, data-grounded fallback answers from
@@ -7,6 +5,9 @@ query/rule/template outputs.  Qwen is optional and may only rewrite those facts
 through `generate_controlled_answer`; it is not allowed to invent metrics,
 counts, time windows, or warning conclusions.
 """
+
+from __future__ import annotations
+
 
 from statistics import mean
 from typing import Any

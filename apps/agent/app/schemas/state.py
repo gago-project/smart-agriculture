@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Pydantic state models that define the Agent Flow contract.
 
 These bundles are the typed schema for everything the nodes pass to each other:
@@ -7,6 +5,9 @@ slots, business time, execution gate decisions, query plans/results, rule
 results, rendered templates, advice text, final answer, traces, and errors.
 The shape mirrors the plans so tests can compare implementation and design.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

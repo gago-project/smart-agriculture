@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Minimal Qwen/DashScope client used by the restricted Agent Flow.
 
 Qwen is optional and bounded.  It can help parse intent/slots or polish a
 deterministic answer, but all calls require JSON output and failures return
 `None` so deterministic local behavior remains available without an API key.
 """
+
+from __future__ import annotations
+
 
 import json
 from typing import Any

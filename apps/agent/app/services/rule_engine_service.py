@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Deterministic soil warning rule engine.
 
 The rule engine is the business authority for drought, waterlogging, and device
 fault judgments.  It uses configured thresholds from `RuleRepository` and never
 depends on LLM output, so fact answers remain stable and explainable.
 """
+
+from __future__ import annotations
+
 
 from typing import Any
 

@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Region alias resolution and existence validation.
 
 This module owns two related responsibilities:
 1. turn user text or LLM slots into canonical city/county/town slots;
 2. validate those resolved slots against MySQL facts before SQL planning.
 """
+
+from __future__ import annotations
+
 
 import re
 from typing import Any
@@ -94,13 +95,16 @@ class RegionAliasResolver:
     """Resolve user text or slot tokens into canonical region slots."""
 
     def __init__(self, repository: SoilRepository):
+        """Initialize the region alias resolver."""
         self.repository = repository
 
     async def resolve_from_text(self, text: str) -> dict[str, Any]:
+        """Handle resolve from text on the region alias resolver."""
         mappings = await self._load_alias_mappings()
         return self._resolve_text(text=text, mappings=mappings)
 
     async def normalize_slots(self, slots: dict[str, Any]) -> dict[str, Any]:
+        """Handle normalize slots on the region alias resolver."""
         mappings = await self._load_alias_mappings()
         normalized = dict(slots)
         for region_level, slot_key in REGION_SLOT_KEY.items():
@@ -115,6 +119,7 @@ class RegionAliasResolver:
         return normalized
 
     async def _load_alias_mappings(self) -> list[dict[str, Any]]:
+        """Handle load alias mappings on the region alias resolver."""
         mappings = await self.repository.region_alias_rows_async()
         existing = {
             (
@@ -146,6 +151,7 @@ class RegionAliasResolver:
         return mappings
 
     def _resolve_text(self, *, text: str, mappings: list[dict[str, Any]], preferred_level: str | None = None) -> dict[str, Any]:
+        """Handle resolve text on the region alias resolver."""
         compact = str(text or "").replace(" ", "")
         exact_matches = self._collect_exact_matches(compact=compact, mappings=mappings, preferred_level=preferred_level)
         if exact_matches:
@@ -162,6 +168,7 @@ class RegionAliasResolver:
         mappings: list[dict[str, Any]],
         preferred_level: str | None = None,
     ) -> list[dict[str, Any]]:
+        """Handle collect exact matches on the region alias resolver."""
         matches: dict[tuple[str, str], dict[str, Any]] = {}
         for mapping in mappings:
             alias_name = str(mapping.get("alias_name") or "").strip()
@@ -193,6 +200,7 @@ class RegionAliasResolver:
         mappings: list[dict[str, Any]],
         preferred_level: str | None = None,
     ) -> list[dict[str, Any]]:
+        """Handle collect fuzzy matches on the region alias resolver."""
         chinese_only = "".join(re.findall(r"[\u4e00-\u9fff]+", compact))
         if len(chinese_only) < 2:
             return []
@@ -224,6 +232,7 @@ class RegionAliasResolver:
         return list(matches.values())
 
     def _build_fuzzy_segments(self, chinese_only: str) -> list[str]:
+        """Handle build fuzzy segments on the region alias resolver."""
         marker_match = re.search(
             r"(最近一个月|过去一个月|近一个月|最近7天|近7天|上周|最近|数据|墒情|异常|预警|模板|建议|怎么办|什么意思|怎么处理|趋势|排名|最严重|整体情况|总体情况|现在|当前)",
             chinese_only,
@@ -233,6 +242,7 @@ class RegionAliasResolver:
         return [chinese_only]
 
     def _pick_resolution(self, candidates: list[dict[str, Any]], *, fuzzy_only: bool = False) -> dict[str, Any]:
+        """Handle pick resolution on the region alias resolver."""
         ordered = list(candidates)
         if not ordered:
             return {"status": "none", "slots": {}, "candidates": []}
@@ -257,6 +267,7 @@ class RegionAliasResolver:
         return {"status": "matched", "slots": self._mapping_to_slots(top), "candidates": [top["canonical_name"]], "fuzzy_only": fuzzy_only}
 
     def _is_parent_child_pair(self, left: dict[str, Any], right: dict[str, Any]) -> bool:
+        """Handle is parent child pair on the region alias resolver."""
         return bool(
             left.get("canonical_name") == right.get("parent_city_name")
             or right.get("canonical_name") == left.get("parent_city_name")
@@ -265,9 +276,11 @@ class RegionAliasResolver:
         )
 
     def _is_same_match_span(self, left: dict[str, Any], right: dict[str, Any]) -> bool:
+        """Handle is same match span on the region alias resolver."""
         return left.get("match_start") == right.get("match_start") and left.get("match_end") == right.get("match_end")
 
     def _mapping_to_slots(self, mapping: dict[str, Any]) -> dict[str, Any]:
+        """Handle mapping to slots on the region alias resolver."""
         slots = {}
         region_level = str(mapping.get("region_level") or "")
         slot_key = REGION_SLOT_KEY.get(region_level)

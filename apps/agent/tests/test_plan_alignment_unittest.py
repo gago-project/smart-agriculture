@@ -1,3 +1,5 @@
+"""Unit tests for plan alignment."""
+
 from __future__ import annotations
 
 import inspect
@@ -42,7 +44,9 @@ SERVICE_MODULES = [
 
 
 class PlanAlignmentTest(unittest.TestCase):
+    """Test cases for plan alignment."""
     def test_flow_state_is_pydantic_model_with_plan_fields(self) -> None:
+        """Verify flow state is pydantic model with plan fields."""
         self.assertTrue(issubclass(FlowState, BaseModel))
         state = FlowState(
             request_id="r1",
@@ -58,11 +62,13 @@ class PlanAlignmentTest(unittest.TestCase):
         self.assertIn("business_time", dumped)
 
     def test_service_modules_have_real_implementations(self) -> None:
+        """Verify service modules have real implementations."""
         for module in SERVICE_MODULES:
             source = inspect.getsource(module)
             self.assertNotIn("from app.services.flow_support import", source, module.__name__)
 
     def test_flow_support_no_longer_exports_services(self) -> None:
+        """Verify flow support no longer exports services."""
         source = inspect.getsource(state_module)
         self.assertNotIn("@dataclass", source)
 

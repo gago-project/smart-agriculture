@@ -1,3 +1,5 @@
+"""Restricted Flow node implementation for soil data query."""
+
 from __future__ import annotations
 
 from app.flow.nodes.base import BaseNode
@@ -6,11 +8,14 @@ from app.services.soil_query_service import SoilQueryService
 
 
 class SoilDataQueryNode(BaseNode):
+    """Flow node for the soil data query stage."""
     def __init__(self, service: SoilQueryService):
+        """Initialize the soil data query node."""
         super().__init__("soil_data_query", ("continue", "fallback"), ("query_plan", "query_result", "query_log_entries", "answer_type", "answer_bundle"))
         self.service = service
 
     async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
         if state.merged_slots.get("region_exists") is False or state.merged_slots.get("device_exists") is False:
             fallback_scenario = "device_exists" if state.merged_slots.get("device_exists") is False else "region_exists"
             query_plan = self.service.build_fallback_query_plan(

@@ -1,6 +1,7 @@
+"""Base class shared by all restricted Flow nodes."""
+
 from __future__ import annotations
 
-"""Base class shared by all restricted Flow nodes."""
 
 from dataclasses import dataclass
 

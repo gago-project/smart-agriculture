@@ -1,3 +1,5 @@
+"""Unit tests for query log repository."""
+
 from __future__ import annotations
 
 import json
@@ -8,52 +10,68 @@ from app.repositories.query_log_repository import QueryLogRepository
 
 
 class FakeCursor:
+    """Test double for fake cursor."""
     def __init__(self, *, should_fail: bool = False) -> None:
+        """Initialize the fake cursor."""
         self.executed: list[tuple[str, tuple[object, ...]]] = []
         self.should_fail = should_fail
 
     def __enter__(self) -> "FakeCursor":
+        """Handle enter on the fake cursor."""
         return self
 
     def __exit__(self, exc_type, exc, tb) -> bool:
+        """Handle exit on the fake cursor."""
         return False
 
     def execute(self, sql: str, params: tuple[object, ...]) -> None:
+        """Handle execute on the fake cursor."""
         if self.should_fail:
             raise RuntimeError("write failed")
         self.executed.append((sql, params))
 
 
 class FakeConnection:
+    """Test double for fake connection."""
     def __init__(self, *, should_fail: bool = False) -> None:
+        """Initialize the fake connection."""
         self.cursor_instance = FakeCursor(should_fail=should_fail)
         self.commit_called = False
         self.rollback_called = False
         self.closed = False
 
     def cursor(self) -> FakeCursor:
+        """Handle cursor on the fake connection."""
         return self.cursor_instance
 
     def commit(self) -> None:
+        """Handle commit on the fake connection."""
         self.commit_called = True
 
     def rollback(self) -> None:
+        """Handle rollback on the fake connection."""
         self.rollback_called = True
 
     def close(self) -> None:
+        """Handle close on the fake connection."""
         self.closed = True
 
 
 class FakeRepository:
+    """Repository helper for fake."""
     def __init__(self, connection: FakeConnection) -> None:
+        """Initialize the fake repository."""
         self.connection = connection
 
     def _connect(self) -> FakeConnection:
+        """Return the backing connection used by this repository implementation."""
         return self.connection
 
 
 class QueryLogRepositoryTest(unittest.TestCase):
+    """Test cases for query log repository."""
     def test_append_serializes_decimal_result_and_commits(self) -> None:
+        """Verify append serializes decimal result and commits."""
         connection = FakeConnection()
         repository = QueryLogRepository(FakeRepository(connection))
 
@@ -93,6 +111,7 @@ class QueryLogRepositoryTest(unittest.TestCase):
         self.assertEqual(executed_result_json, {"records": [{"water20cm": 41.2}]})
 
     def test_append_raises_and_does_not_keep_memory_log_when_mysql_write_fails(self) -> None:
+        """Verify append raises and does not keep memory log when mysql write fails."""
         connection = FakeConnection(should_fail=True)
         repository = QueryLogRepository(FakeRepository(connection))
 

@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Static route table for the restricted Soil Agent Flow.
 
 The design goal is predictability: nodes choose from declared actions, and this
@@ -7,6 +5,9 @@ table maps those actions to the next node or terminal.  We intentionally avoid
 LLM-generated dynamic graphs here because this project is a data-task agent,
 not an open-ended autonomous agent.
 """
+
+from __future__ import annotations
+
 
 # Terminal actions end the request without visiting another node.  Non-terminal
 # actions keep the request on the fixed pipeline: guard -> parse -> context ->

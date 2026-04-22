@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Factory helpers for constructing a fresh `FlowState`.
 
 Every chat request starts from a clean state object.  Keeping construction in a
 single module makes tests and API handlers use the same defaults for request
 IDs, trace IDs, channel, timezone, and normalized input text.
 """
+
+from __future__ import annotations
+
 
 import uuid
 

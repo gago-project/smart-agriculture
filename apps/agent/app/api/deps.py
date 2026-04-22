@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """FastAPI dependency factories for shared Agent runtime objects.
 
 The Agent service is expensive enough to build once per process: it owns the
@@ -7,6 +5,9 @@ repository, Redis-backed context store, optional Qwen client, and all Flow
 nodes.  This module centralizes that construction so API routers remain thin
 transport adapters and do not know how the agent is assembled.
 """
+
+from __future__ import annotations
+
 
 from functools import lru_cache
 import os

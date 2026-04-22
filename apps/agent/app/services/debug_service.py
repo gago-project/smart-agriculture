@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """In-process debug snapshot store for Flow traces.
 
 The debug service records compact node input/output summaries keyed by
 `trace_id`.  It is intentionally memory-backed for local development and tests;
 production persistence can be added behind the same interface later.
 """
+
+from __future__ import annotations
+
 
 from datetime import datetime
 from typing import Any

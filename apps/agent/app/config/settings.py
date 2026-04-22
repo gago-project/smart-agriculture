@@ -1,6 +1,7 @@
+"""Typed environment settings for the Python Agent runtime."""
+
 from __future__ import annotations
 
-"""Typed environment settings for the Python Agent runtime."""
 
 from functools import lru_cache
 

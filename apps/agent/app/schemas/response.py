@@ -1,3 +1,5 @@
+"""Schema definitions for response within the soil agent."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -8,6 +10,7 @@ from app.schemas.enums import AnswerType, InputType, IntentType
 
 
 class ChatResponse(BaseModel):
+    """Response payload returned by the soil agent chat endpoints."""
     session_id: str
     turn_id: int
     request_id: str

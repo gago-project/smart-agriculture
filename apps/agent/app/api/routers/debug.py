@@ -1,3 +1,5 @@
+"""HTTP route handlers for debug endpoints."""
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -12,6 +14,7 @@ router = APIRouter(prefix="/debug", tags=["debug"])
 
 @router.get("/summary")
 def summary(service: SoilAgentService = Depends(get_agent_service)) -> dict:
+    """Return the current debug summary payload."""
     try:
         return service.get_summary_payload()
     except DatabaseUnavailableError as exc:
@@ -22,6 +25,7 @@ def summary(service: SoilAgentService = Depends(get_agent_service)) -> dict:
 
 @router.get("/traces/{trace_id}")
 def trace_detail(trace_id: str, service: SoilAgentService = Depends(get_agent_service)) -> dict:
+    """Return saved node snapshots for a single trace identifier."""
     return {
         "trace_id": trace_id,
         "snapshots": service.debug_service.list_trace_snapshots(trace_id),

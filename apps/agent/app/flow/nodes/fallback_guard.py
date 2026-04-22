@@ -1,3 +1,5 @@
+"""Restricted Flow node implementation for fallback guard."""
+
 from __future__ import annotations
 
 from app.flow.nodes.base import BaseNode
@@ -6,11 +8,14 @@ from app.services.response_service import ResponseService
 
 
 class FallbackGuardNode(BaseNode):
+    """Flow node for the fallback guard stage."""
     def __init__(self, response_service: ResponseService | None = None):
+        """Initialize the fallback guard node."""
         super().__init__("fallback_guard", ("fallback_end",), ("answer_type", "answer_bundle"))
         self.response_service = response_service or ResponseService(qwen_client=None)
 
     async def run(self, state: FlowState) -> NodeResult:
+        """Execute the node and return the next flow action."""
         existing = str(state.answer_bundle.get("final_answer") or "").strip()
         if existing:
             safe_answer = existing

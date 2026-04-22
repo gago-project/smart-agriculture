@@ -1,3 +1,5 @@
+"""Repository helpers for rule repository within the soil agent."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -6,6 +8,7 @@ from typing import Any
 
 @dataclass(frozen=True)
 class SoilRuleProfile:
+    """Structured warning-threshold values loaded by the rule repository."""
     rule_name: str
     heavy_drought_max: float
     waterlogging_min: float
@@ -14,7 +17,9 @@ class SoilRuleProfile:
 
 
 class RuleRepository:
+    """Repository helper for rule."""
     async def get_active_rule_profile(self) -> SoilRuleProfile:
+        """Return the active soil-warning rule profile."""
         return SoilRuleProfile(
             rule_name="soil_warning_v1",
             heavy_drought_max=50.0,
@@ -24,6 +29,7 @@ class RuleRepository:
         )
 
     async def get_warning_rule_metadata(self) -> dict[str, Any]:
+        """Return flattened warning-rule metadata for service callers."""
         profile = await self.get_active_rule_profile()
         return {
             "rule_name": profile.rule_name,

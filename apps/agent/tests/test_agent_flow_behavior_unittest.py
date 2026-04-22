@@ -1,3 +1,5 @@
+"""Unit tests for agent flow behavior."""
+
 import unittest
 
 from app.llm.qwen_client import QwenClient
@@ -6,10 +8,13 @@ from support_repositories import SeedSoilRepository
 
 
 class AgentFlowBehaviorTest(unittest.TestCase):
+    """Test cases for agent flow behavior."""
     def setUp(self):
+        """Prepare the shared fixtures for each test case."""
         self.service = SoilAgentService(repository=SeedSoilRepository(), qwen_client=QwenClient(api_key=""))
 
     def test_recent_summary_should_use_last_7_days_window(self):
+        """Verify recent summary should use last 7 days window."""
         result = self.service.chat("最近墒情怎么样", session_id="summary", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_summary_answer")
@@ -21,6 +26,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertNotIn("最新业务时间", result["final_answer"])
 
     def test_latest_batch_summary_should_bind_latest_batch_id(self):
+        """Verify latest batch summary should bind latest batch id."""
         result = self.service.chat("这批数据整体情况如何", session_id="batch", turn_id=1)
         expected_batch_id = self.service.repository.latest_batch_id()
         expected_count = len(
@@ -37,6 +43,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertNotIn("最新业务时间", result["final_answer"])
 
     def test_now_summary_should_resolve_from_latest_business_time(self):
+        """Verify now summary should resolve from latest business time."""
         result = self.service.chat("现在的墒情", session_id="latest", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_summary_answer")
@@ -45,6 +52,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["query_plan"].get("time_range", {}).get("mode"), "latest_business_time")
 
     def test_top_100_ranking_should_clarify_without_query(self):
+        """Verify top 100 ranking should clarify without query."""
         result = self.service.chat("给我前100个最严重设备", session_id="rank", turn_id=1)
 
         self.assertEqual(result["answer_type"], "clarification_answer")
@@ -54,6 +62,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertIn("前 20", result["final_answer"])
 
     def test_unknown_region_should_return_fallback(self):
+        """Verify unknown region should return fallback."""
         result = self.service.chat("XX乡镇最近怎么样", session_id="fb", turn_id=1)
 
         self.assertEqual(result["answer_type"], "fallback_answer")
@@ -63,6 +72,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["query_plan"].get("sql_template"), "SQL-07")
 
     def test_context_should_inherit_recent_region(self):
+        """Verify context should inherit recent region."""
         self.service.chat("如东县最近怎么样", session_id="ctx", turn_id=1)
         result = self.service.chat("那上周的呢", session_id="ctx", turn_id=2)
 
@@ -72,6 +82,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["merged_slots"].get("time_range"), "last_week")
 
     def test_weather_question_should_be_boundary_answer(self):
+        """Verify weather question should be boundary answer."""
         result = self.service.chat("查一下明天天气", session_id="bound", turn_id=1)
 
         self.assertEqual(result["answer_type"], "boundary_answer")
@@ -79,6 +90,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["intent"], "out_of_scope")
 
     def test_all_devices_trend_should_block(self):
+        """Verify all devices trend should block."""
         result = self.service.chat("查所有设备最近90天趋势", session_id="gate", turn_id=1)
 
         self.assertEqual(result["intent"], "soil_device_query")
@@ -88,6 +100,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["query_plan"], {})
 
     def test_warning_strict_mode_should_keep_template_body(self):
+        """Verify warning strict mode should keep template body."""
         result = self.service.chat("按模板输出 SNS00204333 最新预警", session_id="warn", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_warning_answer")
@@ -95,6 +108,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["template_result"].get("render_mode"), "strict")
 
     def test_warning_strict_mode_should_support_seed_device_sns00213807(self):
+        """Verify warning strict mode should support seed device sns00213807."""
         result = self.service.chat("按模板输出 SNS00213807 最新预警", session_id="warn-seed", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_warning_answer")
@@ -102,6 +116,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertNotEqual(result["final_status"], "fallback_end")
 
     def test_successful_query_should_write_query_log(self):
+        """Verify successful query should write query log."""
         result = self.service.chat("最近墒情怎么样", session_id="log", turn_id=1)
 
         self.assertTrue(result["should_query"])
@@ -116,6 +131,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertGreater(len(latest_log["executed_result_json"]["records"]), 0)
 
     def test_city_summary_should_hide_internal_source_and_latest_time(self):
+        """Verify city summary should hide internal source and latest time."""
         result = self.service.chat("南通市最近7天墒情怎么样", session_id="summary-city", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_summary_answer")
@@ -124,6 +140,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertNotIn("最新业务时间", result["final_answer"])
 
     def test_ranking_answer_should_hide_internal_scoring_terms(self):
+        """Verify ranking answer should hide internal scoring terms."""
         result = self.service.chat("过去一个月哪里最严重", session_id="ranking-copy", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_ranking_answer")
@@ -133,6 +150,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertNotIn("维度", result["final_answer"])
 
     def test_anomaly_answer_should_hide_rule_engine_name(self):
+        """Verify anomaly answer should hide rule engine name."""
         result = self.service.chat("最近有没有异常", session_id="anomaly-copy", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_anomaly_answer")
@@ -140,6 +158,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertIn("异常点位", result["final_answer"])
 
     def test_large_device_ranking_should_block(self):
+        """Verify large device ranking should block."""
         result = self.service.chat("全省近三年所有设备排名", session_id="rank-block", turn_id=1)
 
         self.assertEqual(result["answer_type"], "clarification_answer")
@@ -148,6 +167,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["query_plan"], {})
 
     def test_five_year_anomaly_should_clarify_without_query(self):
+        """Verify five year anomaly should clarify without query."""
         result = self.service.chat("查过去5年异常点位", session_id="anomaly-limit", turn_id=1)
 
         self.assertEqual(result["answer_type"], "clarification_answer")

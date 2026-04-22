@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 """Repository for persisting Agent query audit logs.
 
 Every executed data query should produce an `agent_query_log` record containing
@@ -7,6 +5,9 @@ the query plan, SQL template fingerprint, filters, row count, and result
 preview.  The in-memory `logs` list is kept for tests; MySQL remains the real
 runtime persistence target.
 """
+
+from __future__ import annotations
+
 
 import asyncio
 import json

@@ -1,11 +1,12 @@
-from __future__ import annotations
-
 """Redis-backed conversation context repository.
 
 The stored value is intentionally small: `latest_business_turns` keeps at most
 five verified business contexts.  This supports safe follow-up questions while
 avoiding persistence of full answers, SQL results, or sensitive debug payloads.
 """
+
+from __future__ import annotations
+
 
 import json
 from datetime import datetime

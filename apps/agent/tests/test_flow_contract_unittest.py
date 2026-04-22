@@ -1,3 +1,5 @@
+"""Unit tests for flow contract."""
+
 import asyncio
 import unittest
 
@@ -9,7 +11,9 @@ from app.schemas.state import FlowState, NodeResult
 
 
 class StaticNode:
+    """Flow node for the static stage."""
     def __init__(self, action, patch=None, *, name="static", allowed_next_actions=None, allowed_patch_fields=None):
+        """Initialize the static node."""
         self.action = action
         self.patch = patch or {}
         self.name = name
@@ -17,31 +21,38 @@ class StaticNode:
         self.allowed_patch_fields = allowed_patch_fields or ("answer_bundle",)
 
     async def run(self, state):
+        """Execute the node and return the next flow action."""
         return NodeResult(next_action=self.action, state_patch=self.patch)
 
 
 class DatabaseFailingNode:
+    """Flow node for the database failing stage."""
     name = "input_guard"
     allowed_next_actions = ("continue",)
     allowed_patch_fields = ()
 
     async def run(self, state):
+        """Execute the node and return the next flow action."""
         del state
         raise DatabaseUnavailableError("mysql down")
 
 
 class ExplodingNode:
+    """Flow node for the exploding stage."""
     name = "response_generate"
     allowed_next_actions = ("fallback",)
     allowed_patch_fields = ()
 
     async def run(self, state):
+        """Execute the node and return the next flow action."""
         del state
         raise RuntimeError("boom")
 
 
 class FlowContractTest(unittest.TestCase):
+    """Test cases for flow contract."""
     def test_route_table_matches_latest_plan_actions(self):
+        """Verify route table matches latest plan actions."""
         self.assertEqual(
             ROUTES["execution_gate"],
             {
@@ -69,6 +80,7 @@ class FlowContractTest(unittest.TestCase):
         )
 
     def test_route_registry_rejects_missing_next_action(self):
+        """Verify route registry rejects missing next action."""
         nodes = {"input_guard": StaticNode("continue")}
         routes = RouteRegistry({"input_guard": {}})
 
@@ -76,6 +88,7 @@ class FlowContractTest(unittest.TestCase):
             routes.validate(nodes=nodes, terminals={"verified_end"})
 
     def test_fallback_flows_through_fallback_guard(self):
+        """Verify fallback flows through fallback guard."""
         async def run_case():
             nodes = {
                 "input_guard": StaticNode("fallback", {"answer_bundle": {"final_answer": "bad draft"}}, name="input_guard"),
@@ -100,6 +113,7 @@ class FlowContractTest(unittest.TestCase):
         ])
 
     def test_database_unavailable_error_is_not_converted_to_fallback(self):
+        """Verify database unavailable error is not converted to fallback."""
         async def run_case():
             nodes = {
                 "input_guard": DatabaseFailingNode(),
@@ -116,6 +130,7 @@ class FlowContractTest(unittest.TestCase):
             asyncio.run(run_case())
 
     def test_runner_stops_when_max_steps_exceeded(self):
+        """Verify runner stops when max steps exceeded."""
         async def run_case():
             nodes = {"input_guard": StaticNode("continue", name="input_guard")}
             routes = RouteRegistry({"input_guard": {"continue": "input_guard"}})
@@ -133,6 +148,7 @@ class FlowContractTest(unittest.TestCase):
         self.assertEqual(final_state.answer_bundle["final_answer"], "safe fallback")
 
     def test_failed_node_after_query_uses_data_backed_fallback(self):
+        """Verify failed node after query uses data backed fallback."""
         async def run_case():
             nodes = {
                 "input_guard": StaticNode(
@@ -176,6 +192,7 @@ class FlowContractTest(unittest.TestCase):
         self.assertNotIn("当前请求处理过程中出现异常", final_state.answer_bundle["final_answer"])
 
     def test_route_registry_rejects_node_action_mismatch(self):
+        """Verify route registry rejects node action mismatch."""
         node = StaticNode("continue", name="input_guard", allowed_next_actions=("continue", "fallback"))
         with self.assertRaisesRegex(ValueError, "do not match"):
             RouteRegistry({"input_guard": {"continue": "fallback_end"}}).validate(nodes={"input_guard": node}, terminals={"fallback_end"})

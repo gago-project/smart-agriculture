@@ -1,3 +1,5 @@
+"""Unit tests for debug service."""
+
 from __future__ import annotations
 
 import asyncio
@@ -7,7 +9,9 @@ from app.services.debug_service import DebugService
 
 
 class DebugServiceTest(unittest.TestCase):
+    """Test cases for debug service."""
     def test_save_and_list_trace_snapshots(self) -> None:
+        """Verify save and list trace snapshots."""
         async def run_case() -> None:
             service = DebugService()
             await service.save_node_snapshot(

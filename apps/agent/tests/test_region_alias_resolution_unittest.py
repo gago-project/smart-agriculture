@@ -1,3 +1,5 @@
+"""Unit tests for region alias resolution."""
+
 from __future__ import annotations
 
 import asyncio
@@ -9,10 +11,13 @@ from support_repositories import SeedSoilRepository
 
 
 class RegionAliasResolutionTest(unittest.TestCase):
+    """Test cases for region alias resolution."""
     def setUp(self) -> None:
+        """Prepare the shared fixtures for each test case."""
         self.repository = SeedSoilRepository()
 
     def parse(self, text: str):
+        """Handle parse on the region alias resolution test."""
         async def run_case():
             service = IntentSlotService(repository=self.repository, qwen_client=None)
             return await service.parse(text, "region-alias")
@@ -20,29 +25,34 @@ class RegionAliasResolutionTest(unittest.TestCase):
         return asyncio.run(run_case())
 
     def test_city_short_name_should_resolve_to_canonical_city(self) -> None:
+        """Verify city short name should resolve to canonical city."""
         result = self.parse("南京最近一个月的数据")
 
         self.assertEqual(result.slots.get("city_name"), "南京市")
         self.assertEqual(result.slots.get("time_range"), "last_30_days")
 
     def test_county_short_name_should_resolve_to_canonical_county(self) -> None:
+        """Verify county short name should resolve to canonical county."""
         result = self.parse("如东最近怎么样")
 
         self.assertEqual(result.slots.get("county_name"), "如东县")
         self.assertEqual(result.intent, "soil_region_query")
 
     def test_city_short_name_should_keep_existing_summary_routing(self) -> None:
+        """Verify city short name should keep existing summary routing."""
         result = self.parse("南通最近7天墒情怎么样")
 
         self.assertEqual(result.slots.get("city_name"), "南通市")
         self.assertEqual(result.intent, "soil_recent_summary")
 
     def test_typo_should_resolve_when_candidate_is_unique(self) -> None:
+        """Verify typo should resolve when candidate is unique."""
         result = self.parse("苏洲最近一个月的数据")
 
         self.assertEqual(result.slots.get("city_name"), "苏州市")
 
     def test_non_region_question_should_ignore_fuzzy_alias_noise(self) -> None:
+        """Verify non region question should ignore fuzzy alias noise."""
         result = self.parse("这批数据整体情况如何")
 
         self.assertEqual(result.intent, "soil_recent_summary")
@@ -50,6 +60,7 @@ class RegionAliasResolutionTest(unittest.TestCase):
         self.assertNotIn("city_name", result.slots)
 
     def test_ambiguous_alias_should_clarify_without_query(self) -> None:
+        """Verify ambiguous alias should clarify without query."""
         self.repository.extra_region_aliases = [
             {
                 "alias_name": "新区",
