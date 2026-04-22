@@ -26,6 +26,14 @@
 
 ## Validation Basis
 
-- Answer type coverage follows `plans/2.2026-04-20-soil-moisture-agent-answer-types-business.md`.
-- MVP acceptance follows `plans/3.2026-04-20-soil-moisture-agent-task16-test-matrix.md`.
-- Flow safety follows `plans/8.2026-04-21-soil-moisture-agent-flow-risk-contract.md`.
+- Answer type coverage follows `apps/agent/plans/1/2.answer-types-business.md`.
+- MVP acceptance follows `docs/testing/agent/soil-moisture/acceptance-test-matrix.md`.
+- Flow safety follows `apps/agent/plans/1/8.flow-risk-contract.md`.
+
+## Documentation Boundaries
+
+- `apps/agent/plans/`: Agent capability design, implementation plans, flow diagrams, and risk contracts only.
+- `infra/mysql/docs/`: MySQL table design and database-side companion designs.
+- `docs/testing/agent/soil-moisture/`: Testing rules, acceptance guidance, regression guidance, and review guidance.
+- `testdata/agent/soil-moisture/case-library.md`: Single formal soil moisture Agent case library. Future case additions, removals, and edits must be made here.
+- `outputs/`: One-off generated artifacts such as retest workbooks, CSV files, screenshots, and temporary review exports; not a long-term source of truth.

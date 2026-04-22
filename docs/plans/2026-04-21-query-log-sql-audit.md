@@ -78,7 +78,7 @@ Expected: 与 `executed_sql_text` 断言相关测试失败
 ### Task 4: 同步更新权威 plans 文档
 
 **Files:**
-- Modify: `apps/agent/plans/1/1.2026-04-20-soil-moisture-agent-plan.md`
+- Modify: `apps/agent/plans/1/1.plan.md`
 
 **Step 1: 更新表结构定义**
 
