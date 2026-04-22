@@ -8,6 +8,8 @@ test('mysql core tables strictly follow plans', () => {
   for (const table of [
     'fact_soil_moisture',
     'etl_import_batch',
+    'soil_import_job',
+    'soil_import_job_diff',
     'metric_rule',
     'admin_change_log',
     'warning_template',
@@ -40,6 +42,26 @@ test('fact_soil_moisture uses plan column names', () => {
   assert.match(sql, /sample_time\s+DATETIME\s+NOT NULL/i);
   assert.match(sql, /create_time\s+DATETIME\s+NULL/i);
   assert.doesNotMatch(sql, /\brecord_time\b/i);
+});
+
+test('soil import job tables support preview and polling workflow', () => {
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS soil_import_job/i);
+  assert.match(sql, /job_id\s+CHAR\(36\)\s+PRIMARY KEY/i);
+  assert.match(sql, /status\s+VARCHAR\(32\)\s+NOT NULL/i);
+  assert.match(sql, /processed_rows\s+INT\s+NOT NULL DEFAULT 0/i);
+  assert.match(sql, /total_rows\s+INT\s+NOT NULL DEFAULT 0/i);
+  assert.match(sql, /summary_json\s+JSON\s+NULL/i);
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS soil_import_job_diff/i);
+  assert.match(sql, /diff_id\s+BIGINT\s+PRIMARY KEY AUTO_INCREMENT/i);
+  assert.match(sql, /job_id\s+CHAR\(36\)\s+NOT NULL/i);
+  assert.match(sql, /diff_type\s+VARCHAR\(16\)\s+NOT NULL/i);
+  assert.match(sql, /db_record_json\s+JSON\s+NULL/i);
+  assert.match(sql, /import_record_json\s+JSON\s+NULL/i);
+  assert.match(sql, /field_changes_json\s+JSON\s+NULL/i);
+  assert.match(sql, /FOREIGN KEY \(job_id\) REFERENCES soil_import_job\(job_id\)/i);
+  assert.match(sql, /idx_soil_import_job_status_created_at/i);
+  assert.match(sql, /idx_soil_import_job_diff_lookup/i);
 });
 
 test('warning_template and agent_query_log columns follow plans', () => {

@@ -55,6 +55,7 @@
 - `infra/mysql/init/003_insert_soil_data.sql`：保存生成后的静态别名种子。
 - `apps/web/lib/server/regionAliasSeed.mjs`：生成并输出 SQL 种子块。
 - `apps/web/scripts/generate-region-alias-seed.mjs`：从当前事实表生成静态别名 SQL。
+- `apps/web/lib/server/soilAdminRepository.mjs` 与 `apps/web/lib/server/soilImportJobRepository.mjs`：后台编辑、删除、旧上传兼容接口和新导入任务应用后，都会基于当前事实表刷新 `generated_fact` 别名。
 
 ### 读取来源
 

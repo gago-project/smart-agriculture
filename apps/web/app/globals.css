@@ -1074,6 +1074,197 @@ body,
   background: rgba(59, 130, 246, 0.08);
 }
 
+.soil-admin-layout {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-card-title,
+.admin-toolbar-actions,
+.admin-progress-header,
+.admin-selection-bar,
+.admin-pagination-controls {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.admin-card-title h3 {
+  margin: 0;
+}
+
+.upload-panel {
+  display: grid;
+  gap: 16px;
+}
+
+.admin-progress-card {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.65);
+}
+
+.admin-progress-card progress {
+  width: 100%;
+}
+
+.admin-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+  gap: 10px;
+}
+
+.admin-summary-item {
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: white;
+  padding: 10px 12px;
+  display: grid;
+  gap: 6px;
+}
+
+.admin-summary-item span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.admin-summary-item strong {
+  font-size: 18px;
+}
+
+.admin-import-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.admin-diff-panel {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-diff-toolbar {
+  display: flex;
+  gap: 8px;
+}
+
+.admin-diff-tag,
+.admin-status-badge {
+  display: inline-flex;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+
+.admin-status-badge.is-previewing,
+.admin-status-badge.is-applying {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.admin-status-badge.is-succeeded {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.admin-status-badge.is-failed,
+.admin-diff-tag.is-delete,
+.admin-diff-tag.is-invalid {
+  background: rgba(239, 68, 68, 0.12);
+  color: #b91c1c;
+}
+
+.admin-diff-tag.is-create {
+  background: rgba(16, 185, 129, 0.14);
+  color: #047857;
+}
+
+.admin-diff-tag.is-update {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.admin-diff-tag.is-unchanged {
+  background: rgba(107, 114, 128, 0.14);
+  color: #4b5563;
+}
+
+.admin-inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.admin-inline-field input,
+.admin-inline-field select {
+  min-width: 84px;
+}
+
+.admin-selection-bar {
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.7);
+}
+
+.admin-editable-cell {
+  cursor: pointer;
+}
+
+.admin-editable-cell:hover {
+  background: rgba(59, 130, 246, 0.06);
+}
+
+.admin-empty {
+  text-align: center;
+  color: var(--muted);
+}
+
+.admin-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.42);
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  z-index: 40;
+}
+
+.admin-modal {
+  width: min(560px, 100%);
+  border-radius: 18px;
+  background: white;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.24);
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+}
+
+.admin-modal-body {
+  display: grid;
+  gap: 12px;
+}
+
+.admin-modal-body p {
+  margin: 0;
+}
+
+.admin-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
 .agent-log-detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));

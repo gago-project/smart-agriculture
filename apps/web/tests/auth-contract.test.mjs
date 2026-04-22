@@ -37,6 +37,10 @@ test('admin routes require admin role instead of generic authenticated user', ()
     '../app/api/admin/soil/records/route.ts',
     '../app/api/admin/soil/records/[recordId]/route.ts',
     '../app/api/admin/soil/records/bulk-delete/route.ts',
+    '../app/api/admin/soil/import-jobs/route.ts',
+    '../app/api/admin/soil/import-jobs/[jobId]/route.ts',
+    '../app/api/admin/soil/import-jobs/[jobId]/diff/route.ts',
+    '../app/api/admin/soil/import-jobs/[jobId]/apply/route.ts',
     '../app/api/admin/soil/rules/route.ts',
     '../app/api/admin/soil/upload/route.ts',
   ];

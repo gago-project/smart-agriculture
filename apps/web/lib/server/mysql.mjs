@@ -24,13 +24,17 @@ export function assertMysqlConfig() {
   return config;
 }
 
-export async function withMysqlConnection(task, options = {}) {
+export async function openMysqlConnection(options = {}) {
   const mysql = await loadMysql();
   const config = assertMysqlConfig();
-  const connection = await mysql.createConnection({
+  return await mysql.createConnection({
     ...config,
     connectTimeout: options.connectTimeout ?? 2000,
   });
+}
+
+export async function withMysqlConnection(task, options = {}) {
+  const connection = await openMysqlConnection(options);
 
   try {
     return await task(connection);

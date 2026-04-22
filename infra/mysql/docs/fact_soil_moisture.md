@@ -99,9 +99,14 @@
 
 - `infra/mysql/init/003_insert_soil_data.sql`：初始化全量墒情事实数据。
 - `apps/web/lib/server/soilAdminRepository.mjs`：
-  - `importSoilWorkbook()` 批量导入或覆盖导入；
+  - `importSoilWorkbook()` 保留旧上传接口的批量导入或覆盖导入；
   - `patchSoilRecord()` 后台编辑单条记录；
   - `removeSoilRecords()` 后台删除记录。
+- `apps/web/lib/server/soilImportJobRepository.mjs`：
+  - `createSoilImportJob()` 解析 Excel 并生成 diff 预览，不直接写事实表；
+  - `startSoilImportApplyJob()` 在确认后按 `incremental` 或 `replace` 写入事实表；
+  - `incremental` 只插入预览中的 `create` 行，不覆盖已有 `record_id`；
+  - `replace` 清空当前事实表，再写入本次预览中的全部有效行。
 - `apps/web/scripts/import-local-soil-excel.mjs`：本地 Excel 覆盖导入脚本。
 
 ### 读取来源
@@ -120,3 +125,4 @@
 - `soil_anomaly_type` / `soil_anomaly_score` 属于派生分析字段，不应替代原始采样事实。
 - “最新一批”语义建议通过 `batch_id` 和 `etl_import_batch` 联动确定，而不是只看 `source_file`。
 - 当前表没有 `data_status` 之类的逻辑撤回字段，因此后台删除会直接影响后续查询结果。
+- 后台 Excel 导入不再“上传即写库”；新页面先写入 `soil_import_job_diff` 预览，管理员确认后才更新事实表。

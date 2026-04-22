@@ -77,14 +77,27 @@ export function parseSoilWorkbookBuffer(buffer, filename = 'soil.xlsx') {
   const firstSheetName = workbook.SheetNames[0];
   const firstSheet = workbook.Sheets[firstSheetName];
   const rows = XLSX.utils.sheet_to_json(firstSheet, { defval: null, raw: true });
-  const records = rows
-    .map((row, index) => mapSoilRow(row, filename, firstSheetName, index + 2))
-    .filter((item) => item.device_sn && item.sample_time);
+  const validRecords = [];
+  const invalidRows = [];
+
+  for (const [index, row] of rows.entries()) {
+    const mapped = mapSoilRow(row, filename, firstSheetName, index + 2);
+    if (mapped.device_sn && mapped.sample_time) {
+      validRecords.push(mapped);
+      continue;
+    }
+    invalidRows.push({
+      source_row: index + 2,
+      reason: '缺少 device_sn 或 sample_time',
+      record: mapped,
+    });
+  }
 
   return {
     filename,
     raw_rows: rows.length,
-    loaded_rows: records.length,
-    records,
+    loaded_rows: validRecords.length,
+    records: validRecords,
+    invalid_rows: invalidRows,
   };
 }

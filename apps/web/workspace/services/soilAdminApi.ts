@@ -3,6 +3,9 @@ import { useAuthStore } from '../store/authStore';
 export interface SoilRecord {
   record_id: string;
   device_sn?: string | null;
+  gateway_id?: string | null;
+  sensor_id?: string | null;
+  unit_id?: string | null;
   city_name?: string | null;
   county_name?: string | null;
   town_name?: string | null;
@@ -10,6 +13,7 @@ export interface SoilRecord {
   longitude?: number | string | null;
   latitude?: number | string | null;
   sample_time?: string | null;
+  create_time?: string | null;
   water20cm?: number | string | null;
   water40cm?: number | string | null;
   water60cm?: number | string | null;
@@ -18,6 +22,14 @@ export interface SoilRecord {
   t40cm?: number | string | null;
   t60cm?: number | string | null;
   t80cm?: number | string | null;
+  water20cm_field_state?: string | null;
+  water40cm_field_state?: string | null;
+  water60cm_field_state?: string | null;
+  water80cm_field_state?: string | null;
+  t20cm_field_state?: string | null;
+  t40cm_field_state?: string | null;
+  t60cm_field_state?: string | null;
+  t80cm_field_state?: string | null;
   soil_anomaly_type?: string | null;
   soil_anomaly_score?: number | string | null;
   source_file?: string | null;
@@ -45,9 +57,13 @@ export interface SoilRecordPage {
   total_pages: number;
 }
 
+export type SoilImportMode = 'incremental' | 'replace';
+export type SoilImportJobStatus = 'previewing' | 'ready' | 'applying' | 'succeeded' | 'failed';
+export type SoilImportDiffType = 'all' | 'create' | 'update' | 'unchanged' | 'delete' | 'invalid';
+
 export interface SoilUploadInput {
   file: File;
-  mode: 'incremental' | 'replace';
+  mode: SoilImportMode;
   confirm_full_replace: boolean;
 }
 
@@ -56,6 +72,7 @@ export interface SoilUploadResult {
   mode: string;
   raw_rows: number;
   loaded_rows: number;
+  invalid_rows?: number;
 }
 
 export interface SoilMutationResult {
@@ -65,13 +82,65 @@ export interface SoilMutationResult {
   new_value?: unknown;
   deleted_count?: number;
   records?: SoilRecord[];
+  record?: SoilRecord | null;
+}
+
+export interface SoilImportSummary {
+  raw_rows: number;
+  valid_rows: number;
+  invalid_rows: number;
+  create_rows: number;
+  update_rows: number;
+  unchanged_rows: number;
+  delete_rows: number;
+  apply_rows: number;
+}
+
+export interface SoilImportJob {
+  job_id: string;
+  filename: string;
+  status: SoilImportJobStatus;
+  apply_mode?: SoilImportMode | null;
+  processed_rows: number;
+  total_rows: number;
+  summary: SoilImportSummary | null;
+  error_message?: string | null;
+  created_at?: string | null;
+  updated_at?: string | null;
+  finished_at?: string | null;
+}
+
+export interface SoilImportFieldChange {
+  before: unknown;
+  after: unknown;
+}
+
+export interface SoilImportDiffRow {
+  diff_id: number;
+  diff_type: Exclude<SoilImportDiffType, 'all'>;
+  record_id?: string | null;
+  source_row?: number | null;
+  db_record?: SoilRecord | null;
+  import_record?: SoilRecord | null;
+  field_changes?: Record<string, SoilImportFieldChange> | { reason: string } | null;
+  created_at?: string | null;
+}
+
+export interface SoilImportDiffPage {
+  rows: SoilImportDiffRow[];
+  total: number;
+  page: number;
+  page_size: number;
+  total_pages: number;
+  summary?: SoilImportSummary | null;
+  status?: SoilImportJobStatus;
 }
 
 function authHeaders(json = false): Record<string, string> {
   const token = useAuthStore.getState().token;
   return {
     ...(json ? { 'Content-Type': 'application/json' } : {}),
-    ...(token ? { Authorization: `Bearer ${token}` } : {})
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
   };
 }
 
@@ -153,7 +222,53 @@ export async function fetchSoilRecords(query: SoilRecordQuery): Promise<SoilReco
 
   return requestJson<SoilRecordPage>(`/api/admin/soil/records?${params.toString()}`, {
     method: 'GET',
-    headers: authHeaders()
+    headers: authHeaders(),
+  });
+}
+
+export async function createSoilImportPreview(file: File): Promise<SoilImportJob> {
+  const bytes = await readFileBytes(file);
+  return requestJson<SoilImportJob>('/api/admin/soil/import-jobs', {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify({
+      filename: file.name,
+      content_base64: bytesToBase64(bytes),
+    }),
+  });
+}
+
+export async function fetchSoilImportJob(jobId: string): Promise<SoilImportJob> {
+  return requestJson<SoilImportJob>(`/api/admin/soil/import-jobs/${encodeURIComponent(jobId)}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function fetchSoilImportDiff(jobId: string, query: {
+  type?: SoilImportDiffType;
+  page?: number;
+  page_size?: number;
+}): Promise<SoilImportDiffPage> {
+  const params = new URLSearchParams();
+  appendParam(params, 'type', query.type || 'all');
+  appendParam(params, 'page', query.page || 1);
+  appendParam(params, 'page_size', query.page_size || 20);
+
+  return requestJson<SoilImportDiffPage>(`/api/admin/soil/import-jobs/${encodeURIComponent(jobId)}/diff?${params.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+  });
+}
+
+export async function applySoilImportJob(jobId: string, input: {
+  mode: SoilImportMode;
+  confirm_full_replace: boolean;
+}): Promise<SoilImportJob> {
+  return requestJson<SoilImportJob>(`/api/admin/soil/import-jobs/${encodeURIComponent(jobId)}/apply`, {
+    method: 'POST',
+    headers: authHeaders(true),
+    body: JSON.stringify(input),
   });
 }
 
@@ -166,8 +281,8 @@ export async function uploadSoilExcel(input: SoilUploadInput): Promise<SoilUploa
       filename: input.file.name,
       content_base64: bytesToBase64(bytes),
       mode: input.mode,
-      confirm_full_replace: input.confirm_full_replace
-    })
+      confirm_full_replace: input.confirm_full_replace,
+    }),
   });
 }
 
@@ -175,14 +290,14 @@ export async function updateSoilRecordField(recordId: string, field: string, val
   return requestJson<SoilMutationResult>(`/api/admin/soil/records/${encodeURIComponent(recordId)}`, {
     method: 'PATCH',
     headers: authHeaders(true),
-    body: JSON.stringify({ field, value })
+    body: JSON.stringify({ field, value }),
   });
 }
 
 export async function deleteSoilRecord(recordId: string): Promise<SoilMutationResult> {
   return requestJson<SoilMutationResult>(`/api/admin/soil/records/${encodeURIComponent(recordId)}`, {
     method: 'DELETE',
-    headers: authHeaders()
+    headers: authHeaders(),
   });
 }
 
@@ -190,6 +305,6 @@ export async function bulkDeleteSoilRecords(recordIds: string[]): Promise<SoilMu
   return requestJson<SoilMutationResult>('/api/admin/soil/records/bulk-delete', {
     method: 'POST',
     headers: authHeaders(true),
-    body: JSON.stringify({ record_ids: recordIds })
+    body: JSON.stringify({ record_ids: recordIds }),
   });
 }

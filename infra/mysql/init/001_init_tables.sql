@@ -13,6 +13,35 @@ CREATE TABLE IF NOT EXISTS etl_import_batch (
   note TEXT NULL
 );
 
+CREATE TABLE IF NOT EXISTS soil_import_job (
+  job_id CHAR(36) PRIMARY KEY,
+  filename VARCHAR(255) NOT NULL,
+  requested_by_user_id BIGINT NULL,
+  requested_by_username VARCHAR(64) NULL,
+  status VARCHAR(32) NOT NULL,
+  apply_mode VARCHAR(16) NULL,
+  processed_rows INT NOT NULL DEFAULT 0,
+  total_rows INT NOT NULL DEFAULT 0,
+  summary_json JSON NULL,
+  error_message TEXT NULL,
+  finished_at DATETIME NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS soil_import_job_diff (
+  diff_id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  job_id CHAR(36) NOT NULL,
+  diff_type VARCHAR(16) NOT NULL,
+  record_id VARCHAR(64) NULL,
+  source_row INT NULL,
+  db_record_json JSON NULL,
+  import_record_json JSON NULL,
+  field_changes_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_soil_import_job_diff_job FOREIGN KEY (job_id) REFERENCES soil_import_job(job_id)
+);
+
 CREATE TABLE IF NOT EXISTS fact_soil_moisture (
   record_id VARCHAR(64) PRIMARY KEY,
   batch_id CHAR(36) NOT NULL,
@@ -240,6 +269,8 @@ CALL ensure_index('fact_soil_moisture', 'idx_soil_batch_id', 'CREATE INDEX idx_s
 CALL ensure_index('fact_soil_moisture', 'idx_soil_device_time', 'CREATE INDEX idx_soil_device_time ON fact_soil_moisture (device_sn, sample_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_region_time', 'CREATE INDEX idx_soil_region_time ON fact_soil_moisture (city_name, county_name, town_name, sample_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_anomaly', 'CREATE INDEX idx_soil_anomaly ON fact_soil_moisture (soil_anomaly_type, soil_anomaly_score)');
+CALL ensure_index('soil_import_job', 'idx_soil_import_job_status_created_at', 'CREATE INDEX idx_soil_import_job_status_created_at ON soil_import_job (status, created_at)');
+CALL ensure_index('soil_import_job_diff', 'idx_soil_import_job_diff_lookup', 'CREATE INDEX idx_soil_import_job_diff_lookup ON soil_import_job_diff (job_id, diff_type, diff_id)');
 CALL ensure_index('metric_rule', 'idx_metric_rule_scope_enabled', 'CREATE INDEX idx_metric_rule_scope_enabled ON metric_rule (enabled, rule_scope, updated_at)');
 CALL ensure_index('agent_query_log', 'idx_aql_session_turn', 'CREATE INDEX idx_aql_session_turn ON agent_query_log (session_id, turn_id)');
 CALL ensure_index('agent_query_log', 'idx_aql_created_at', 'CREATE INDEX idx_aql_created_at ON agent_query_log (created_at)');

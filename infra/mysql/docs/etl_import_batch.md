@@ -41,6 +41,10 @@
   - 导入开始时写入一条 `status='processing'` 的批次记录；
   - 导入完成后更新为 `success`；
   - 导入失败后更新为 `failed` 并记录错误摘要。
+- `apps/web/lib/server/soilImportJobRepository.mjs`：
+  - 导入预览阶段只写 `soil_import_job` 与 `soil_import_job_diff`，不创建批次；
+  - 管理员确认应用后才创建 `etl_import_batch`；
+  - 应用成功后写入 `loaded_row_count`，应用失败后写入 `status='failed'`。
 
 ### 读取来源
 

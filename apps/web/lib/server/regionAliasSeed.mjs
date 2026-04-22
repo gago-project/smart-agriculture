@@ -138,3 +138,17 @@ export async function upsertRegionAliasRows(connection, rows) {
   );
   return generatedRows.length;
 }
+
+export async function refreshGeneratedRegionAliasesFromFacts(connection) {
+  const [rows] = await connection.execute(
+    `SELECT DISTINCT city_name, county_name, town_name
+     FROM fact_soil_moisture
+     WHERE city_name IS NOT NULL OR county_name IS NOT NULL OR town_name IS NOT NULL`,
+  );
+  const aliasRows = buildRegionAliasRows(rows);
+  const aliasCount = await upsertRegionAliasRows(connection, aliasRows);
+  return {
+    alias_rows: aliasCount,
+    source_rows: rows.length,
+  };
+}

@@ -16,6 +16,7 @@
 
 - [`fact_soil_moisture.md`](./fact_soil_moisture.md)：墒情事实表，Agent 与后台查询的事实来源。
 - [`etl_import_batch.md`](./etl_import_batch.md)：导入批次表，记录每次 Excel 或后台导入的批次状态。
+- [`soil_import_job.md`](./soil_import_job.md)：后台 Excel 导入预览任务与 diff 快照表，支撑轮询进度、预览确认和二次确认覆盖。
 - [`region_alias.md`](./region_alias.md)：地区别名映射表，支持简称补全、静态种子和多候选歧义处理。
 
 ### 规则与模板
