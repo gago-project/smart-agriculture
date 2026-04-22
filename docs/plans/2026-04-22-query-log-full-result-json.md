@@ -4,7 +4,7 @@
 
 **Goal:** 将查询日志从“结果预览”升级为“完整 SQL 查询结果”记录与展示，并移除 `result_preview_json` 的旧设计，保证库表、代码、测试与 plans 一致。
 
-**Architecture:** 用一个语义明确的新字段承载完整执行结果 JSON，替代现有 `result_preview_json`。Agent 查询执行完成后，将完整 `query_result` 的可展示部分写入该字段；Web 查询日志 API 与页面同步读取并展示这个完整结果，plans 中同步移除“预览”语义。除这次替换外，查询日志表既有的请求/回答与路由上下文字段（`request_text`、`response_text`、`input_type`、`intent`、`answer_type`、`final_status`）继续保留，不在本计划中删除。
+**Architecture:** 用一个语义明确的新字段承载完整执行结果 JSON，替代现有 `result_preview_json`。Agent 查询执行完成后，将完整 `query_result` 的可展示部分写入该字段；Web 查询日志保留“完整结果可查看”的能力，但为了避免列表接口响应过大，列表页接口只返回轻量摘要字段，完整 SQL 与完整结果 JSON 通过单条详情接口按需加载。plans 中同步移除“预览”语义。除这次替换外，查询日志表既有的请求/回答与路由上下文字段（`request_text`、`response_text`、`input_type`、`intent`、`answer_type`、`final_status`）继续保留，不在本计划中删除。
 
 **Tech Stack:** Python、Next.js、MySQL、Node test、unittest、Markdown plans
 
@@ -65,12 +65,14 @@
 **Step 1: 更新服务端返回结构**
 
 - 停止返回 `result_preview_json`
-- 改为返回完整结果字段
+- 列表接口仅返回轻量字段
+- 新增单条详情接口返回完整结果字段
 
 **Step 2: 更新页面展示**
 
 - 为每条日志增加“执行结果”展示
 - 使用可展开的 JSON 展示方式
+- 展开时按需请求完整 SQL 与完整结果
 
 ### Task 4: 清理权威 plans 文档
 

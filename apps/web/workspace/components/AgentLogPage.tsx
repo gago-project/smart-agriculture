@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { fetchAgentQueryLogs, type AgentQueryLogPage } from '../services/agentLogApi';
+import {
+  fetchAgentQueryLogDetail,
+  fetchAgentQueryLogs,
+  type AgentQueryLog,
+  type AgentQueryLogPage
+} from '../services/agentLogApi';
 
 const PAGE_SIZE = 30;
 
@@ -31,6 +36,12 @@ const emptyPage: AgentQueryLogPage = {
   page_size: PAGE_SIZE,
   total_pages: 0
 };
+
+interface DetailState {
+  loading: boolean;
+  data?: AgentQueryLog;
+  error?: string | null;
+}
 
 const queryTypeOptions = [
   { value: '', label: '全部' },
@@ -80,6 +91,7 @@ export function AgentLogPage() {
   const [data, setData] = useState<AgentQueryLogPage>(emptyPage);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [detailCache, setDetailCache] = useState<Record<string, DetailState>>({});
 
   const loadLogs = useCallback(async (nextPage: number) => {
     setIsLoading(true);
@@ -88,6 +100,7 @@ export function AgentLogPage() {
       const result = await fetchAgentQueryLogs({ page: nextPage, page_size: PAGE_SIZE, ...compactFilters(filters) });
       setData(result);
       setPage(result.page);
+      setDetailCache({});
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '查询日志加载失败');
     } finally {
@@ -95,12 +108,77 @@ export function AgentLogPage() {
     }
   }, [filters]);
 
+  const ensureDetailLoaded = useCallback(async (queryId: string) => {
+    const cached = detailCache[queryId];
+    if (cached?.loading || cached?.data) {
+      return;
+    }
+
+    setDetailCache((current) => ({
+      ...current,
+      [queryId]: {
+        loading: true,
+        data: current[queryId]?.data,
+        error: null
+      }
+    }));
+
+    try {
+      const detail = await fetchAgentQueryLogDetail(queryId);
+      setDetailCache((current) => ({
+        ...current,
+        [queryId]: {
+          loading: false,
+          data: detail,
+          error: null
+        }
+      }));
+    } catch (caughtError) {
+      setDetailCache((current) => ({
+        ...current,
+        [queryId]: {
+          loading: false,
+          data: current[queryId]?.data,
+          error: caughtError instanceof Error ? caughtError.message : '查询日志详情加载失败'
+        }
+      }));
+    }
+  }, [detailCache]);
+
   useEffect(() => {
     void loadLogs(1);
   }, [loadLogs]);
 
   function updateFilter(field: keyof Filters, value: string) {
     setFilters((current) => ({ ...current, [field]: value }));
+  }
+
+  function getDetailSummary(log: AgentQueryLog, field: 'executed_sql_text' | 'executed_result_json') {
+    const detail = detailCache[log.query_id]?.data;
+    if (field === 'executed_sql_text') {
+      return detail?.executed_sql_text ? preview(detail.executed_sql_text, 56) : '点击加载 SQL';
+    }
+    return detail?.executed_result_json ? previewJson(detail.executed_result_json, 56) : `点击加载结果（${log.row_count} 行）`;
+  }
+
+  function renderDetailContent(log: AgentQueryLog, field: 'executed_sql_text' | 'executed_result_json') {
+    const state = detailCache[log.query_id];
+    const detail = state?.data;
+
+    if (state?.error) {
+      return <div className="admin-message error">{state.error}</div>;
+    }
+    if (state?.loading) {
+      return <div>加载中...</div>;
+    }
+    if (field === 'executed_sql_text') {
+      return detail?.executed_sql_text ? <pre>{detail.executed_sql_text}</pre> : <div>暂无 SQL</div>;
+    }
+    return detail?.executed_result_json ? (
+      <pre>{JSON.stringify(detail.executed_result_json, null, 2)}</pre>
+    ) : (
+      <div>暂无执行结果</div>
+    );
   }
 
   return (
@@ -193,18 +271,26 @@ export function AgentLogPage() {
                 <td>{log.status}</td>
                 <td>{log.row_count}</td>
                 <td>
-                  {log.executed_sql_text ? (
-                    <details>
-                      <summary>{preview(log.executed_sql_text, 56)}</summary>
-                      <pre>{log.executed_sql_text}</pre>
+                  {log.has_executed_sql_text ? (
+                    <details onToggle={(event) => {
+                      if (event.currentTarget.open) {
+                        void ensureDetailLoaded(log.query_id);
+                      }
+                    }}>
+                      <summary>{getDetailSummary(log, 'executed_sql_text')}</summary>
+                      {renderDetailContent(log, 'executed_sql_text')}
                     </details>
                   ) : '-'}
                 </td>
                 <td>
-                  {log.executed_result_json ? (
-                    <details>
-                      <summary>{previewJson(log.executed_result_json, 56)}</summary>
-                      <pre>{JSON.stringify(log.executed_result_json, null, 2)}</pre>
+                  {log.has_executed_result_json ? (
+                    <details onToggle={(event) => {
+                      if (event.currentTarget.open) {
+                        void ensureDetailLoaded(log.query_id);
+                      }
+                    }}>
+                      <summary>{getDetailSummary(log, 'executed_result_json')}</summary>
+                      {renderDetailContent(log, 'executed_result_json')}
                     </details>
                   ) : '-'}
                 </td>

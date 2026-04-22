@@ -17,6 +17,8 @@ export interface AgentQueryLog {
   status: string;
   error_message?: string | null;
   created_at: string;
+  has_executed_sql_text?: boolean;
+  has_executed_result_json?: boolean;
   query_plan_json?: unknown;
   time_range_json?: unknown;
   filters_json?: unknown;
@@ -99,4 +101,10 @@ export async function fetchAgentQueryLogs(query: AgentQueryLogQuery): Promise<Ag
   appendParam(params, 'created_at_to', query.created_at_to);
 
   return requestJson<AgentQueryLogPage>(`/api/developer/agent/query-logs?${params.toString()}`);
+}
+
+export async function fetchAgentQueryLogDetail(queryId: string): Promise<AgentQueryLog> {
+  return requestJson<AgentQueryLog>(
+    `/api/developer/agent/query-logs/${encodeURIComponent(queryId)}`,
+  );
 }

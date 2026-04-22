@@ -21,7 +21,29 @@ function appendFilter(filters, params, condition, value) {
   params.push(normalized);
 }
 
-function fromDbLog(row) {
+function fromDbSummaryLog(row) {
+  return {
+    query_id: row.query_id,
+    session_id: row.session_id,
+    turn_id: row.turn_id,
+    request_text: row.request_text,
+    response_text: row.response_text,
+    input_type: row.input_type,
+    intent: row.intent,
+    answer_type: row.answer_type,
+    final_status: row.final_status,
+    query_type: row.query_type,
+    sql_fingerprint: row.sql_fingerprint,
+    row_count: row.row_count,
+    status: row.status,
+    error_message: row.error_message,
+    created_at: row.created_at,
+    has_executed_sql_text: Boolean(row.has_executed_sql_text),
+    has_executed_result_json: Boolean(row.has_executed_result_json),
+  };
+}
+
+function fromDbDetailLog(row) {
   return {
     query_id: row.query_id,
     session_id: row.session_id,
@@ -44,6 +66,8 @@ function fromDbLog(row) {
     filters_json: parseJsonValue(row.filters_json),
     executed_result_json: parseJsonValue(row.executed_result_json),
     source_files_json: parseJsonValue(row.source_files_json),
+    has_executed_sql_text: Boolean(row.executed_sql_text),
+    has_executed_result_json: row.executed_result_json !== null && row.executed_result_json !== undefined,
   };
 }
 
@@ -111,6 +135,43 @@ export async function listAgentQueryLogs(query) {
          final_status,
          query_type,
          sql_fingerprint,
+         row_count,
+         status,
+         error_message,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         IF(executed_sql_text IS NULL OR executed_sql_text = '', 0, 1) AS has_executed_sql_text,
+         IF(executed_result_json IS NULL, 0, 1) AS has_executed_result_json
+       FROM agent_query_log
+       WHERE query_id IN (${detailPlaceholders})`,
+      pageIds,
+    );
+
+    const rowsById = new Map(detailRows.map((row) => [row.query_id, row]));
+    return {
+      rows: pageIds.map((queryId) => rowsById.get(queryId)).filter(Boolean).map(fromDbSummaryLog),
+      total,
+      page,
+      page_size: pageSize,
+      total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    };
+  });
+}
+
+export async function getAgentQueryLogDetail(queryId) {
+  return await withMysqlConnection(async (connection) => {
+    const [rows] = await connection.query(
+      `SELECT
+         query_id,
+         session_id,
+         turn_id,
+         request_text,
+         response_text,
+         input_type,
+         intent,
+         answer_type,
+         final_status,
+         query_type,
+         sql_fingerprint,
          executed_sql_text,
          row_count,
          status,
@@ -122,17 +183,15 @@ export async function listAgentQueryLogs(query) {
          executed_result_json,
          source_files_json
        FROM agent_query_log
-       WHERE query_id IN (${detailPlaceholders})`,
-      pageIds,
+       WHERE query_id = ?
+       LIMIT 1`,
+      [String(queryId || '').trim()],
     );
 
-    const rowsById = new Map(detailRows.map((row) => [row.query_id, row]));
-    return {
-      rows: pageIds.map((queryId) => rowsById.get(queryId)).filter(Boolean).map(fromDbLog),
-      total,
-      page,
-      page_size: pageSize,
-      total_pages: total === 0 ? 0 : Math.ceil(total / pageSize),
-    };
+    const row = rows[0];
+    if (!row) {
+      throw new Error('查询日志不存在');
+    }
+    return fromDbDetailLog(row);
   });
 }

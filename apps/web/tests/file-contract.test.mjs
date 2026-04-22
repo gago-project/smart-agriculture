@@ -69,6 +69,7 @@ test('workspace routes for auth and chat exist', () => {
   assert.equal(existsSync(new URL('../app/api/agent/chat/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/agent/summary/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/developer/agent/query-logs/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../app/api/developer/agent/query-logs/[queryId]/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../workspace/App.tsx', import.meta.url)), true);
 });
 
@@ -163,6 +164,20 @@ test('query log repository pages ids before loading wide log fields', () => {
   assert.match(source, /SELECT\s+query_id\s+FROM agent_query_log[\s\S]*ORDER BY created_at DESC[\s\S]*LIMIT/);
   assert.match(source, /WHERE query_id IN \(\$\{detailPlaceholders\}\)/);
   assert.doesNotMatch(source, /SELECT[\s\S]*executed_result_json[\s\S]*FROM agent_query_log[\s\S]*ORDER BY created_at DESC/);
+  assert.match(source, /IF\(executed_result_json IS NULL, 0, 1\) AS has_executed_result_json/);
+  assert.match(source, /export async function getAgentQueryLogDetail/);
+  assert.match(source, /SELECT[\s\S]*executed_result_json[\s\S]*FROM agent_query_log[\s\S]*WHERE query_id = \?/);
+});
+
+test('query log page loads wide SQL and result payloads on demand', () => {
+  const apiSource = readFileSync(new URL('../workspace/services/agentLogApi.ts', import.meta.url), 'utf8');
+  const pageSource = readFileSync(new URL('../workspace/components/AgentLogPage.tsx', import.meta.url), 'utf8');
+
+  assert.match(apiSource, /export async function fetchAgentQueryLogDetail/);
+  assert.match(apiSource, /\/api\/developer\/agent\/query-logs\/\$\{encodeURIComponent\(queryId\)\}/);
+  assert.match(pageSource, /fetchAgentQueryLogDetail/);
+  assert.match(pageSource, /detailCache/);
+  assert.match(pageSource, /onToggle/);
 });
 
 test('database query log docs include request and routing context fields', () => {
