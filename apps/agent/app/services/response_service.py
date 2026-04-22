@@ -118,21 +118,20 @@ class ResponseService:
         if not records:
             region_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前范围"
             return f"{region_name} 当前没有可用墒情数据，请先确认地区名称或导入最新批次。"
-        latest_time = business_time.get("latest_business_time") or records[0].get("sample_time") or "暂无"
         water_values = [_safe_float(item.get("water20cm")) for item in records]
         valid_values = [item for item in water_values if item is not None]
         avg_water = round(mean(valid_values), 2) if valid_values else None
         risky = [item for item in records if item.get("soil_status") != "not_triggered"]
-        region_name = slots.get("city_name") or slots.get("county_name") or slots.get("town_name") or "当前样本"
-        template = self.template_env.get_template("soil_summary.j2")
-        rendered = template.render(
-            scope_name=region_name,
-            total_records=len(records),
-            latest_business_time=latest_time,
-            avg_water20cm=avg_water,
-            risky_count=len(risky),
-        )
-        return f"{rendered} 数据来源为 smart_agriculture.fact_soil_moisture。"
+        if slots.get("batch_id") == "latest_batch":
+            scope_name = "本批数据"
+        else:
+            scope_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前整体"
+        avg_text = f"20cm平均相对含水量约 {avg_water}%" if avg_water is not None else "20cm相对含水量暂无可用统计"
+        if risky:
+            risk_text = f"当前有 {len(risky)} 个点位需要重点关注"
+        else:
+            risk_text = "当前未发现需要重点关注的异常点位"
+        return f"{scope_name}墒情概况：{avg_text}，{risk_text}。"
 
     def _ranking_answer(self, records: list[dict[str, Any]], query_result: dict[str, Any]) -> str:
         """Build a TopN ranking from anomaly scores in the query result."""
@@ -149,8 +148,10 @@ class ResponseService:
             key=lambda item: item[1],
             reverse=True,
         )[:top_n]
-        items = "；".join(f"{idx}. {name}（异常分 {score}）" for idx, (name, score) in enumerate(ranking, start=1))
-        return f"按 {aggregation} 维度、以 soil_anomaly_score 为排序口径的 Top{len(ranking)} 结果如下：{items}。"
+        items = "；".join(f"{idx}. {name}" for idx, (name, _score) in enumerate(ranking, start=1))
+        label_map = {"county": "县区", "city": "地市", "device": "设备", "province": "地区"}
+        aggregation_label = label_map.get(aggregation, "对象")
+        return f"当前需优先关注的{aggregation_label}（按综合风险排序）如下：{items}。"
 
     def _detail_answer(self, records: list[dict[str, Any]], slots: dict[str, Any]) -> str:
         """Describe the latest detail record for a device or region."""
@@ -175,7 +176,7 @@ class ResponseService:
         for record in anomalies[:5]:
             region_name = record.get("county_name") or record.get("city_name") or record.get("device_sn")
             names.append(f"{region_name}（{record.get('display_label')}）")
-        return f"当前共识别出 {len(anomalies)} 个异常点位，重点关注：{'；'.join(names)}。异常判断依据来自 SoilStatusRuleEngine。"
+        return f"当前共识别出 {len(anomalies)} 个异常点位，重点关注：{'；'.join(names)}。"
 
     def _warning_answer(
         self,

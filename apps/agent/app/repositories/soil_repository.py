@@ -203,8 +203,9 @@ class SoilRepository:
             params.append(value)
         where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         limit_sql = f"LIMIT {int(limit)}" if limit else ""
+        select_sql = self._soil_select_columns_sql().replace("%", "%%")
         sql = f"""
-        {self._soil_select_columns_sql()}
+        {select_sql}
         {where_sql}
         ORDER BY sample_time DESC
         {limit_sql}

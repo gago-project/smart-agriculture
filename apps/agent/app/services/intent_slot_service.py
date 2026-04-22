@@ -43,9 +43,16 @@ class IntentSlotService:
 
     async def parse(self, user_input: str, session_id: str) -> ParseResult:
         """Return a single best intent, answer type, and slot dictionary."""
+        deterministic_result = await self._parse_deterministic(user_input)
+        if deterministic_result.intent != "clarification_needed":
+            return deterministic_result
         llm_result = await self._try_qwen_parse(user_input=user_input, session_id=session_id)
-        if llm_result:
+        if llm_result and llm_result.intent != "clarification_needed":
             return llm_result
+        return deterministic_result
+
+    async def _parse_deterministic(self, user_input: str) -> ParseResult:
+        """Return the regex/keyword-based parse result used as the stable baseline."""
         text = user_input.strip()
         slots: dict[str, Any] = {}
         device_match = DEVICE_RE.search(text)

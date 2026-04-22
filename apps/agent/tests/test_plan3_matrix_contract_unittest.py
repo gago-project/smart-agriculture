@@ -49,30 +49,26 @@ class Plan3MatrixContractTest(unittest.TestCase):
             sql_template="SQL-01",
         )
 
-    def test_rk_04_top_100_ranking_should_query_without_clarify(self):
+    def test_rk_04_top_100_ranking_should_clarify_without_query(self):
         result = self.chat("给我前100个最严重设备", session_id="plan3-rk-04")
 
-        self.assertEqual(result["execution_gate_result"].get("decision"), "pass")
+        self.assertEqual(result["execution_gate_result"].get("decision"), "clarify")
         self.assert_route(
             result,
             intent="soil_severity_ranking",
-            answer_type="soil_ranking_answer",
-            should_query=True,
-            query_type="severity_ranking",
-            sql_template="SQL-02",
+            answer_type="clarification_answer",
+            should_query=False,
         )
 
-    def test_rk_05_large_device_ranking_should_query_without_block(self):
+    def test_rk_05_large_device_ranking_should_block(self):
         result = self.chat("全省近三年所有设备排名", session_id="plan3-rk-05")
 
-        self.assertEqual(result["execution_gate_result"].get("decision"), "pass")
+        self.assertEqual(result["execution_gate_result"].get("decision"), "block")
         self.assert_route(
             result,
             intent="soil_severity_ranking",
-            answer_type="soil_ranking_answer",
-            should_query=True,
-            query_type="severity_ranking",
-            sql_template="SQL-02",
+            answer_type="clarification_answer",
+            should_query=False,
         )
 
     def test_dt_02_device_anomaly_question_should_use_device_detail_sql_03(self):
@@ -127,17 +123,15 @@ class Plan3MatrixContractTest(unittest.TestCase):
             should_query=False,
         )
 
-    def test_an_04_anomaly_five_year_window_should_query_without_clarify(self):
+    def test_an_04_anomaly_five_year_window_should_clarify_without_query(self):
         result = self.chat("查过去5年异常点位", session_id="plan3-an-04")
 
-        self.assertEqual(result["execution_gate_result"].get("decision"), "pass")
+        self.assertEqual(result["execution_gate_result"].get("decision"), "clarify")
         self.assert_route(
             result,
             intent="soil_anomaly_query",
-            answer_type="soil_anomaly_answer",
-            should_query=True,
-            query_type="anomaly_list",
-            sql_template="SQL-04",
+            answer_type="clarification_answer",
+            should_query=False,
         )
 
     def test_ad_02_farmer_advice_should_use_previous_anomaly_context(self):
@@ -169,13 +163,13 @@ class Plan3MatrixContractTest(unittest.TestCase):
             sql_template="SQL-06",
         )
 
-    def test_pg_03_two_year_city_anomaly_should_query_without_shrink(self):
+    def test_pg_03_two_year_city_anomaly_should_clarify_without_query(self):
         result = self.chat("过去两年镇江市异常概况", session_id="plan3-pg-03")
 
-        self.assertEqual(result["execution_gate_result"].get("decision"), "pass")
-        self.assertEqual(result["answer_type"], "soil_anomaly_answer")
-        self.assertTrue(result["should_query"])
-        self.assertEqual(result["query_plan"].get("query_type"), "anomaly_list")
+        self.assertEqual(result["execution_gate_result"].get("decision"), "clarify")
+        self.assertEqual(result["answer_type"], "clarification_answer")
+        self.assertFalse(result["should_query"])
+        self.assertEqual(result["query_plan"], {})
 
 
 if __name__ == "__main__":

@@ -35,6 +35,16 @@ class FakeInvalidQwenClient(FakeQwenClient):
         }
 
 
+class FakeClarifyingQwenClient(FakeQwenClient):
+    async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        del user_input, session_id
+        return {
+            "intent": "clarification_needed",
+            "answer_type": "clarification_answer",
+            "slots": {},
+        }
+
+
 class FakeRegionRepository:
     async def region_alias_rows_async(self):
         return []
@@ -61,6 +71,17 @@ class LlmTemplateContractTest(unittest.TestCase):
             self.assertEqual(result.intent, "soil_device_query")
             self.assertEqual(result.answer_type, "soil_detail_answer")
             self.assertEqual(result.slots["device_sn"], "SNS00204333")
+
+        asyncio.run(run_case())
+
+    def test_intent_slot_service_prefers_deterministic_follow_up_over_qwen_clarify(self) -> None:
+        async def run_case() -> None:
+            service = IntentSlotService(repository=FakeRegionRepository(), qwen_client=FakeClarifyingQwenClient())
+            result = await service.parse("那上周的呢", "session-1")
+            self.assertEqual(result.intent, "soil_region_query")
+            self.assertEqual(result.answer_type, "soil_detail_answer")
+            self.assertEqual(result.slots["time_range"], "last_week")
+            self.assertTrue(result.slots["follow_up"])
 
         asyncio.run(run_case())
 

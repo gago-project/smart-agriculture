@@ -30,6 +30,9 @@ class ExecutionGateService:
         "last_3_years": 1095,
         "last_5_years": 1825,
     }
+    MAX_TOP_N = 20
+    MAX_RANKING_DAYS = 365
+    MAX_ANOMALY_DAYS = 180
 
     def evaluate(self, *, intent: str, slots: dict[str, Any], business_time: dict[str, Any]) -> dict[str, Any]:
         """Return pass/clarify/block/shrink decision for one query."""
@@ -67,6 +70,76 @@ class ExecutionGateService:
                 "message": "请补充地区、设备或时间范围后再查询。",
                 "must_clarify": True,
                 "clarify_message": "请补充地区、设备或时间范围后再查询。例如：如东县最近怎么样，或 SNS00204333 最近有没有异常。",
+            }
+
+        top_n = int(slots.get("top_n") or 0)
+        aggregation = slots.get("aggregation")
+        trend = slots.get("trend")
+        batch_devices = slots.get("batch_devices")
+
+        if intent == "soil_severity_ranking" and top_n > self.MAX_TOP_N:
+            return {
+                **result,
+                "decision": "clarify",
+                "allow_execute": False,
+                "policy_decision": "clarify",
+                "reason": "top_n_exceeded",
+                "violations": [{"field": "top_n", "reason": f"exceeds_{self.MAX_TOP_N}"}],
+                "message": f"当前最多支持前 {self.MAX_TOP_N} 个结果，请缩小范围后再查。",
+                "must_clarify": True,
+                "clarify_message": f"当前最多支持查看前 {self.MAX_TOP_N} 个结果，你可以改问“前 {self.MAX_TOP_N} 个最严重设备”。",
+            }
+
+        if intent == "soil_severity_ranking" and aggregation == "device" and requested_days > self.MAX_RANKING_DAYS:
+            return {
+                **result,
+                "decision": "block",
+                "allow_execute": False,
+                "policy_decision": "block",
+                "reason": "ranking_window_too_wide",
+                "violations": [{"field": "time_range", "reason": f"exceeds_{self.MAX_RANKING_DAYS}_days"}],
+                "message": "当前设备排名时间范围过大，已阻断查询。",
+                "blocked": True,
+                "block_message": "当前设备排名时间范围过大，请缩小到近一年内，或改查地区级排名。",
+            }
+
+        if intent == "soil_anomaly_query" and requested_days > self.MAX_ANOMALY_DAYS:
+            return {
+                **result,
+                "decision": "clarify",
+                "allow_execute": False,
+                "policy_decision": "clarify",
+                "reason": "anomaly_window_too_wide",
+                "violations": [{"field": "time_range", "reason": f"exceeds_{self.MAX_ANOMALY_DAYS}_days"}],
+                "message": "异常查询时间范围过大，请缩小后重试。",
+                "must_clarify": True,
+                "clarify_message": "异常查询时间范围过大，请缩小到近 180 天内后再查。",
+            }
+
+        if intent == "soil_device_query" and trend and batch_devices == "all":
+            return {
+                **result,
+                "decision": "block",
+                "allow_execute": False,
+                "policy_decision": "block",
+                "reason": "batch_device_trend_blocked",
+                "violations": [{"field": "batch_devices", "reason": "all_devices_trend_not_allowed"}],
+                "message": "暂不支持批量设备趋势查询。",
+                "blocked": True,
+                "block_message": "暂不支持批量设备趋势查询，请指定单个设备后再试。",
+            }
+
+        if trend and aggregation == "province":
+            return {
+                **result,
+                "decision": "clarify",
+                "allow_execute": False,
+                "policy_decision": "clarify",
+                "reason": "province_trend_requires_scope",
+                "violations": [{"field": "aggregation", "reason": "province_trend_requires_narrower_scope"}],
+                "message": "趋势查询范围过大，请缩小后重试。",
+                "must_clarify": True,
+                "clarify_message": "趋势查询范围过大，请补充地区或设备后再查。",
             }
         return result
 

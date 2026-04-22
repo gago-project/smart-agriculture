@@ -23,6 +23,14 @@ class SoilRepositoryPathTest(unittest.TestCase):
         with patch.object(repository, "_connect", return_value=MissingRegionAliasConnection()):
             self.assertEqual(repository.region_alias_rows(), [])
 
+    def test_filter_sql_escapes_date_format_percent_for_pyformat(self):
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        sql, params = repository._build_filter_records_query_pyformat(batch_id="batch-1")
+
+        rendered = sql % params
+        self.assertIn("DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s')", rendered)
+
 
 class EmptyResultCursor:
     def __enter__(self):
