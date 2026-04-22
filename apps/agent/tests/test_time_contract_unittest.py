@@ -1,0 +1,126 @@
+"""Unit tests for the post-batch-removal time contract."""
+
+from __future__ import annotations
+
+import unittest
+
+from app.services.execution_gate_service import ExecutionGateService
+from app.services.intent_slot_service import IntentSlotService
+from app.services.soil_query_service import SoilQueryService
+from app.services.time_service import TimeResolveService
+from support_repositories import SeedSoilRepository
+
+
+class FakeQwenBatchClient:
+    """LLM test double that wrongly returns deprecated batch slots."""
+
+    def available(self) -> bool:
+        """Return whether this test double should be treated as available."""
+        return True
+
+    async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        """Return a deprecated batch-style parse that should be sanitized."""
+        del user_input, session_id
+        return {
+            "intent": "soil_recent_summary",
+            "answer_type": "soil_summary_answer",
+            "slots": {
+                "time_range": "last_7_days",
+                "batch_id": "latest_batch",
+            },
+        }
+
+
+class TimeContractTest(unittest.TestCase):
+    """Test the simplified time-window contract after batch removal."""
+
+    def setUp(self) -> None:
+        """Prepare shared services for each test."""
+        self.repository = SeedSoilRepository()
+        self.time_service = TimeResolveService(self.repository)
+        self.query_service = SoilQueryService(self.repository)
+        self.execution_gate = ExecutionGateService()
+
+    def test_yesterday_should_resolve_to_full_previous_business_day(self) -> None:
+        """Verify yesterday maps to the previous natural day boundaries."""
+        result = self.time_service.resolve(
+            slots={"time_range": "yesterday"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+
+        self.assertEqual(result["start_time"], "2026-04-12 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-12 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "yesterday")
+
+    def test_last_12_days_should_resolve_to_natural_day_window(self) -> None:
+        """Verify dynamic day windows use inclusive natural-day boundaries."""
+        result = self.time_service.resolve(
+            slots={"time_range": "last_12_days"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+
+        self.assertEqual(result["start_time"], "2026-04-02 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-13 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "last_12_days")
+
+    def test_last_week_should_resolve_to_previous_natural_week(self) -> None:
+        """Verify last week maps to Monday-Sunday boundaries."""
+        result = self.time_service.resolve(
+            slots={"time_range": "last_week"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+
+        self.assertEqual(result["start_time"], "2026-04-06 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-12 23:59:59")
+
+    def test_dynamic_last_n_days_should_fetch_latest_business_time(self) -> None:
+        """Verify dynamic day windows still fetch latest business time from repo."""
+        result = self.query_service.build_query_plan(
+            intent="soil_recent_summary",
+            slots={"city_name": "南京市", "time_range": "last_12_days"},
+            business_time=self.time_service.resolve(
+                slots={"city_name": "南京市", "time_range": "last_12_days"},
+                latest_business_time=self.repository.latest_business_time(),
+            ),
+            session_id="s1",
+            turn_id=1,
+            request_id="r1",
+        )
+
+        self.assertNotIn("batch_id", result["filters"])
+        self.assertEqual(result["time_range"]["start_time"], "2026-04-02 00:00:00")
+        self.assertEqual(result["time_range"]["end_time"], "2026-04-13 23:59:59")
+
+    def test_execution_gate_should_use_resolved_day_span_instead_of_time_label_map(self) -> None:
+        """Verify gate limits are driven by start/end time, not a fixed label map."""
+        result = self.execution_gate.evaluate(
+            intent="soil_anomaly_query",
+            slots={"time_range": "last_181_days"},
+            business_time={
+                "resolved_time_range": "last_181_days",
+                "start_time": "2025-10-15 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
+            },
+        )
+
+        self.assertEqual(result["decision"], "clarify")
+        self.assertNotIn("requested_days", result)
+        self.assertNotIn("resolved_days", result)
+
+    def test_qwen_batch_slots_should_be_sanitized(self) -> None:
+        """Verify deprecated batch slots from Qwen are dropped."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=FakeQwenBatchClient())
+            result = await service.parse("帮我看一下", "llm-batch")
+            self.assertEqual(result.intent, "soil_recent_summary")
+            self.assertEqual(result.answer_type, "soil_summary_answer")
+            self.assertEqual(result.slots.get("time_range"), "last_7_days")
+            self.assertNotIn("batch_id", result.slots)
+
+        asyncio.run(run_case())
+
+
+if __name__ == "__main__":
+    unittest.main()

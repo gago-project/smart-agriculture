@@ -51,13 +51,24 @@ class RegionAliasResolutionTest(unittest.TestCase):
 
         self.assertEqual(result.slots.get("city_name"), "苏州市")
 
-    def test_non_region_question_should_ignore_fuzzy_alias_noise(self) -> None:
-        """Verify non region question should ignore fuzzy alias noise."""
+    def test_batch_phrase_without_explicit_time_should_clarify(self) -> None:
+        """Verify batch-like filler words no longer imply latest-batch queries."""
         result = self.parse("这批数据整体情况如何")
+
+        self.assertEqual(result.intent, "clarification_needed")
+        self.assertEqual(result.answer_type, "clarification_answer")
+        self.assertNotIn("batch_id", result.slots)
+        self.assertNotIn("city_name", result.slots)
+
+    def test_batch_phrase_with_explicit_time_should_ignore_filler(self) -> None:
+        """Verify batch-like filler words are ignored when real time exists."""
+        result = self.parse("这次南京最近7天墒情怎么样")
 
         self.assertEqual(result.intent, "soil_recent_summary")
         self.assertEqual(result.answer_type, "soil_summary_answer")
-        self.assertNotIn("city_name", result.slots)
+        self.assertEqual(result.slots.get("city_name"), "南京市")
+        self.assertEqual(result.slots.get("time_range"), "last_7_days")
+        self.assertNotIn("batch_id", result.slots)
 
     def test_ambiguous_alias_should_clarify_without_query(self) -> None:
         """Verify ambiguous alias should clarify without query."""

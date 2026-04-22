@@ -64,7 +64,7 @@
 - 默认已存在有效设备：
   - `SNS00204333`
   - `SNS00213807`
-- 默认存在最近导入批次，且 `fact_soil_moisture.batch_id` 已正确关联 `etl_import_batch.batch_id`
+- 默认事实表保留 `batch_id` 作为导入追溯字段，但 Agent 不按导入批次语义回答用户问题
 - 默认所有事实查询只查当前有效数据
 - 默认 `ExecutionGate` 生效：
   - 排名类最大时间窗 `365` 天
@@ -79,7 +79,7 @@
 - 非业务输入不得触发 SQL。
 - `safe_hint_answer`、`clarification_answer`、`boundary_answer` 默认不写 `agent_query_log`。
 - “现在 / 当前 / 最新”必须先取库内最新业务时间。
-- “这一批”必须优先按 `batch_id` 解析。
+- “这批 / 本批 / 这一批 / 这次”不得生成 `batch_id` 查询语义；正式 Case 应改成明确时间窗问法。
 - 异常 SQL 只拉候选，最终异常统计必须以 `RuleEngine` 结果为准。
 - 概览回答默认不直接暴露样本数、最新业务时间、数据来源。
 - 排名回答默认不直接暴露 `soil_anomaly_score`、异常分或内部排序字段名。

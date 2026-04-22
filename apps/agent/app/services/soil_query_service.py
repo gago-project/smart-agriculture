@@ -24,13 +24,9 @@ class SoilQueryService:
     async def fetch_latest_business_time_if_needed(self, *, slots: dict[str, Any], intent: str) -> str | None:
         """Fetch latest business time only for relative/latest time windows."""
         del intent
-        if slots.get("time_range") in {None, "latest_business_time", "last_7_days", "last_30_days", "last_week", "year_to_date", "last_2_years", "last_3_years", "last_5_years"}:
-            return await self.repository.latest_business_time_async()
-        return None
-
-    async def fetch_latest_batch_id(self) -> str | None:
-        """Fetch latest imported batch id for "这一批" style questions."""
-        return await self.repository.latest_batch_id_async()
+        if slots.get("time_range") == "exact_date":
+            return None
+        return await self.repository.latest_business_time_async()
 
     def build_query_plan(
         self,
@@ -59,7 +55,6 @@ class SoilQueryService:
             "county_name": slots.get("county_name"),
             "town_name": slots.get("town_name"),
             "device_sn": slots.get("device_sn"),
-            "batch_id": business_time.get("resolved_batch_id") or slots.get("batch_id"),
         }
         time_range = {
             "mode": business_time.get("resolved_time_range"),
@@ -104,7 +99,6 @@ class SoilQueryService:
                 "county_name": slots.get("county_name"),
                 "town_name": slots.get("town_name"),
                 "device_sn": slots.get("device_sn"),
-                "batch_id": business_time.get("resolved_batch_id") or slots.get("batch_id"),
             },
             "time_range": {
                 "mode": business_time.get("resolved_time_range"),
@@ -129,7 +123,6 @@ class SoilQueryService:
             county_name=filters.get("county_name"),
             town_name=filters.get("town_name"),
             device_sn=filters.get("device_sn"),
-            batch_id=filters.get("batch_id"),
             start_time=time_range.get("start_time"),
             end_time=time_range.get("end_time"),
             limit=query_plan.get("limit_size"),
@@ -139,7 +132,6 @@ class SoilQueryService:
             county_name=filters.get("county_name"),
             town_name=filters.get("town_name"),
             device_sn=filters.get("device_sn"),
-            batch_id=filters.get("batch_id"),
             start_time=time_range.get("start_time"),
             end_time=time_range.get("end_time"),
             limit=query_plan.get("limit_size"),
@@ -203,7 +195,6 @@ class SoilQueryService:
             county_name=filters.get("county_name"),
             town_name=filters.get("town_name"),
             device_sn=filters.get("device_sn"),
-            batch_id=filters.get("batch_id"),
             start_time=time_range.get("start_time"),
             end_time=time_range.get("end_time"),
             limit=1 if scenario == "latest_business_time" else None,
@@ -214,7 +205,6 @@ class SoilQueryService:
                     city_name=filters.get("city_name"),
                     county_name=filters.get("county_name"),
                     town_name=filters.get("town_name"),
-                    batch_id=filters.get("batch_id"),
                 ),
                 "latest_sample_time": await self.repository.latest_business_time_async(),
                 "executed_sql_text": executed_sql_text,
@@ -223,7 +213,6 @@ class SoilQueryService:
             return {
                 "device_record_count": await self.repository.device_record_count_async(
                     filters.get("device_sn") or "",
-                    batch_id=filters.get("batch_id"),
                 ),
                 "latest_sample_time": await self.repository.latest_business_time_async(),
                 "executed_sql_text": executed_sql_text,
@@ -234,7 +223,6 @@ class SoilQueryService:
                 county_name=filters.get("county_name"),
                 town_name=filters.get("town_name"),
                 device_sn=filters.get("device_sn"),
-                batch_id=filters.get("batch_id"),
                 start_time=time_range.get("start_time"),
                 end_time=time_range.get("end_time"),
             )

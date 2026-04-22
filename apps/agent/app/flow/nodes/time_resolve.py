@@ -22,11 +22,9 @@ class TimeResolveNode(BaseNode):
             slots=state.merged_slots,
             intent=state.intent or "",
         )
-        latest_batch_id = await self.soil_query_service.fetch_latest_batch_id()
         business_time = self.service.resolve(
             slots=state.merged_slots,
             latest_business_time=latest_business_time,
-            latest_batch_id=latest_batch_id,
             timezone=state.timezone,
         )
         return self.ensure_result(NodeResult(next_action="continue", state_patch={"business_time": business_time}))

@@ -72,7 +72,7 @@ class SoilDataQueryNode(BaseNode):
                         "query_result": fallback_result,
                         "query_log_entries": [query_log_entry, fallback_log_entry],
                         "answer_type": "fallback_answer",
-                        "answer_bundle": {"final_answer": f"{target} 在当前查询范围内暂无可用数据。当前库内最新业务时间截至 {latest_time}，请核对名称、时间范围或导入最新批次后再试。"},
+                        "answer_bundle": {"final_answer": f"{target} 在当前查询范围内暂无可用数据。当前库内最新业务时间截至 {latest_time}，请核对名称、时间范围或导入最新数据后再试。"},
                     },
                 )
             )

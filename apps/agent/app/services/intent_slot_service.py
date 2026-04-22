@@ -22,6 +22,8 @@ from app.services.region_service import RegionAliasResolver
 DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
 TOP_N_RE = re.compile(r"前\s*(\d+)")
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
+BATCH_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
 
 
 @dataclass(frozen=True)
@@ -45,6 +47,8 @@ class IntentSlotService:
     async def parse(self, user_input: str, session_id: str) -> ParseResult:
         """Return a single best intent, answer type, and slot dictionary."""
         deterministic_result = await self._parse_deterministic(user_input)
+        if self._batch_phrase_requires_explicit_time(user_input):
+            return deterministic_result
         if deterministic_result.intent != "clarification_needed":
             return deterministic_result
         llm_result = await self._try_qwen_parse(user_input=user_input, session_id=session_id)
@@ -55,6 +59,7 @@ class IntentSlotService:
     async def _parse_deterministic(self, user_input: str) -> ParseResult:
         """Return the regex/keyword-based parse result used as the stable baseline."""
         text = user_input.strip()
+        semantic_text = self._strip_batch_fillers(text)
         slots: dict[str, Any] = {}
         device_match = DEVICE_RE.search(text)
         if device_match:
@@ -74,11 +79,10 @@ class IntentSlotService:
             if candidate:
                 slots["town_name"] = f"{candidate}乡镇"
 
-        slots["time_range"] = self._parse_time_range(text)
-        if any(token in text for token in ["这批", "这一批", "本批"]):
-            # "这一批" is a business alias for the latest imported batch.  The
-            # actual batch UUID is resolved later by `TimeResolveService`.
-            slots["batch_id"] = "latest_batch"
+        if self._batch_phrase_requires_explicit_time(text):
+            return ParseResult("clarification_needed", "clarification_answer", slots)
+
+        slots["time_range"] = self._parse_time_range(semantic_text)
         compact = text.replace(" ", "")
         slots["follow_up"] = any(token in text for token in ["那", "这个", "这种情况", "换成", "上周的呢"]) or compact in {"有没有问题", "那个情况呢"}
         top_match = TOP_N_RE.search(text)
@@ -120,7 +124,7 @@ class IntentSlotService:
             if "什么意思" in text:
                 return ParseResult("soil_metric_explanation", "soil_advice_answer", slots)
             return ParseResult("soil_management_advice", "soil_advice_answer", slots)
-        if self._is_summary_question(text):
+        if self._is_summary_question(semantic_text):
             return ParseResult("soil_recent_summary", "soil_summary_answer", slots)
         if compact == "有没有问题":
             return ParseResult("clarification_needed", "clarification_answer", slots)
@@ -158,20 +162,28 @@ class IntentSlotService:
         if answer_type not in {item.value for item in AnswerType}:
             return None
         slots = await self.region_alias_resolver.normalize_slots(slots)
+        slots = self._sanitize_slots(slots)
         if slots.get("_region_resolution_status") == "ambiguous":
             return ParseResult("clarification_needed", "clarification_answer", {})
         return ParseResult(intent, answer_type, slots)
 
     def _parse_time_range(self, text: str) -> str:
         """Map user time phrases to the finite time-window vocabulary."""
-        if "这批" in text or "这一批" in text or "本批" in text:
-            return "latest_batch"
         if DATE_RE.search(text):
             return "exact_date"
+        if "前天" in text:
+            return "day_before_yesterday"
+        if "昨天" in text:
+            return "yesterday"
+        if "今天" in text:
+            return "today"
         if any(token in text for token in ["现在", "当前", "最新"]):
             return "latest_business_time"
         if any(token in text for token in ["过去一个月", "近一个月", "最近一个月"]):
             return "last_30_days"
+        day_match = LAST_N_DAYS_RE.search(text)
+        if day_match:
+            return f"last_{max(int(day_match.group(1)), 1)}_days"
         if "最近7天" in text or "近7天" in text:
             return "last_7_days"
         if "上周" in text:
@@ -201,10 +213,65 @@ class IntentSlotService:
                 "总体情况",
                 "现在的墒情",
                 "当前的墒情",
-                "这批数据整体情况",
-                "这一批数据整体情况",
             ]
         )
+
+    def _batch_phrase_requires_explicit_time(self, text: str) -> bool:
+        """Return whether batch-like filler words require a real time expression."""
+        return self._has_batch_filler(text) and not self._has_explicit_time_expression(self._strip_batch_fillers(text))
+
+    @staticmethod
+    def _has_batch_filler(text: str) -> bool:
+        """Return whether text contains deprecated batch-like filler words."""
+        return any(token in text for token in BATCH_FILLER_TOKENS)
+
+    @staticmethod
+    def _strip_batch_fillers(text: str) -> str:
+        """Remove batch-like filler words without assigning batch query semantics."""
+        result = text
+        for token in BATCH_FILLER_TOKENS:
+            result = result.replace(token, "")
+        return result
+
+    def _has_explicit_time_expression(self, text: str) -> bool:
+        """Return whether text contains a user-facing time expression."""
+        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text):
+            return True
+        return any(
+            token in text
+            for token in [
+                "今天",
+                "昨天",
+                "前天",
+                "现在",
+                "当前",
+                "最新",
+                "过去一个月",
+                "近一个月",
+                "最近一个月",
+                "最近7天",
+                "近7天",
+                "上周",
+                "最近",
+                "今年以来",
+                "过去两年",
+                "近两年",
+                "过去5年",
+                "近5年",
+                "近三年",
+                "过去三年",
+            ]
+        )
+
+    @staticmethod
+    def _sanitize_slots(slots: dict[str, Any]) -> dict[str, Any]:
+        """Drop deprecated Agent batch-query slots from parser outputs."""
+        sanitized = dict(slots)
+        sanitized.pop("batch_id", None)
+        sanitized.pop("latest_batch", None)
+        if sanitized.get("time_range") == "latest_batch":
+            sanitized.pop("time_range", None)
+        return sanitized
 
 
 __all__ = ["IntentSlotService", "ParseResult"]

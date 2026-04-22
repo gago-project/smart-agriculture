@@ -16,35 +16,17 @@ from typing import Any
 class ExecutionGateService:
     """Evaluate query scope against fixed safety limits."""
 
-    # Time ranges are normalized into approximate day counts for policy checks.
-    # The exact SQL window is still carried in `business_time`.
-    TIME_DAYS_MAP = {
-        "latest": 1,
-        "latest_business_time": 1,
-        "exact_date": 1,
-        "latest_batch": 1,
-        "last_week": 7,
-        "last_7_days": 7,
-        "last_30_days": 30,
-        "year_to_date": 365,
-        "last_2_years": 730,
-        "last_3_years": 1095,
-        "last_5_years": 1825,
-    }
     MAX_TOP_N = 20
     MAX_RANKING_DAYS = 365
     MAX_ANOMALY_DAYS = 180
 
     def evaluate(self, *, intent: str, slots: dict[str, Any], business_time: dict[str, Any]) -> dict[str, Any]:
         """Return pass/clarify/block/shrink decision for one query."""
-        time_range = slots.get("time_range") or business_time.get("resolved_time_range") or "last_7_days"
-        requested_days = self.TIME_DAYS_MAP.get(time_range, 1)
+        resolved_day_span = self._resolved_day_span(business_time)
         result = {
             "tool_name": "ExecutionGate",
             "decision": "pass",
             "allow_execute": True,
-            "requested_days": requested_days,
-            "resolved_days": requested_days,
             "reason": "",
             "policy_decision": "pass",
             "violations": [],
@@ -91,7 +73,7 @@ class ExecutionGateService:
                 "clarify_message": f"当前最多支持查看前 {self.MAX_TOP_N} 个结果，你可以改问“前 {self.MAX_TOP_N} 个最严重设备”。",
             }
 
-        if intent == "soil_severity_ranking" and aggregation == "device" and requested_days > self.MAX_RANKING_DAYS:
+        if intent == "soil_severity_ranking" and aggregation == "device" and resolved_day_span > self.MAX_RANKING_DAYS:
             return {
                 **result,
                 "decision": "block",
@@ -104,7 +86,7 @@ class ExecutionGateService:
                 "block_message": "当前设备排名时间范围过大，请缩小到近一年内，或改查地区级排名。",
             }
 
-        if intent == "soil_anomaly_query" and requested_days > self.MAX_ANOMALY_DAYS:
+        if intent == "soil_anomaly_query" and resolved_day_span > self.MAX_ANOMALY_DAYS:
             return {
                 **result,
                 "decision": "clarify",
@@ -162,6 +144,14 @@ class ExecutionGateService:
             effective_business_time["start_time"] = (latest_dt - timedelta(days=max_days - 1)).strftime("%Y-%m-%d %H:%M:%S")
             effective_business_time["end_time"] = latest_dt.strftime("%Y-%m-%d %H:%M:%S")
         return effective_business_time
+
+    def _resolved_day_span(self, business_time: dict[str, Any]) -> int:
+        """Return inclusive natural-day span from resolved start/end times."""
+        start_dt = self._parse_datetime(business_time.get("start_time"))
+        end_dt = self._parse_datetime(business_time.get("end_time"))
+        if not start_dt or not end_dt or end_dt < start_dt:
+            return 1
+        return (end_dt.date() - start_dt.date()).days + 1
 
     @staticmethod
     def _parse_datetime(value: str | None) -> datetime | None:

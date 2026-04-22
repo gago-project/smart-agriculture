@@ -2,10 +2,10 @@
 
 ## 表作用
 
-`etl_import_batch` 用于记录每一次数据导入批次的元信息，是系统理解“这批数据从哪里来、是否导入成功、共导了多少行”的入口表。
+`etl_import_batch` 用于记录每一次数据导入批次的元信息，是后台和 ETL 理解“数据从哪里来、是否导入成功、共导了多少行”的入口表。
 
 - 为 `fact_soil_moisture.batch_id` 提供外键归属。
-- 支撑“最新批次”“最近一次导入”这类语义。
+- 支撑后台导入审计、失败排查和最近一次导入追溯；不作为 Agent 用户问答的查询语义。
 - 记录导入过程中的成功/失败状态和备注。
 
 ## 主键与关联关系
@@ -48,8 +48,8 @@
 
 ### 读取来源
 
-- `apps/agent/app/repositories/soil_repository.py` 的 `latest_batch_id()`：按 `COALESCE(finished_at, started_at)` 倒序取最新批次。
-- Agent 的时间解析和“最新一批”相关逻辑会依赖它提供的最新批次 ID。
+- 后台导入和运维排查可按 `batch_id` 追溯导入结果。
+- Agent 用户问答不再依赖最新批次 ID；用户查询统一通过 `start_time` / `end_time` 时间窗执行。
 
 ## 当前状态值约定
 

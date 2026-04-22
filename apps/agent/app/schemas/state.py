@@ -61,7 +61,6 @@ class SlotBundle(BundleModel):
     device_sn: str | None = None
     target_date: str | None = None
     time_range: str | None = None
-    batch_id: str | None = None
     follow_up: bool = False
     top_n: int | None = None
     batch_devices: str | None = None
@@ -73,15 +72,12 @@ class SlotBundle(BundleModel):
     need_template: bool = False
     region_exists: bool | None = None
     device_exists: bool | None = None
-    latest_batch: bool | None = None
 
 
 class BusinessTimeBundle(BundleModel):
     """Resolved business-time window based on imported data timestamps."""
 
     latest_business_time: str | None = None
-    latest_batch_id: str | None = None
-    resolved_batch_id: str | None = None
     resolved_time_range: str | None = None
     resolution_mode: str | None = None
     time_basis: str | None = None
@@ -95,8 +91,6 @@ class ExecutionGateBundle(BundleModel):
     tool_name: str | None = None
     decision: str | None = None
     allow_execute: bool = True
-    requested_days: int | None = None
-    resolved_days: int | None = None
     reason: str | None = None
     policy_decision: str | None = None
     violations: list[dict[str, Any]] = Field(default_factory=list)

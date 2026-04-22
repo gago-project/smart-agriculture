@@ -88,7 +88,7 @@
 | 索引名 | 字段 | 作用 |
 | --- | --- | --- |
 | `idx_soil_sample_time` | `sample_time` | 支撑按时间排序、最近业务时间、趋势类查询。 |
-| `idx_soil_batch_id` | `batch_id` | 支撑按导入批次追溯、按最新批次过滤。 |
+| `idx_soil_batch_id` | `batch_id` | 支撑后台和 ETL 按导入批次追溯。 |
 | `idx_soil_device_time` | `device_sn, sample_time` | 支撑按设备查最近一条、设备历史趋势。 |
 | `idx_soil_region_time` | `city_name, county_name, town_name, sample_time` | 支撑按地区加时间范围查询。 |
 | `idx_soil_anomaly` | `soil_anomaly_type, soil_anomaly_score` | 支撑异常类型或异常分值筛选。 |
@@ -123,6 +123,6 @@
 
 - `water20cm` 是当前规则判断最关键的字段，回答层不能绕开它自造事实。
 - `soil_anomaly_type` / `soil_anomaly_score` 属于派生分析字段，不应替代原始采样事实。
-- “最新一批”语义建议通过 `batch_id` 和 `etl_import_batch` 联动确定，而不是只看 `source_file`。
+- `batch_id` 仅用于后台和 ETL 导入追溯；Agent 用户查询不再按“最新一批”过滤。
 - 当前表没有 `data_status` 之类的逻辑撤回字段，因此后台删除会直接影响后续查询结果。
 - 后台 Excel 导入不再“上传即写库”；新页面先写入 `soil_import_job_diff` 预览，管理员确认后才更新事实表。

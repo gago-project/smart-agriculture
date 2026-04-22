@@ -122,15 +122,6 @@ class SeedSoilRepository(SoilRepository):
         """Filter records async."""
         return self.filter_records(**kwargs)
 
-    def latest_batch_id(self) -> str | None:
-        """Return the latest batch id."""
-        latest_record = max(self.records, key=lambda item: str(item.get("sample_time") or ""), default=None)
-        return str(latest_record.get("batch_id")) if latest_record else None
-
-    async def latest_batch_id_async(self) -> str | None:
-        """Return the latest batch id async."""
-        return self.latest_batch_id()
-
     def latest_business_time(self) -> str:
         """Return the latest business time."""
         latest_record = max(self.records, key=lambda item: str(item.get("sample_time") or ""), default=None)

@@ -21,26 +21,33 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["merged_slots"].get("time_range"), "last_7_days")
         self.assertEqual(result["business_time"].get("resolution_mode"), "relative_window")
         self.assertEqual(result["query_plan"].get("sql_template"), "SQL-01")
+        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
         self.assertNotIn("当前样本", result["final_answer"])
         self.assertNotIn("数据来源", result["final_answer"])
         self.assertNotIn("最新业务时间", result["final_answer"])
 
-    def test_latest_batch_summary_should_bind_latest_batch_id(self):
-        """Verify latest batch summary should bind latest batch id."""
+    def test_batch_phrase_without_explicit_time_should_clarify(self):
+        """Verify batch-like filler words without time should ask for time clarification."""
         result = self.service.chat("这批数据整体情况如何", session_id="batch", turn_id=1)
-        expected_batch_id = self.service.repository.latest_batch_id()
-        expected_count = len(
-            [record for record in self.service.repository.records if record.get("batch_id") == expected_batch_id]
-        )
+
+        self.assertEqual(result["intent"], "clarification_needed")
+        self.assertEqual(result["answer_type"], "clarification_answer")
+        self.assertFalse(result["should_query"])
+        self.assertEqual(result["query_plan"], {})
+        self.assertNotIn("batch_id", result["merged_slots"])
+        self.assertIn("时间范围", result["final_answer"])
+
+    def test_batch_phrase_with_explicit_time_should_ignore_filler(self):
+        """Verify batch-like filler words are ignored when explicit time exists."""
+        result = self.service.chat("这次南京最近7天墒情怎么样", session_id="batch-time", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_summary_answer")
-        self.assertEqual(result["merged_slots"].get("batch_id"), "latest_batch")
-        self.assertEqual(result["business_time"].get("latest_batch_id"), expected_batch_id)
-        self.assertEqual(result["query_plan"].get("filters", {}).get("batch_id"), expected_batch_id)
-        self.assertEqual(len(result["query_result"].get("records", [])), expected_count)
-        self.assertNotIn("当前样本", result["final_answer"])
-        self.assertNotIn("数据来源", result["final_answer"])
-        self.assertNotIn("最新业务时间", result["final_answer"])
+        self.assertEqual(result["intent"], "soil_recent_summary")
+        self.assertEqual(result["merged_slots"].get("city_name"), "南京市")
+        self.assertEqual(result["merged_slots"].get("time_range"), "last_7_days")
+        self.assertNotIn("batch_id", result["merged_slots"])
+        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
+        self.assertEqual(result["query_plan"].get("sql_template"), "SQL-01")
 
     def test_now_summary_should_resolve_from_latest_business_time(self):
         """Verify now summary should resolve from latest business time."""
@@ -80,6 +87,28 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["context_used"].get("county_name"), "如东县")
         self.assertEqual(result["merged_slots"].get("county_name"), "如东县")
         self.assertEqual(result["merged_slots"].get("time_range"), "last_week")
+
+    def test_yesterday_region_query_should_resolve_to_full_day_window(self):
+        """Verify yesterday questions resolve to one full natural-day window."""
+        result = self.service.chat("如东县昨天怎么样", session_id="yesterday", turn_id=1)
+
+        self.assertEqual(result["answer_type"], "soil_detail_answer")
+        self.assertEqual(result["intent"], "soil_region_query")
+        self.assertEqual(result["merged_slots"].get("time_range"), "yesterday")
+        self.assertEqual(result["business_time"].get("start_time"), "2026-04-12 00:00:00")
+        self.assertEqual(result["business_time"].get("end_time"), "2026-04-12 23:59:59")
+        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
+
+    def test_dynamic_last_n_days_should_resolve_and_query_without_batch_filters(self):
+        """Verify dynamic last-N-day windows are supported end-to-end."""
+        result = self.service.chat("南京近12天异常概况", session_id="dynamic-days", turn_id=1)
+
+        self.assertEqual(result["intent"], "soil_anomaly_query")
+        self.assertEqual(result["answer_type"], "soil_anomaly_answer")
+        self.assertEqual(result["merged_slots"].get("time_range"), "last_12_days")
+        self.assertEqual(result["business_time"].get("start_time"), "2026-04-02 00:00:00")
+        self.assertEqual(result["business_time"].get("end_time"), "2026-04-13 23:59:59")
+        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
 
     def test_weather_question_should_be_boundary_answer(self):
         """Verify weather question should be boundary answer."""

@@ -118,15 +118,12 @@ class ResponseService:
         """Summarize the current scope using only returned MySQL records."""
         if not records:
             region_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前范围"
-            return f"{region_name} 当前没有可用墒情数据，请先确认地区名称或导入最新批次。"
+            return f"{region_name} 当前没有可用墒情数据，请先确认地区名称或导入最新数据。"
         water_values = [_safe_float(item.get("water20cm")) for item in records]
         valid_values = [item for item in water_values if item is not None]
         avg_water = round(mean(valid_values), 2) if valid_values else None
         risky = [item for item in records if item.get("soil_status") != "not_triggered"]
-        if slots.get("batch_id") == "latest_batch":
-            scope_name = "本批数据"
-        else:
-            scope_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前整体"
+        scope_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前整体"
         avg_text = f"20cm平均相对含水量约 {avg_water}%" if avg_water is not None else "20cm相对含水量暂无可用统计"
         if risky:
             risk_text = f"当前有 {len(risky)} 个点位需要重点关注"

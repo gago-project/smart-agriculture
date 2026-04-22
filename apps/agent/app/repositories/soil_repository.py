@@ -430,32 +430,6 @@ class SoilRepository:
         records = await self.filter_records_async(limit=1)
         return str(records[0].get("sample_time")) if records else "暂无"
 
-    def latest_batch_id(self) -> str | None:
-        """Return newest imported batch id from `etl_import_batch`."""
-        connection = self._connect()
-        try:
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT batch_id
-                    FROM etl_import_batch
-                    ORDER BY COALESCE(finished_at, started_at) DESC
-                    LIMIT 1
-                    """
-                )
-                row = cursor.fetchone()
-                if row and row.get("batch_id"):
-                    return str(row["batch_id"])
-                return None
-        except Exception as exc:
-            raise DatabaseQueryError(f"MySQL 查询最新批次失败，已禁止使用种子数据兜底：{exc}") from exc
-        finally:
-            connection.close()
-
-    async def latest_batch_id_async(self) -> str | None:
-        """Async wrapper for latest batch id lookup."""
-        return await asyncio.to_thread(self.latest_batch_id)
-
     def region_alias_rows(self) -> list[dict[str, Any]]:
         """Return enabled region alias mappings for parser normalization."""
         connection = self._connect()

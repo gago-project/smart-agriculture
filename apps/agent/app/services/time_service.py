@@ -1,17 +1,20 @@
 """Business-time resolver for soil data queries.
 
-All relative phrases such as "最近", "最近7天", "现在", and "这一批" are resolved
-against the latest business time/batch in MySQL, not the machine clock.  This
-keeps answers reproducible when imported agriculture data lags wall-clock time.
+All relative phrases such as "最近", "最近7天", "昨天", and "近12天" are resolved
+against the latest business time in MySQL, not the machine clock.  This keeps
+answers reproducible when imported agriculture data lags wall-clock time.
 """
 
 from __future__ import annotations
 
 
-from datetime import datetime, timedelta
+import re
+from datetime import datetime, time, timedelta
 from typing import Any
 
 from app.repositories.soil_repository import SoilRepository
+
+LAST_N_DAYS_RANGE_RE = re.compile(r"^last_(\d+)_days$")
 
 
 class TimeResolveService:
@@ -26,58 +29,65 @@ class TimeResolveService:
         *,
         slots: dict[str, Any],
         latest_business_time: str | None = None,
-        latest_batch_id: str | None = None,
         timezone: str = "Asia/Shanghai",
     ) -> dict[str, Any]:
         """Return a normalized time bundle for the downstream query planner."""
         del timezone
         latest_business_time = latest_business_time or self.repository.latest_business_time()
-        latest_batch_id = latest_batch_id or self.repository.latest_batch_id()
         resolved_time_range = slots.get("time_range", "last_7_days")
         latest_dt = self._parse_datetime(latest_business_time)
         payload = {
             "latest_business_time": latest_business_time,
-            "latest_batch_id": latest_batch_id,
-            "resolved_batch_id": latest_batch_id if slots.get("batch_id") == "latest_batch" else slots.get("batch_id"),
             "resolved_time_range": resolved_time_range,
             "resolution_mode": "latest_business_time",
             "time_basis": "latest_business_time",
             "start_time": latest_business_time,
             "end_time": latest_business_time,
         }
-        if resolved_time_range == "last_7_days" and latest_dt:
-            # Include the latest business date itself, so "last_7_days" is
-            # latest day plus six prior days.
+        dynamic_days = self._parse_last_n_days(resolved_time_range)
+        if resolved_time_range == "today" and latest_dt:
             payload.update(
                 {
                     "resolution_mode": "relative_window",
                     "time_basis": "latest_business_time",
-                    "start_time": self._format_datetime(latest_dt - timedelta(days=6)),
-                    "end_time": self._format_datetime(latest_dt),
+                    **self._day_window(latest_dt, days=1),
                 }
             )
-        elif resolved_time_range == "last_30_days" and latest_dt:
+        elif resolved_time_range == "yesterday" and latest_dt:
             payload.update(
                 {
                     "resolution_mode": "relative_window",
-                    "start_time": self._format_datetime(latest_dt - timedelta(days=29)),
-                    "end_time": self._format_datetime(latest_dt),
+                    "time_basis": "latest_business_time",
+                    **self._offset_day_window(latest_dt, day_offset=1),
+                }
+            )
+        elif resolved_time_range == "day_before_yesterday" and latest_dt:
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    **self._offset_day_window(latest_dt, day_offset=2),
                 }
             )
         elif resolved_time_range == "last_week" and latest_dt:
+            current_monday = latest_dt.date() - timedelta(days=latest_dt.weekday())
+            last_monday = current_monday - timedelta(days=7)
+            last_sunday = current_monday - timedelta(days=1)
             payload.update(
                 {
                     "resolution_mode": "relative_window",
-                    "start_time": self._format_datetime(latest_dt - timedelta(days=13)),
-                    "end_time": self._format_datetime(latest_dt - timedelta(days=7)),
+                    "time_basis": "latest_business_time",
+                    "start_time": self._format_datetime(datetime.combine(last_monday, time.min)),
+                    "end_time": self._format_datetime(datetime.combine(last_sunday, time.max.replace(microsecond=0))),
                 }
             )
         elif resolved_time_range == "year_to_date" and latest_dt:
             payload.update(
                 {
                     "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
                     "start_time": f"{latest_dt.year}-01-01 00:00:00",
-                    "end_time": self._format_datetime(latest_dt),
+                    "end_time": self._format_datetime(self._end_of_day(latest_dt)),
                 }
             )
         elif resolved_time_range in {"last_2_years", "last_3_years", "last_5_years"} and latest_dt:
@@ -85,8 +95,16 @@ class TimeResolveService:
             payload.update(
                 {
                     "resolution_mode": "relative_window",
-                    "start_time": self._format_datetime(latest_dt - timedelta(days=years - 1)),
-                    "end_time": self._format_datetime(latest_dt),
+                    "time_basis": "latest_business_time",
+                    **self._day_window(latest_dt, days=years),
+                }
+            )
+        elif dynamic_days and latest_dt:
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    **self._day_window(latest_dt, days=dynamic_days),
                 }
             )
         elif resolved_time_range == "exact_date" and slots.get("target_date"):
@@ -96,17 +114,6 @@ class TimeResolveService:
                     "time_basis": "user_date",
                     "start_time": f"{slots['target_date']} 00:00:00",
                     "end_time": f"{slots['target_date']} 23:59:59",
-                }
-            )
-        elif resolved_time_range == "latest_batch":
-            # Batch mode should use batch_id filtering instead of sample_time
-            # filtering; start/end are therefore intentionally null.
-            payload.update(
-                {
-                    "resolution_mode": "latest_batch",
-                    "time_basis": "latest_batch",
-                    "start_time": None,
-                    "end_time": None,
                 }
             )
         elif resolved_time_range == "latest_business_time":
@@ -119,6 +126,39 @@ class TimeResolveService:
                 }
             )
         return payload
+
+    @classmethod
+    def _parse_last_n_days(cls, value: str | None) -> int | None:
+        """Parse canonical `last_N_days` labels."""
+        if not value:
+            return None
+        match = LAST_N_DAYS_RANGE_RE.match(value)
+        if not match:
+            return None
+        return max(int(match.group(1)), 1)
+
+    @classmethod
+    def _day_window(cls, latest_dt: datetime, *, days: int) -> dict[str, str]:
+        """Return an inclusive natural-day window ending on latest business date."""
+        start = cls._start_of_day(latest_dt - timedelta(days=days - 1))
+        end = cls._end_of_day(latest_dt)
+        return {"start_time": cls._format_datetime(start), "end_time": cls._format_datetime(end)}
+
+    @classmethod
+    def _offset_day_window(cls, latest_dt: datetime, *, day_offset: int) -> dict[str, str]:
+        """Return one whole natural day offset from latest business date."""
+        target = latest_dt - timedelta(days=day_offset)
+        return {"start_time": cls._format_datetime(cls._start_of_day(target)), "end_time": cls._format_datetime(cls._end_of_day(target))}
+
+    @staticmethod
+    def _start_of_day(value: datetime) -> datetime:
+        """Return midnight for the date of `value`."""
+        return datetime.combine(value.date(), time.min)
+
+    @staticmethod
+    def _end_of_day(value: datetime) -> datetime:
+        """Return 23:59:59 for the date of `value`."""
+        return datetime.combine(value.date(), time.max.replace(microsecond=0))
 
     @staticmethod
     def _parse_datetime(value: str | None) -> datetime | None:
