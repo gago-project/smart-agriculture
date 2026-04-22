@@ -151,7 +151,7 @@ class ResponseService:
         items = "；".join(f"{idx}. {name}" for idx, (name, _score) in enumerate(ranking, start=1))
         label_map = {"county": "县区", "city": "地市", "device": "设备", "province": "地区"}
         aggregation_label = label_map.get(aggregation, "对象")
-        return f"当前需优先关注的{aggregation_label}（按综合风险排序）如下：{items}。"
+        return f"当前需优先关注的{aggregation_label}如下：{items}。"
 
     def _detail_answer(self, records: list[dict[str, Any]], slots: dict[str, Any]) -> str:
         """Describe the latest detail record for a device or region."""

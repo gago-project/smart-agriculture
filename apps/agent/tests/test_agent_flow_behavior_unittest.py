@@ -127,6 +127,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         result = self.service.chat("过去一个月哪里最严重", session_id="ranking-copy", turn_id=1)
 
         self.assertEqual(result["answer_type"], "soil_ranking_answer")
+        self.assertNotIn("按综合风险排序", result["final_answer"])
         self.assertNotIn("soil_anomaly_score", result["final_answer"])
         self.assertNotIn("异常分", result["final_answer"])
         self.assertNotIn("维度", result["final_answer"])

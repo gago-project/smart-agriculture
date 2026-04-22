@@ -171,7 +171,10 @@ class SoilAgentService:
         )
         final_state = await self.orchestrator.run(state)
         self._enrich_query_log_entries(final_state)
-        await self.query_log_repository.insert_many(final_state.query_log_entries)
+        try:
+            await self.query_log_repository.insert_many(final_state.query_log_entries)
+        except Exception as exc:
+            final_state.errors.append({"stage": "query_log_write", "error": str(exc)})
         await self.save_context_if_business_success(final_state)
         # `should_query` represents whether the request actually planned a data
         # query.  Guardrail responses and non-business inputs must report false.
