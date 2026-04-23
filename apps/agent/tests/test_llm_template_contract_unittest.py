@@ -3,8 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+from decimal import Decimal
+import json
 import unittest
 
+from app.llm.qwen_client import QwenClient
+from app.schemas.state import QueryResultBundle
 from app.services.intent_slot_service import IntentSlotService
 from app.services.response_service import ResponseService
 from app.services.template_service import TemplateService
@@ -66,6 +70,20 @@ class FakeRegionRepository:
         return set()
 
 
+class CapturingQwenClient(QwenClient):
+    """Real Qwen client path with request capture and no real network IO."""
+
+    def __init__(self) -> None:
+        """Initialize with a non-empty api key so generation path is exercised."""
+        super().__init__(api_key="test-key")
+        self.last_messages: list[dict[str, str]] | None = None
+
+    async def _request_json(self, *, messages: list[dict[str, str]]):
+        """Capture serialized messages and return a stable response."""
+        self.last_messages = messages
+        return {"final_answer": "captured-qwen-answer"}
+
+
 class LlmTemplateContractTest(unittest.TestCase):
     """Test cases for llm template contract."""
     def test_intent_slot_service_can_use_qwen_result(self) -> None:
@@ -117,6 +135,28 @@ class LlmTemplateContractTest(unittest.TestCase):
                 business_time={"latest_business_time": "2026-04-21 09:00:00"},
             )
             self.assertEqual(result["final_answer"], "这是来自千问受控生成的回答。")
+
+        asyncio.run(run_case())
+
+    def test_qwen_client_can_serialize_bundle_models_with_decimal_facts(self) -> None:
+        """Verify controlled-answer payload handles bundle models and decimals."""
+        async def run_case() -> None:
+            client = CapturingQwenClient()
+            answer = await client.generate_controlled_answer(
+                answer_type="soil_detail_answer",
+                fallback_answer="fallback",
+                facts={
+                    "query_result": QueryResultBundle(
+                        records=[{"device_sn": "SNS00204333", "water20cm": Decimal("66.10")}]
+                    )
+                },
+            )
+
+            self.assertEqual(answer, "captured-qwen-answer")
+            self.assertIsNotNone(client.last_messages)
+            payload = json.loads(client.last_messages[1]["content"])
+            self.assertEqual(payload["facts"]["query_result"]["records"][0]["device_sn"], "SNS00204333")
+            self.assertEqual(payload["facts"]["query_result"]["records"][0]["water20cm"], 66.1)
 
         asyncio.run(run_case())
 

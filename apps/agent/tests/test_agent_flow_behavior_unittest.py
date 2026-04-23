@@ -7,6 +7,24 @@ from app.services.agent_service import SoilAgentService
 from support_repositories import SeedSoilRepository
 
 
+class AvailablePassthroughQwenClient(QwenClient):
+    """Qwen test double that stays available without doing real network IO."""
+
+    def __init__(self) -> None:
+        """Initialize with a non-empty api key so the LLM path is exercised."""
+        super().__init__(api_key="test-key")
+
+    async def extract_intent_slots(self, *, user_input: str, session_id: str):
+        """Force deterministic slot parsing in the surrounding service tests."""
+        del user_input, session_id
+        return None
+
+    async def _request_json(self, *, messages: list[dict[str, str]]):
+        """Return a stable answer after the payload is serialized successfully."""
+        del messages
+        return {"final_answer": "LLM polished answer"}
+
+
 class AgentFlowBehaviorTest(unittest.TestCase):
     """Test cases for agent flow behavior."""
     def setUp(self):
@@ -87,6 +105,18 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["context_used"].get("county_name"), "如东县")
         self.assertEqual(result["merged_slots"].get("county_name"), "如东县")
         self.assertEqual(result["merged_slots"].get("time_range"), "last_week")
+
+    def test_available_qwen_path_should_still_persist_context_for_follow_up(self):
+        """Verify available-Qwen generation does not break context persistence."""
+        service = SoilAgentService(repository=SeedSoilRepository(), qwen_client=AvailablePassthroughQwenClient())
+
+        first = service.chat("如东县最近怎么样", session_id="ctx-qwen", turn_id=1)
+        follow = service.chat("那上周的呢", session_id="ctx-qwen", turn_id=2)
+
+        self.assertEqual(first["final_status"], "verified_end")
+        self.assertEqual(follow["answer_type"], "soil_detail_answer")
+        self.assertEqual(follow["merged_slots"].get("county_name"), "如东县")
+        self.assertEqual(follow["merged_slots"].get("time_range"), "last_week")
 
     def test_yesterday_region_query_should_resolve_to_full_day_window(self):
         """Verify yesterday questions resolve to one full natural-day window."""

@@ -8,6 +8,9 @@ deterministic answer, but all calls require JSON output and failures return
 from __future__ import annotations
 
 
+from datetime import datetime
+from decimal import Decimal
+from enum import Enum
 import json
 from typing import Any
 
@@ -65,7 +68,7 @@ class QwenClient:
                 "content": json.dumps(
                     {
                         "answer_type": answer_type,
-                        "facts": facts,
+                        "facts": self._json_ready(facts),
                         "fallback_answer": fallback_answer,
                     },
                     ensure_ascii=False,
@@ -109,3 +112,19 @@ class QwenClient:
                 return json.loads(content)
         except Exception:
             return None
+
+    def _json_ready(self, value: Any) -> Any:
+        """Convert nested Pydantic/enum/datetime values into JSON-safe data."""
+        if hasattr(value, "model_dump"):
+            return self._json_ready(value.model_dump(exclude_none=True))
+        if isinstance(value, dict):
+            return {key: self._json_ready(item) for key, item in value.items()}
+        if isinstance(value, (list, tuple, set)):
+            return [self._json_ready(item) for item in value]
+        if isinstance(value, Decimal):
+            return float(value)
+        if isinstance(value, Enum):
+            return value.value
+        if isinstance(value, datetime):
+            return value.isoformat(timespec="seconds")
+        return value
