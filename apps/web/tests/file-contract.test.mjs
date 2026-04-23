@@ -50,6 +50,11 @@ test('agent chat route proxies to configured AGENT_BASE_URL', () => {
   const source = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
   assert.match(source, /AGENT_BASE_URL/);
   assert.match(source, /\/chat/);
+  assert.match(source, /closing_answer/);
+  assert.match(source, /conversation_closed/);
+  assert.match(source, /inheritanceMode/);
+  assert.doesNotMatch(source, /used_context:\s*history\.length > 0/);
+  assert.doesNotMatch(source, /memory:\s*history\.length > 0/);
 });
 
 test('admin routes for records upload and rules exist', () => {
@@ -261,13 +266,13 @@ test('soil moisture testing docs use testdata case library as the single formal 
   assert.match(acceptanceSource, /testdata\/agent\/soil-moisture\/case-library\.md/);
   assert.match(regressionSource, /testdata\/agent\/soil-moisture\/case-library\.md/);
   assert.match(testdataReadmeSource, /case-library\.md/);
-  assert.match(caseLibrarySource, /120 个正式 Case/);
+  assert.match(caseLibrarySource, /130 个正式 Case/);
   assert.match(caseLibrarySource, /按业务价值和真实使用频率加权/);
   assert.match(caseLibrarySource, /### SH-01/);
   assert.match(caseLibrarySource, /### DT-18/);
   assert.match(caseLibrarySource, /### WA-16/);
   assert.match(caseLibrarySource, /### BO-05/);
-  assert.equal([...caseLibrarySource.matchAll(/^### /gm)].length, 120);
+  assert.equal([...caseLibrarySource.matchAll(/^### /gm)].length, 130);
   assert.equal([...caseLibrarySource.matchAll(/^### SH-/gm)].length, 6);
   assert.equal([...caseLibrarySource.matchAll(/^### DT-/gm)].length, 18);
   assert.equal([...caseLibrarySource.matchAll(/^### BO-/gm)].length, 5);

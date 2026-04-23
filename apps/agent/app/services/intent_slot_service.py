@@ -67,6 +67,8 @@ class IntentSlotService:
         date_match = DATE_RE.search(text)
         if date_match:
             slots["target_date"] = date_match.group(1)
+        if text.replace(" ", "") in {"看看", "查一下", "帮我查一下", "情况", "帮我看一下"}:
+            return ParseResult("clarification_needed", "clarification_answer", slots)
 
         region_resolution = await self.region_alias_resolver.resolve_from_text(text)
         if region_resolution["status"] == "matched":
@@ -82,9 +84,22 @@ class IntentSlotService:
         if self._batch_phrase_requires_explicit_time(text):
             return ParseResult("clarification_needed", "clarification_answer", slots)
 
-        slots["time_range"] = self._parse_time_range(semantic_text)
+        time_range, raw_time_expr = self._parse_time_range(semantic_text)
+        if time_range:
+            slots["time_range"] = time_range
+            slots["time_explicit"] = True
+            slots["raw_time_expr"] = raw_time_expr
         compact = text.replace(" ", "")
-        slots["follow_up"] = any(token in text for token in ["那", "这个", "这种情况", "换成", "上周的呢"]) or compact in {"有没有问题", "那个情况呢"}
+        compact_no_punctuation = compact.rstrip("？?。.!！")
+        follow_up_detected = (
+            any(token in text for token in ["那", "这个", "这种情况", "换成", "上周的呢"])
+            or compact in {"有没有问题", "那个情况呢", "这种情况呢"}
+            or (
+                compact_no_punctuation.endswith("呢")
+                and (slots.get("device_sn") or slots.get("city_name") or slots.get("county_name") or slots.get("town_name") or slots.get("metric"))
+            )
+        )
+        slots["follow_up"] = bool(follow_up_detected)
         top_match = TOP_N_RE.search(text)
         if top_match:
             slots["top_n"] = int(top_match.group(1))
@@ -167,38 +182,40 @@ class IntentSlotService:
             return ParseResult("clarification_needed", "clarification_answer", {})
         return ParseResult(intent, answer_type, slots)
 
-    def _parse_time_range(self, text: str) -> str:
+    def _parse_time_range(self, text: str) -> tuple[str | None, str | None]:
         """Map user time phrases to the finite time-window vocabulary."""
         if DATE_RE.search(text):
-            return "exact_date"
+            return "exact_date", DATE_RE.search(text).group(1)
         if "前天" in text:
-            return "day_before_yesterday"
+            return "day_before_yesterday", "前天"
         if "昨天" in text:
-            return "yesterday"
+            return "yesterday", "昨天"
         if "今天" in text:
-            return "today"
+            return "today", "今天"
         if any(token in text for token in ["现在", "当前", "最新"]):
-            return "latest_business_time"
+            raw_expr = next(token for token in ["现在", "当前", "最新"] if token in text)
+            return "latest_business_time", raw_expr
         if any(token in text for token in ["过去一个月", "近一个月", "最近一个月"]):
-            return "last_30_days"
+            raw_expr = next(token for token in ["过去一个月", "近一个月", "最近一个月"] if token in text)
+            return "last_30_days", raw_expr
         day_match = LAST_N_DAYS_RE.search(text)
         if day_match:
-            return f"last_{max(int(day_match.group(1)), 1)}_days"
+            return f"last_{max(int(day_match.group(1)), 1)}_days", day_match.group(0)
         if "最近7天" in text or "近7天" in text:
-            return "last_7_days"
+            return "last_7_days", "最近7天" if "最近7天" in text else "近7天"
         if "上周" in text:
-            return "last_week"
+            return "last_week", "上周"
         if "最近" in text:
-            return "last_7_days"
+            return "last_7_days", "最近"
         if "今年以来" in text:
-            return "year_to_date"
+            return "year_to_date", "今年以来"
         if "过去两年" in text or "近两年" in text:
-            return "last_2_years"
+            return "last_2_years", "过去两年" if "过去两年" in text else "近两年"
         if "过去5年" in text or "近5年" in text:
-            return "last_5_years"
+            return "last_5_years", "过去5年" if "过去5年" in text else "近5年"
         if "近三年" in text or "过去三年" in text:
-            return "last_3_years"
-        return "last_7_days"
+            return "last_3_years", "近三年" if "近三年" in text else "过去三年"
+        return None, None
 
     def _is_summary_question(self, text: str) -> bool:
         """Return whether the question asks for an overview rather than detail."""

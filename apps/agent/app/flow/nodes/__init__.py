@@ -7,6 +7,7 @@ graph without importing each implementation path throughout the codebase.
 from app.flow.nodes.advice_compose import AdviceComposeNode
 from app.flow.nodes.answer_verify import AnswerVerifyNode
 from app.flow.nodes.data_fact_check import DataFactCheckNode
+from app.flow.nodes.conversation_boundary import ConversationBoundaryNode
 from app.flow.nodes.execution_gate import ExecutionGateNode
 from app.flow.nodes.fallback_guard import FallbackGuardNode
 from app.flow.nodes.history_context_merge import HistoryContextMergeNode
@@ -23,6 +24,7 @@ __all__ = [
     "AdviceComposeNode",
     "AnswerVerifyNode",
     "DataFactCheckNode",
+    "ConversationBoundaryNode",
     "ExecutionGateNode",
     "FallbackGuardNode",
     "HistoryContextMergeNode",

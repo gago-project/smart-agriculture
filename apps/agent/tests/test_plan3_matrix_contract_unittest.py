@@ -36,7 +36,7 @@ class Plan3MatrixContractTest(unittest.TestCase):
         """Verify cl 03 follow up without context should clarify without query."""
         result = self.chat("那个情况呢", session_id="plan3-cl-03")
 
-        self.assertEqual(result["input_type"], "ambiguous_low_confidence")
+        self.assertEqual(result["input_type"], "business_colloquial")
         self.assert_route(
             result,
             intent="clarification_needed",

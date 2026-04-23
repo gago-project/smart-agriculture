@@ -107,6 +107,36 @@ class TimeContractTest(unittest.TestCase):
         self.assertNotIn("requested_days", result)
         self.assertNotIn("resolved_days", result)
 
+    def test_missing_explicit_time_should_not_be_filled_in_intent_slot_stage(self) -> None:
+        """Verify intent parsing keeps time empty until resolve stage."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("南京墒情怎么样", "no-explicit-time")
+            self.assertNotIn("time_range", result.slots)
+            self.assertEqual(result.answer_type, "soil_summary_answer")
+
+        asyncio.run(run_case())
+
+    def test_inherited_absolute_window_should_be_preserved(self) -> None:
+        """Verify inherited resolved window is used directly without drift."""
+        result = self.time_service.resolve(
+            slots={"time_range": "last_7_days"},
+            latest_business_time="2026-04-13 23:59:17",
+            inherited_window={
+                "start_time": "2026-04-01 00:00:00",
+                "end_time": "2026-04-07 23:59:59",
+                "time_label": "last_week",
+                "time_explicit": True,
+            },
+            inherit_resolved_window=True,
+        )
+
+        self.assertEqual(result["start_time"], "2026-04-01 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-07 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "last_week")
+
     def test_qwen_batch_slots_should_be_sanitized(self) -> None:
         """Verify deprecated batch slots from Qwen are dropped."""
         import asyncio

@@ -61,6 +61,8 @@ class SlotBundle(BundleModel):
     device_sn: str | None = None
     target_date: str | None = None
     time_range: str | None = None
+    time_explicit: bool = False
+    raw_time_expr: str | None = None
     follow_up: bool = False
     top_n: int | None = None
     batch_devices: str | None = None
@@ -72,6 +74,11 @@ class SlotBundle(BundleModel):
     need_template: bool = False
     region_exists: bool | None = None
     device_exists: bool | None = None
+    inherited_start_time: str | None = None
+    inherited_end_time: str | None = None
+    inherited_time_explicit: bool | None = None
+    resolved_start_time: str | None = None
+    resolved_end_time: str | None = None
 
 
 class BusinessTimeBundle(BundleModel):
@@ -181,6 +188,8 @@ class FlowState(BaseModel):
     raw_slots: SlotBundle = Field(default_factory=SlotBundle)
     merged_slots: SlotBundle = Field(default_factory=SlotBundle)
     context_used: dict[str, Any] = Field(default_factory=dict)
+    boundary_context: dict[str, Any] = Field(default_factory=dict)
+    conversation_closed: bool = False
 
     business_time: BusinessTimeBundle = Field(default_factory=BusinessTimeBundle)
     execution_gate_result: ExecutionGateBundle = Field(default_factory=ExecutionGateBundle)

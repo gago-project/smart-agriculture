@@ -68,6 +68,10 @@ class SessionContextRepository:
             return
         filtered = {
             "domain": turn_context.get("domain"),
+            "entity_context": turn_context.get("entity_context") or {},
+            "query_frame": turn_context.get("query_frame") or {},
+            "resolved_window": turn_context.get("resolved_window") or {},
+            "base_query_family": turn_context.get("base_query_family"),
             "region": turn_context.get("region") or {},
             "time_window": turn_context.get("time_window"),
             "entity_reference": turn_context.get("entity_reference"),

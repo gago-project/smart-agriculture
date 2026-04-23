@@ -29,10 +29,43 @@ class ContextService:
         raw_slots: dict[str, Any],
         recent_context: list[dict[str, Any]],
         intent: str,
+        boundary_context: dict[str, Any] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """Merge raw parser slots with safe-to-inherit conversation context."""
         merged = dict(raw_slots)
         context_used: dict[str, Any] = {}
+        if boundary_context:
+            context_used.update(
+                {
+                    "source_turn_id": boundary_context.get("source_turn_id"),
+                    "inheritance_mode": boundary_context.get("inheritance_mode"),
+                    "boundary_reason": boundary_context.get("boundary_reason"),
+                    "inherited_fields": list(boundary_context.get("inherited_fields") or []),
+                    "overridden_fields": list(boundary_context.get("overridden_fields") or []),
+                }
+            )
+            entity_context = dict(boundary_context.get("entity_context") or {})
+            query_frame = dict(boundary_context.get("query_frame") or {})
+            for key in ("city_name", "county_name", "town_name", "device_sn"):
+                value = entity_context.get(key)
+                if value and not merged.get(key):
+                    merged[key] = value
+                    context_used[key] = value
+            for key in ("metric", "top_n", "render_mode", "audience", "aggregation", "trend"):
+                value = query_frame.get(key)
+                if value is not None and merged.get(key) is None:
+                    merged[key] = value
+                    context_used[key] = value
+            resolved_window = dict(boundary_context.get("resolved_window") or {})
+            if boundary_context.get("inherit_resolved_window") and resolved_window and not merged.get("time_explicit"):
+                if resolved_window.get("time_label"):
+                    merged["time_range"] = resolved_window["time_label"]
+                    context_used["time_range"] = resolved_window["time_label"]
+                merged["inherited_start_time"] = resolved_window.get("start_time")
+                merged["inherited_end_time"] = resolved_window.get("end_time")
+                merged["inherited_time_explicit"] = resolved_window.get("time_explicit")
+            return merged, {key: value for key, value in context_used.items() if value not in (None, [], {})}
+
         latest_context = recent_context[-1] if recent_context else {}
         latest_turn_id = max([item.get("turn_id", 0) for item in recent_context], default=0)
         source_context = latest_context
@@ -94,10 +127,43 @@ class ContextService:
                 return item
         return {}
 
-    def build_turn_context(self, *, intent: str, merged_slots: dict[str, Any]) -> dict[str, Any]:
+    def build_turn_context(
+        self,
+        *,
+        intent: str,
+        merged_slots: dict[str, Any],
+        business_time: dict[str, Any] | None = None,
+        previous_base_query_family: str | None = None,
+    ) -> dict[str, Any]:
         """Build the minimal context payload saved after verified answers."""
+        business_time = business_time or {}
+        family = self.query_family_for_intent(intent)
+        base_family = family if family not in {"warning", "advice"} else previous_base_query_family or "detail"
         return {
             "domain": "soil_moisture",
+            "entity_context": {
+                "city_name": merged_slots.get("city_name"),
+                "county_name": merged_slots.get("county_name"),
+                "town_name": merged_slots.get("town_name"),
+                "device_sn": merged_slots.get("device_sn"),
+            },
+            "query_frame": {
+                "query_family": family,
+                "intent": intent,
+                "metric": merged_slots.get("metric"),
+                "top_n": merged_slots.get("top_n"),
+                "render_mode": merged_slots.get("render_mode"),
+                "audience": merged_slots.get("audience"),
+                "aggregation": merged_slots.get("aggregation"),
+                "trend": merged_slots.get("trend"),
+            },
+            "resolved_window": {
+                "start_time": business_time.get("start_time") or merged_slots.get("resolved_start_time"),
+                "end_time": business_time.get("end_time") or merged_slots.get("resolved_end_time"),
+                "time_label": business_time.get("resolved_time_range") or merged_slots.get("time_range"),
+                "time_explicit": merged_slots.get("time_explicit"),
+            },
+            "base_query_family": base_family,
             "region": {
                 "city_name": merged_slots.get("city_name"),
                 "county_name": merged_slots.get("county_name"),
@@ -121,6 +187,7 @@ class ContextService:
             "meaningless_input",
             "ambiguous_low_confidence",
             "out_of_domain",
+            "conversation_closing",
         }
         return bool(
             final_state.final_status == "verified_end"
@@ -128,6 +195,20 @@ class ContextService:
             and final_state.intent not in {None, "out_of_scope", "clarification_needed"}
             and final_state.answer_type not in {"fallback_answer", "safe_hint_answer", "boundary_answer", "clarification_answer"}
         )
+
+    @staticmethod
+    def query_family_for_intent(intent: str) -> str:
+        """Map an intent to a reusable query family."""
+        return {
+            "soil_recent_summary": "summary",
+            "soil_severity_ranking": "ranking",
+            "soil_region_query": "detail",
+            "soil_device_query": "detail",
+            "soil_anomaly_query": "anomaly",
+            "soil_warning_generation": "warning",
+            "soil_metric_explanation": "advice",
+            "soil_management_advice": "advice",
+        }.get(str(intent), "detail")
 
 
 __all__ = ["ContextService"]

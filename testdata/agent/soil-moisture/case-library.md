@@ -1,10 +1,10 @@
-# 墒情 Agent Case Library（120 个正式 Case）
+# 墒情 Agent Case Library（130 个正式 Case）
 
 本文件是当前 `soil-moisture` Agent 的唯一正式 Case 主库。后续对正式 Case 的新增、删减、修订，都只改这里。
 
 ## 维护边界
 
-- 主库范围：以 `2026-04-22` 商务评审版整理出的 `36` 个 Case 为基础，并补充到 `120` 个正式 Case。
+- 主库范围：以 `2026-04-22` 商务评审版整理出的 `36` 个 Case 为基础，并补充到 `130` 个正式 Case。
 - 分布原则：不按 10 类均分；按业务价值和真实使用频率加权，重点补充墒情概览、排名对比、地区/设备详情、异常分析、预警模板输出，非业务、安全提示、能力边界只保留少量代表性样例。
 - 字段来源：
   - 前 `36` 个 Case 的 `一级分类 / 二级分类 / 用户问题 / 当前回答` 以 `outputs/business-review-20260422/smart-agriculture-36问题-商务评审版-2026-04-22.xlsx` 为准。
@@ -2334,3 +2334,193 @@
 - `是否写查询日志`：否
 - `关键断言`：不扩展到气候预测
 - `备注`：补充预测类边界。
+
+### MT-01
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：结束语/清空上下文
+- `用户问题`：如东县最近怎么样 -> 谢谢
+- `当前回答`：待实测回填；期望第二轮返回简短结束语。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：第一轮已保存 `county_name=如东县` 的业务上下文
+- `预期 input_type`：第二轮 `conversation_closing`
+- `预期 intent`：无业务 intent
+- `预期 slots`：无
+- `预期 query_type / SQL`：无
+- `ExecutionGate`：不进入
+- `预期 answer_type`：`closing_answer`
+- `规则触发`：`n/a`
+- `是否写查询日志`：否
+- `关键断言`：纯结束语命中 `closing_end`，后端立即清空该 `session_id` 上下文
+- `备注`：前端仍保留同一 `thread_id`，但后端不再继承旧对象。
+
+### MT-02
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：结束后追问/不继承
+- `用户问题`：如东县最近怎么样 -> 谢谢 -> 那上周的呢
+- `当前回答`：待实测回填；期望第三轮提示补充地区或设备。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：第二轮已清空上下文
+- `预期 input_type`：第三轮 `business_colloquial`
+- `预期 intent`：`clarification_needed`
+- `预期 slots`：`follow_up=true; time=上周`
+- `预期 query_type / SQL`：无
+- `ExecutionGate`：不进入
+- `预期 answer_type`：`clarification_answer`
+- `规则触发`：`n/a`
+- `是否写查询日志`：否
+- `关键断言`：结束后同线程继续追问也不能继承如东县
+- `备注`：覆盖“结束即清空上下文”。
+
+### MT-03
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：非纯结束语/继续业务
+- `用户问题`：谢谢，南京呢？
+- `当前回答`：待实测回填；期望按南京业务问题处理。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：可有可无
+- `预期 input_type`：`business_colloquial` 或 `business_direct`
+- `预期 intent`：按上下文框架或独立南京查询解析
+- `预期 slots`：`city_name=南京市`
+- `预期 query_type / SQL`：视上下文而定；不得因“谢谢”直接结束
+- `ExecutionGate`：按业务请求判断
+- `预期 answer_type`：不得为 `closing_answer`
+- `规则触发`：按业务请求判断
+- `是否写查询日志`：若查库则是
+- `关键断言`：结束词旁边有地区业务信号时，不触发 `closing_end`
+- `备注`：纯结束检测不能做简单关键词匹配。
+
+### MT-04
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：对象切换/继承异常框架
+- `用户问题`：南京最近30天异常概况 -> 徐州呢？
+- `当前回答`：待实测回填；期望第二轮输出徐州异常概况。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：上一轮 `city_name=南京市; query_family=anomaly; start_time/end_time=最近30天`
+- `预期 input_type`：第二轮 `business_colloquial` 或 `business_direct`
+- `预期 intent`：`soil_anomaly_query`
+- `预期 slots`：`city_name=徐州市; time=继承上一轮绝对 start_time/end_time`
+- `预期 query_type / SQL`：`anomaly_list / SQL-04`
+- `ExecutionGate`：`pass`
+- `预期 answer_type`：`soil_anomaly_answer`
+- `规则触发`：异常规则
+- `是否写查询日志`：是
+- `关键断言`：显式地区覆盖历史地区，查询框架和时间窗继承；`inheritance_mode=carry_frame`
+- `备注`：避免把“徐州呢？”误判为全新无时间问题。
+
+### MT-05
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：多槽位覆盖/继承框架
+- `用户问题`：南京最近30天异常概况 -> 盐城昨天20cm呢？
+- `当前回答`：待实测回填；期望第二轮按盐城、昨天、20cm 输出异常相关结果。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：上一轮 `query_family=anomaly`
+- `预期 input_type`：`business_colloquial` 或 `business_direct`
+- `预期 intent`：`soil_anomaly_query`
+- `预期 slots`：`city_name=盐城市; time=昨天; metric=water20cm`
+- `预期 query_type / SQL`：`anomaly_list / SQL-04`
+- `ExecutionGate`：`pass`
+- `预期 answer_type`：`soil_anomaly_answer`
+- `规则触发`：异常规则
+- `是否写查询日志`：是
+- `关键断言`：地区、时间、指标同时覆盖；未显式改变的异常框架继续继承
+- `备注`：覆盖多显式槽位覆盖历史槽位。
+
+### MT-06
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：排名转对象详情
+- `用户问题`：哪个县最严重 -> SNS00204333呢？
+- `当前回答`：待实测回填；期望第二轮输出设备详情，而不是继续排名。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：上一轮 `query_family=ranking`
+- `预期 input_type`：`business_colloquial` 或 `business_direct`
+- `预期 intent`：`soil_device_query`
+- `预期 slots`：`device_sn=SNS00204333; time=继承上一轮时间窗`
+- `预期 query_type / SQL`：`device_detail / SQL-03`
+- `ExecutionGate`：`pass`
+- `预期 answer_type`：`soil_detail_answer`
+- `规则触发`：详情规则
+- `是否写查询日志`：是
+- `关键断言`：`inheritance_mode=convert_frame`，从 ranking 转成设备详情
+- `备注`：排名框架不适合直接延续到单设备。
+
+### MT-07
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：建议 overlay 不粘连
+- `用户问题`：最近有没有异常 -> 这种情况农户要注意什么 -> 徐州呢？
+- `当前回答`：待实测回填；期望第三轮回到异常/详情类数据框架，而不是继续输出农户建议。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：第一轮 `base_query_family=anomaly`，第二轮 `answer_type=soil_advice_answer`
+- `预期 input_type`：第三轮 `business_colloquial` 或 `business_direct`
+- `预期 intent`：`soil_anomaly_query` 或最近兼容的数据查询 intent
+- `预期 slots`：`city_name=徐州市; time=继承可用窗口`
+- `预期 query_type / SQL`：不得固定为 advice 的 `latest_record / SQL-06`
+- `ExecutionGate`：`pass`
+- `预期 answer_type`：不得继续为 `soil_advice_answer`
+- `规则触发`：按数据查询框架判断
+- `是否写查询日志`：是
+- `关键断言`：`warning/advice` 是输出层 overlay，不作为下一轮默认框架
+- `备注`：覆盖“建议后对象切换”。
+
+### MT-08
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：省略追问/继承当前对象
+- `用户问题`：如东县最近怎么样 -> 那个情况呢
+- `当前回答`：待实测回填；期望第二轮继承如东县，而不是 InputGuard 直接澄清。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：上一轮 `county_name=如东县`
+- `预期 input_type`：第二轮 `business_colloquial`
+- `预期 intent`：继承上一轮兼容 intent
+- `预期 slots`：`county_name=继承如东县`
+- `预期 query_type / SQL`：按继承框架查询
+- `ExecutionGate`：`pass`
+- `预期 answer_type`：不得因 `InputGuard` 提前变成 `clarification_answer`
+- `规则触发`：按继承框架判断
+- `是否写查询日志`：是
+- `关键断言`：`那个情况呢` 这类上下文依赖短句必须进入 `ConversationBoundary`
+- `备注`：无上下文时仍应澄清。
+
+### MT-09
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：完整新问题/重置框架
+- `用户问题`：如东县最近怎么样 -> 南京最近15天墒情怎么样
+- `当前回答`：待实测回填；期望第二轮作为完整新问题处理。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：上一轮 `county_name=如东县`
+- `预期 input_type`：第二轮 `business_direct`
+- `预期 intent`：`soil_recent_summary`
+- `预期 slots`：`city_name=南京市; time=最近15天`
+- `预期 query_type / SQL`：`recent_summary / SQL-01`
+- `ExecutionGate`：`pass`
+- `预期 answer_type`：`soil_summary_answer`
+- `规则触发`：概览统计
+- `是否写查询日志`：是
+- `关键断言`：当前轮信息完整时 `inheritance_mode=reset_frame`，不继承如东县
+- `备注`：避免过度继承。
+
+### MT-10
+
+- `一级分类`：K. 多轮话题边界
+- `二级分类`：衰减对照/显式新对象不阻断
+- `用户问题`：如东县最近怎么样 -> 最近墒情怎么样 -> 哪个市最严重 -> 最近有没有异常 -> 生成一条墒情预警 -> 南京呢？
+- `当前回答`：待实测回填；期望最后一轮能按南京显式对象处理，不因旧上下文衰减而直接拒绝。
+- `样本状态`：补充待实测（2026-04-23 多轮边界增强）
+- `上下文`：距离上次明确如东县对象已 4~5 轮，但当前轮显式给出南京
+- `预期 input_type`：最后一轮 `business_colloquial` 或 `business_direct`
+- `预期 intent`：按最近可兼容数据框架处理
+- `预期 slots`：`city_name=南京市`
+- `预期 query_type / SQL`：若框架可兼容则查库
+- `ExecutionGate`：按业务请求判断
+- `预期 answer_type`：不得仅因衰减返回 `clarification_answer`
+- `规则触发`：按业务请求判断
+- `是否写查询日志`：若查库则是
+- `关键断言`：上下文衰减只阻断纯省略追问；显式新对象不受衰减阻断
+- `备注`：与“有没有问题”这类纯省略衰减澄清形成对照。

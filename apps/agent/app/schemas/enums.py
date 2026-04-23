@@ -9,6 +9,7 @@ class InputType(StrEnum):
     """Supported input categories recognized by the soil agent."""
     BUSINESS_DIRECT = "business_direct"
     BUSINESS_COLLOQUIAL = "business_colloquial"
+    CONVERSATION_CLOSING = "conversation_closing"
     GREETING = "greeting"
     CAPABILITY_QUESTION = "capability_question"
     MEANINGLESS_INPUT = "meaningless_input"
@@ -32,6 +33,7 @@ class IntentType(StrEnum):
 
 class AnswerType(StrEnum):
     """Supported answer types returned by the soil agent."""
+    CLOSING = "closing_answer"
     SAFE_HINT = "safe_hint_answer"
     CLARIFICATION = "clarification_answer"
     BOUNDARY = "boundary_answer"

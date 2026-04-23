@@ -16,6 +16,7 @@ from typing import Any
 from app.flow.nodes import (
     AdviceComposeNode,
     AnswerVerifyNode,
+    ConversationBoundaryNode,
     DataFactCheckNode,
     ExecutionGateNode,
     FallbackGuardNode,
@@ -38,6 +39,7 @@ from app.repositories.session_context_repository import SessionContextRepository
 from app.services.advice_service import AdviceService
 from app.services.answer_verify_service import AnswerVerifyService
 from app.services.context_service import ContextService
+from app.services.conversation_boundary_service import ConversationBoundaryService
 from app.services.debug_service import DebugService
 from app.services.execution_gate_service import ExecutionGateService
 from app.services.fact_check_service import FactCheckService
@@ -83,6 +85,7 @@ class SoilAgentService:
                 # request state before any SQL planning is allowed.
                 "input_guard": InputGuardNode(InputGuardService()),
                 "intent_slot_extract": IntentSlotExtractNode(IntentSlotService(self.repository, qwen_client=self.qwen_client)),
+                "conversation_boundary": ConversationBoundaryNode(ConversationBoundaryService(), self.context_service),
                 "history_context_merge": HistoryContextMergeNode(self.context_service),
                 "time_resolve": TimeResolveNode(TimeResolveService(self.repository), self.soil_query_service),
                 "region_resolve": RegionResolveNode(RegionResolveService(self.repository)),
@@ -177,6 +180,8 @@ class SoilAgentService:
         except Exception as exc:
             final_state.errors.append({"stage": "query_log_write", "error": str(exc)})
         await self.save_context_if_business_success(final_state)
+        if final_state.conversation_closed:
+            await self.context_store.clear_context(session_id)
         # `should_query` represents whether the request actually planned a data
         # query.  Guardrail responses and non-business inputs must report false.
         should_query = final_state.final_status in {"verified_end", "fallback_end"} and bool(final_state.query_plan.query_type)
@@ -190,6 +195,7 @@ class SoilAgentService:
             "answer_type": final_state.answer_type,
             "final_answer": final_state.answer_bundle.get("final_answer", ""),
             "should_query": should_query,
+            "conversation_closed": final_state.conversation_closed,
             "status": "ok",
             "merged_slots": final_state.merged_slots.model_dump(exclude_none=True),
             "context_used": final_state.context_used,
@@ -211,6 +217,8 @@ class SoilAgentService:
         turn_context = self.context_service.build_turn_context(
             intent=final_state.intent or "",
             merged_slots=final_state.merged_slots,
+            business_time=final_state.business_time,
+            previous_base_query_family=final_state.boundary_context.get("base_query_family"),
         )
         final_state.context_to_save = turn_context
         await self.context_store.save_turn_context(

@@ -4,8 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRequestUser } from '../../../../lib/server/auth.mjs';
 
 function mapMode(answerType: string) {
+  if (answerType === 'closing_answer') return 'analysis';
+  if (answerType.includes('closing')) return 'analysis';
   if (answerType.includes('advice')) return 'advice';
   if (answerType.includes('clarification')) return 'analysis';
+  if (answerType.includes('safe') || answerType.includes('boundary') || answerType.includes('fallback')) return 'analysis';
   return 'data_query';
 }
 
@@ -42,6 +45,11 @@ export async function POST(request: NextRequest) {
     }
 
     const mode = mapMode(String(data.answer_type || ''));
+    const contextMeta = data.context_used && typeof data.context_used === 'object' ? data.context_used : {};
+    const inheritanceMode = String(contextMeta.inheritance_mode || '');
+    const usedContext =
+      ['carry_frame', 'convert_frame'].includes(inheritanceMode)
+      || (Array.isArray(contextMeta.inherited_fields) && contextMeta.inherited_fields.length > 0);
     return NextResponse.json({
       answer: data.final_answer || '',
       mode,
@@ -52,6 +60,8 @@ export async function POST(request: NextRequest) {
         answer_type: data.answer_type,
         input_type: data.input_type,
         should_query: data.should_query,
+        conversation_closed: Boolean(data.conversation_closed),
+        context_used: contextMeta,
       },
       evidence: {
         response_meta: {
@@ -66,7 +76,7 @@ export async function POST(request: NextRequest) {
           domain: 'soil',
           task_type: data.intent,
           understanding_engine: 'restricted-flow',
-          used_context: history.length > 0,
+          used_context: usedContext,
           ignored_phrases: data.input_type === 'meaningless_input' ? [question] : [],
           window: { window_type: 'all', window_value: null },
           future_window: null,
@@ -94,7 +104,7 @@ export async function POST(request: NextRequest) {
         answer_generation: data.answer_type || 'fallback_answer',
         ai_involvement: data.should_query ? '中' : '低',
         orchestration: 'Next BFF -> Python Agent',
-        memory: history.length > 0 ? '使用多轮上下文' : '无',
+        memory: usedContext ? `使用多轮上下文：${inheritanceMode || 'context'}` : '无',
       },
     });
   } catch (error) {

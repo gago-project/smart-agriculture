@@ -20,6 +20,7 @@ class ChatResponse(BaseModel):
     answer_type: AnswerType | None = None
     final_answer: str = ""
     should_query: bool = False
+    conversation_closed: bool = False
     status: str = "ok"
     merged_slots: dict[str, Any] = Field(default_factory=dict)
     context_used: dict[str, Any] = Field(default_factory=dict)

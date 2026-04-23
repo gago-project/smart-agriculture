@@ -30,9 +30,20 @@ class TimeResolveService:
         slots: dict[str, Any],
         latest_business_time: str | None = None,
         timezone: str = "Asia/Shanghai",
+        inherited_window: dict[str, Any] | None = None,
+        inherit_resolved_window: bool = False,
     ) -> dict[str, Any]:
         """Return a normalized time bundle for the downstream query planner."""
         del timezone
+        if inherit_resolved_window and inherited_window:
+            return {
+                "latest_business_time": latest_business_time or self.repository.latest_business_time(),
+                "resolved_time_range": inherited_window.get("time_label") or slots.get("time_range") or "inherited_window",
+                "resolution_mode": "inherited_window",
+                "time_basis": "conversation_context",
+                "start_time": inherited_window.get("start_time"),
+                "end_time": inherited_window.get("end_time"),
+            }
         latest_business_time = latest_business_time or self.repository.latest_business_time()
         resolved_time_range = slots.get("time_range", "last_7_days")
         latest_dt = self._parse_datetime(latest_business_time)

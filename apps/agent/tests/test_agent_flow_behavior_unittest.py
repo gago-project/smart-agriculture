@@ -195,6 +195,100 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["execution_gate_result"].get("decision"), "block")
         self.assertEqual(result["query_plan"], {})
 
+    def test_closing_turn_should_clear_context_and_not_query(self):
+        """Verify closing utterance clears context inside same thread."""
+        self.service.chat("如东县最近怎么样", session_id="closing", turn_id=1)
+        closing = self.service.chat("谢谢", session_id="closing", turn_id=2)
+        follow_up = self.service.chat("那上周的呢", session_id="closing", turn_id=3)
+
+        self.assertEqual(closing["answer_type"], "closing_answer")
+        self.assertTrue(closing["conversation_closed"])
+        self.assertFalse(closing["should_query"])
+        self.assertEqual(follow_up["answer_type"], "clarification_answer")
+        self.assertFalse(follow_up["should_query"])
+
+    def test_switch_region_follow_up_should_keep_anomaly_frame(self):
+        """Verify explicit region switch inherits anomaly frame and time window."""
+        self.service.chat("南京最近30天异常概况", session_id="switch-region", turn_id=1)
+        result = self.service.chat("徐州呢？", session_id="switch-region", turn_id=2)
+
+        self.assertEqual(result["answer_type"], "soil_anomaly_answer")
+        self.assertEqual(result["intent"], "soil_anomaly_query")
+        self.assertEqual(result["merged_slots"].get("city_name"), "徐州市")
+        self.assertEqual(result["context_used"].get("inheritance_mode"), "carry_frame")
+        self.assertEqual(result["business_time"].get("resolved_time_range"), "last_30_days")
+
+    def test_ranking_follow_up_to_device_should_convert_to_detail(self):
+        """Verify ranking follow up on device converts to detail query."""
+        self.service.chat("哪个县最严重", session_id="rank-to-device", turn_id=1)
+        result = self.service.chat("SNS00204333呢？", session_id="rank-to-device", turn_id=2)
+
+        self.assertEqual(result["answer_type"], "soil_detail_answer")
+        self.assertEqual(result["intent"], "soil_device_query")
+        self.assertEqual(result["context_used"].get("inheritance_mode"), "convert_frame")
+
+    def test_multi_slot_override_should_keep_anomaly_frame(self):
+        """Verify region time and metric overrides keep compatible anomaly frame."""
+        self.service.chat("南京最近30天异常概况", session_id="multi-override", turn_id=1)
+        result = self.service.chat("盐城昨天20cm呢？", session_id="multi-override", turn_id=2)
+
+        self.assertEqual(result["answer_type"], "soil_anomaly_answer")
+        self.assertEqual(result["intent"], "soil_anomaly_query")
+        self.assertEqual(result["merged_slots"].get("city_name"), "盐城市")
+        self.assertEqual(result["merged_slots"].get("metric"), "water20cm")
+        self.assertEqual(result["merged_slots"].get("time_range"), "yesterday")
+        self.assertEqual(result["business_time"].get("resolved_time_range"), "yesterday")
+
+    def test_advice_overlay_should_not_be_sticky_for_next_region_switch(self):
+        """Verify advice turns do not become the next default query frame."""
+        self.service.chat("最近有没有异常", session_id="advice-overlay", turn_id=1)
+        self.service.chat("这种情况农户要注意什么", session_id="advice-overlay", turn_id=2)
+        result = self.service.chat("徐州呢？", session_id="advice-overlay", turn_id=3)
+
+        self.assertEqual(result["answer_type"], "soil_anomaly_answer")
+        self.assertEqual(result["intent"], "soil_anomaly_query")
+        self.assertEqual(result["merged_slots"].get("city_name"), "徐州市")
+        self.assertNotEqual(result["query_plan"].get("query_type"), "latest_record")
+
+    def test_context_dependent_short_follow_up_should_reach_boundary(self):
+        """Verify context-dependent short follow-ups are not stopped by InputGuard."""
+        self.service.chat("如东县最近怎么样", session_id="short-follow", turn_id=1)
+        result = self.service.chat("那个情况呢", session_id="short-follow", turn_id=2)
+
+        self.assertNotEqual(result["input_type"], "ambiguous_low_confidence")
+        self.assertEqual(result["context_used"].get("inheritance_mode"), "carry_frame")
+        self.assertEqual(result["merged_slots"].get("county_name"), "如东县")
+
+    def test_complete_new_question_should_reset_frame(self):
+        """Verify complete new question does not inherit old region."""
+        self.service.chat("如东县最近怎么样", session_id="reset-frame", turn_id=1)
+        result = self.service.chat("南京最近15天墒情怎么样", session_id="reset-frame", turn_id=2)
+
+        self.assertEqual(result["intent"], "soil_recent_summary")
+        self.assertEqual(result["answer_type"], "soil_summary_answer")
+        self.assertEqual(result["merged_slots"].get("city_name"), "南京市")
+        self.assertNotIn("county_name", result["merged_slots"])
+        self.assertEqual(result["context_used"].get("inheritance_mode"), "reset_frame")
+
+    def test_decayed_context_should_not_block_explicit_new_region(self):
+        """Verify decay only blocks pure ellipsis, not explicit new entities."""
+        session_id = "decay-new-region"
+        for turn_id, message in enumerate(
+            [
+                "如东县最近怎么样",
+                "最近墒情怎么样",
+                "哪个市最严重",
+                "最近有没有异常",
+                "生成一条墒情预警",
+            ],
+            start=1,
+        ):
+            self.service.chat(message, session_id=session_id, turn_id=turn_id)
+        result = self.service.chat("南京呢？", session_id=session_id, turn_id=6)
+
+        self.assertNotEqual(result["answer_type"], "clarification_answer")
+        self.assertEqual(result["merged_slots"].get("city_name"), "南京市")
+
     def test_five_year_anomaly_should_clarify_without_query(self):
         """Verify five year anomaly should clarify without query."""
         result = self.service.chat("查过去5年异常点位", session_id="anomaly-limit", turn_id=1)
