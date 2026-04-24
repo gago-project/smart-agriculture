@@ -53,6 +53,9 @@ test('agent chat route proxies to configured AGENT_BASE_URL', () => {
   assert.match(source, /closing_answer/);
   assert.match(source, /conversation_closed/);
   assert.match(source, /inheritanceMode/);
+  assert.match(source, /buildAnalysisContext/);
+  assert.match(source, /mergedSlots/);
+  assert.doesNotMatch(source, /region_level:\s*'county'/);
   assert.doesNotMatch(source, /used_context:\s*history\.length > 0/);
   assert.doesNotMatch(source, /memory:\s*history\.length > 0/);
 });
@@ -238,6 +241,16 @@ test('region alias and acceptance docs live in dedicated non-plan directories', 
   assert.match(planSource, /静态种子/);
   assert.match(planSource, /多候选/);
   assert.match(planSource, /一编辑距离/);
+});
+
+test('system design doc reflects current region alias implementation', () => {
+  const planSource = readFileSync(
+    new URL('../../agent/plans/1/7.system-design-diagram.md', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(planSource, /RegionAliasResolver \+ region_alias\(city\/county\) \+ fact_soil_moisture 存在性校验/);
+  assert.doesNotMatch(planSource, /结构化维表映射/);
 });
 
 test('soil moisture testing docs use testdata case library as the single formal case source', () => {

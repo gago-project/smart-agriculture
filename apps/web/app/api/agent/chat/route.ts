@@ -2,6 +2,7 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireRequestUser } from '../../../../lib/server/auth.mjs';
+import { buildAnalysisContext } from '../../../../lib/server/agentChatEvidence.mjs';
 
 function mapMode(answerType: string) {
   if (answerType === 'closing_answer') return 'analysis';
@@ -45,11 +46,17 @@ export async function POST(request: NextRequest) {
     }
 
     const mode = mapMode(String(data.answer_type || ''));
+    const mergedSlots = data.merged_slots && typeof data.merged_slots === 'object' ? data.merged_slots : {};
     const contextMeta = data.context_used && typeof data.context_used === 'object' ? data.context_used : {};
     const inheritanceMode = String(contextMeta.inheritance_mode || '');
     const usedContext =
       ['carry_frame', 'convert_frame'].includes(inheritanceMode)
       || (Array.isArray(contextMeta.inherited_fields) && contextMeta.inherited_fields.length > 0);
+    const analysisContext = buildAnalysisContext({
+      intent: data.intent,
+      mergedSlots,
+      contextUsed: contextMeta,
+    });
     return NextResponse.json({
       answer: data.final_answer || '',
       mode,
@@ -81,12 +88,7 @@ export async function POST(request: NextRequest) {
           window: { window_type: 'all', window_value: null },
           future_window: null,
         },
-        analysis_context: {
-          domain: 'soil',
-          region_name: '',
-          region_level: 'county',
-          query_type: data.intent,
-        },
+        analysis_context: analysisContext,
         historical_query: {
           rule: data.answer_type,
           sql: 'smart_agriculture.fact_soil_moisture',
