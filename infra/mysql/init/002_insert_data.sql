@@ -27,7 +27,7 @@ INSERT INTO metric_rule (
   'soil_warning_v1',
   '墒情预警规则V1',
   'soil_moisture',
-  '{"document_name":"江苏省农业农村指挥调度平台预警规则及发布模版.pdf","priority_semantics":"smaller_number_higher_priority","final_status_mode":"single_final_status","allow_multi_match_candidates":true,"rules":[{"rule_name":"表层重旱预警","condition":"water20cm < 50","warning_level":"heavy_drought","priority":10},{"rule_name":"表层涝渍预警","condition":"water20cm >= 150","warning_level":"waterlogging","priority":20},{"rule_name":"设备故障预警","condition":"water20cm = 0 and t20cm = 0","warning_level":"device_fault","priority":5}],"template":{"template_type":"soil_warning","template_text":"{{year}} 年 {{month}} 月 {{day}} 日 {{hour}} 时 {{city_name}} {{county_name}} SN 编号 {{device_sn}} 土壤墒情仪监测到相对含水量 {{water20cm}}%，预警等级 {{warning_level}}，请大田/设施大棚/林果相关主体关注！"},"allow_template_output":true}',
+  '{"document_name":"江苏省农业农村指挥调度平台预警规则及发布模版.pdf","priority_semantics":"smaller_number_higher_priority","final_status_mode":"single_final_status","allow_multi_match_candidates":true,"rules":[{"rule_name":"表层重旱预警","condition":"water20cm < 50","warning_level":"heavy_drought","priority":10},{"rule_name":"表层涝渍预警","condition":"water20cm >= 150","warning_level":"waterlogging","priority":20},{"rule_name":"设备故障预警","condition":"water20cm = 0 and t20cm = 0","warning_level":"device_fault","priority":5}],"template":{"template_type":"soil_warning","template_text":"{{year}} 年 {{month}} 月 {{day}} 日 {{hour}} 时 {{city}} {{county}} SN 编号 {{sn}} 土壤墒情仪监测到相对含水量 {{water20cm}}%，预警等级 {{warning_level}}，请大田/设施大棚/林果相关主体关注！"},"allow_template_output":true}',
   1,
   '2026-04-20 00:00:00'
 ) ON DUPLICATE KEY UPDATE
@@ -45,8 +45,8 @@ INSERT INTO warning_template (
   'soil_warning',
   'general',
   '墒情预警模板V1',
-  '{{year}} 年 {{month}} 月 {{day}} 日 {{hour}} 时 {{city_name}} {{county_name}} SN 编号 {{device_sn}} 土壤墒情仪监测到相对含水量 {{water20cm}}%，预警等级 {{warning_level}}，请大田/设施大棚/林果相关主体关注！',
-  JSON_ARRAY('year', 'month', 'day', 'hour', 'city_name', 'county_name', 'device_sn', 'water20cm', 'warning_level'),
+  '{{year}} 年 {{month}} 月 {{day}} 日 {{hour}} 时 {{city}} {{county}} SN 编号 {{sn}} 土壤墒情仪监测到相对含水量 {{water20cm}}%，预警等级 {{warning_level}}，请大田/设施大棚/林果相关主体关注！',
+  JSON_ARRAY('year', 'month', 'day', 'hour', 'city', 'county', 'sn', 'water20cm', 'warning_level'),
   'v1',
   1,
   '2026-04-20 00:00:00',

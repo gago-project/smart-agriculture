@@ -1,7 +1,6 @@
 const REGION_SUFFIXES = {
   city: ['市'],
   county: ['县', '区', '市'],
-  town: ['镇', '乡'],
 };
 
 function stripRegionSuffix(name, regionLevel) {
@@ -14,7 +13,7 @@ function stripRegionSuffix(name, regionLevel) {
   return normalized;
 }
 
-function pushAlias(mappingMap, aliasName, canonicalName, regionLevel, parentCityName, parentCountyName, aliasSource = 'generated_fact') {
+function pushAlias(mappingMap, aliasName, canonicalName, regionLevel, parentCityName, aliasSource = 'generated_fact') {
   const normalizedAlias = String(aliasName || '').trim();
   const normalizedCanonical = String(canonicalName || '').trim();
   if (!normalizedAlias || normalizedAlias.length < 2 || !normalizedCanonical) {
@@ -25,14 +24,12 @@ function pushAlias(mappingMap, aliasName, canonicalName, regionLevel, parentCity
     normalizedCanonical,
     regionLevel,
     parentCityName || null,
-    parentCountyName || null,
   ]);
   mappingMap.set(key, {
     alias_name: normalizedAlias,
     canonical_name: normalizedCanonical,
     region_level: regionLevel,
     parent_city_name: parentCityName || null,
-    parent_county_name: parentCountyName || null,
     alias_source: aliasSource,
     enabled: 1,
   });
@@ -41,25 +38,22 @@ function pushAlias(mappingMap, aliasName, canonicalName, regionLevel, parentCity
 export function buildRegionAliasRows(records) {
   const mappingMap = new Map();
   for (const record of records) {
-    const cityName = String(record.city_name || '').trim() || null;
-    const countyName = String(record.county_name || '').trim() || null;
-    const townName = String(record.town_name || '').trim() || null;
-    for (const [canonicalName, regionLevel, parentCityName, parentCountyName] of [
-      [cityName, 'city', null, null],
-      [countyName, 'county', cityName, null],
-      [townName, 'town', cityName, countyName],
+    const cityName = String(record.city || '').trim() || null;
+    const countyName = String(record.county || '').trim() || null;
+    for (const [canonicalName, regionLevel, parentCityName] of [
+      [cityName, 'city', null],
+      [countyName, 'county', cityName],
     ]) {
       if (!canonicalName) {
         continue;
       }
-      pushAlias(mappingMap, canonicalName, canonicalName, regionLevel, parentCityName, parentCountyName);
+      pushAlias(mappingMap, canonicalName, canonicalName, regionLevel, parentCityName);
       pushAlias(
         mappingMap,
         stripRegionSuffix(canonicalName, regionLevel),
         canonicalName,
         regionLevel,
         parentCityName,
-        parentCountyName,
       );
     }
   }
@@ -67,8 +61,7 @@ export function buildRegionAliasRows(records) {
     left.region_level.localeCompare(right.region_level, 'zh-Hans-CN')
     || left.alias_name.localeCompare(right.alias_name, 'zh-Hans-CN')
     || left.canonical_name.localeCompare(right.canonical_name, 'zh-Hans-CN')
-    || String(left.parent_city_name || '').localeCompare(String(right.parent_city_name || ''), 'zh-Hans-CN')
-    || String(left.parent_county_name || '').localeCompare(String(right.parent_county_name || ''), 'zh-Hans-CN'));
+    || String(left.parent_city_name || '').localeCompare(String(right.parent_city_name || ''), 'zh-Hans-CN'));
 }
 
 function sqlValue(value) {
@@ -81,15 +74,14 @@ function sqlValue(value) {
 export function buildRegionAliasSeedSql(rows) {
   const generatedRows = rows.filter((row) => row.alias_source === 'generated_fact');
   const valuesSql = generatedRows.map((row) =>
-    `(${sqlValue(row.alias_name)}, ${sqlValue(row.canonical_name)}, ${sqlValue(row.region_level)}, ${sqlValue(row.parent_city_name)}, ${sqlValue(row.parent_county_name)}, ${sqlValue(row.alias_source)}, ${row.enabled ?? 1}, '2026-04-22 00:00:00', '2026-04-22 00:00:00')`).join(',\n');
+    `(${sqlValue(row.alias_name)}, ${sqlValue(row.canonical_name)}, ${sqlValue(row.region_level)}, ${sqlValue(row.parent_city_name)}, ${sqlValue(row.alias_source)}, ${row.enabled ?? 1}, '2026-04-22 00:00:00', '2026-04-22 00:00:00')`).join(',\n');
   return [
     '-- BEGIN GENERATED REGION_ALIAS SEED',
     "DELETE FROM region_alias WHERE alias_source = 'generated_fact';",
-    'INSERT INTO region_alias (alias_name, canonical_name, region_level, parent_city_name, parent_county_name, alias_source, enabled, created_at, updated_at) VALUES',
+    'INSERT INTO region_alias (alias_name, canonical_name, region_level, parent_city_name, alias_source, enabled, created_at, updated_at) VALUES',
     valuesSql,
     'ON DUPLICATE KEY UPDATE',
     '  parent_city_name = VALUES(parent_city_name),',
-    '  parent_county_name = VALUES(parent_county_name),',
     '  alias_source = VALUES(alias_source),',
     '  enabled = VALUES(enabled),',
     '  updated_at = VALUES(updated_at);',
@@ -108,7 +100,6 @@ export async function upsertRegionAliasRows(connection, rows) {
     'canonical_name',
     'region_level',
     'parent_city_name',
-    'parent_county_name',
     'alias_source',
     'enabled',
     'created_at',
@@ -119,7 +110,6 @@ export async function upsertRegionAliasRows(connection, rows) {
     row.canonical_name,
     row.region_level,
     row.parent_city_name,
-    row.parent_county_name,
     row.alias_source,
     row.enabled ?? 1,
     '2026-04-22 00:00:00',
@@ -130,7 +120,6 @@ export async function upsertRegionAliasRows(connection, rows) {
     `INSERT INTO region_alias (${columns.join(', ')}) VALUES ${placeholders}
      ON DUPLICATE KEY UPDATE
        parent_city_name = VALUES(parent_city_name),
-       parent_county_name = VALUES(parent_county_name),
        alias_source = VALUES(alias_source),
        enabled = VALUES(enabled),
        updated_at = VALUES(updated_at)`,
@@ -141,9 +130,9 @@ export async function upsertRegionAliasRows(connection, rows) {
 
 export async function refreshGeneratedRegionAliasesFromFacts(connection) {
   const [rows] = await connection.execute(
-    `SELECT DISTINCT city_name, county_name, town_name
+    `SELECT DISTINCT city, county
      FROM fact_soil_moisture
-     WHERE city_name IS NOT NULL OR county_name IS NOT NULL OR town_name IS NOT NULL`,
+     WHERE city IS NOT NULL OR county IS NOT NULL`,
   );
   const aliasRows = buildRegionAliasRows(rows);
   const aliasCount = await upsertRegionAliasRows(connection, aliasRows);

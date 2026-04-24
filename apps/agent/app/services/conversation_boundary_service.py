@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 
-ENTITY_FIELDS = ("city_name", "county_name", "town_name", "device_sn")
+ENTITY_FIELDS = ("city", "county", "sn")
 FRAME_FIELDS = ("metric", "top_n", "render_mode", "audience", "aggregation", "trend")
 
 
@@ -86,7 +86,7 @@ class ConversationBoundaryService:
             return "soil_warning_generation"
         if family == "advice":
             return "soil_management_advice"
-        if slots.get("device_sn"):
+        if slots.get("sn"):
             return "soil_device_query"
         return "soil_region_query"
 

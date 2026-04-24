@@ -117,13 +117,13 @@ class ResponseService:
     def _summary_answer(self, records: list[dict[str, Any]], slots: dict[str, Any], business_time: dict[str, Any]) -> str:
         """Summarize the current scope using only returned MySQL records."""
         if not records:
-            region_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前范围"
+            region_name = slots.get("county") or slots.get("city") or "当前范围"
             return f"{region_name} 当前没有可用墒情数据，请先确认地区名称或导入最新数据。"
         water_values = [_safe_float(item.get("water20cm")) for item in records]
         valid_values = [item for item in water_values if item is not None]
         avg_water = round(mean(valid_values), 2) if valid_values else None
         risky = [item for item in records if item.get("soil_status") != "not_triggered"]
-        scope_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前整体"
+        scope_name = slots.get("county") or slots.get("city") or "当前整体"
         avg_text = f"20cm平均相对含水量约 {avg_water}%" if avg_water is not None else "20cm相对含水量暂无可用统计"
         if risky:
             risk_text = f"当前有 {len(risky)} 个点位需要重点关注"
@@ -132,15 +132,15 @@ class ResponseService:
         return f"{scope_name}墒情概况：{avg_text}，{risk_text}。"
 
     def _ranking_answer(self, records: list[dict[str, Any]], query_result: dict[str, Any]) -> str:
-        """Build a TopN ranking from anomaly scores in the query result."""
+        """Build a TopN ranking from runtime risk scores in the query result."""
         if not records:
             return "当前范围内没有可用于排名的墒情记录，请先确认查询对象或导入最新数据。"
         aggregation = query_result.get("aggregation", "county")
         top_n = query_result.get("top_n", 5)
         grouped: dict[str, list[float]] = {}
         for record in records:
-            key = record.get("device_sn") if aggregation == "device" else record.get("city_name") if aggregation == "city" else record.get("county_name")
-            grouped.setdefault(key or "未知", []).append(float(record.get("soil_anomaly_score") or 0))
+            key = record.get("sn") if aggregation == "device" else record.get("city") if aggregation == "city" else record.get("county")
+            grouped.setdefault(key or "未知", []).append(float(record.get("risk_score") or 0))
         ranking = sorted(
             ((name, round(max(scores), 2)) for name, scores in grouped.items()),
             key=lambda item: item[1],
@@ -154,12 +154,12 @@ class ResponseService:
     def _detail_answer(self, records: list[dict[str, Any]], slots: dict[str, Any]) -> str:
         """Describe the latest detail record for a device or region."""
         if not records:
-            target = slots.get("device_sn") or slots.get("town_name") or slots.get("county_name") or slots.get("city_name") or "当前对象"
+            target = slots.get("sn") or slots.get("county") or slots.get("city") or "当前对象"
             return f"没有找到 {target} 的墒情数据，请核对名称或导入最新数据。"
         record = records[0]
-        target = slots.get("device_sn") or slots.get("county_name") or slots.get("city_name") or record.get("device_sn")
+        target = slots.get("sn") or slots.get("county") or slots.get("city") or record.get("sn")
         return (
-            f"{target} 最新监测时间为 {record.get('sample_time')}，位于 {record.get('city_name')}{record.get('county_name')}，"
+            f"{target} 最新监测时间为 {record.get('create_time')}，位于 {record.get('city')}{record.get('county')}，"
             f"20cm 相对含水量 {record.get('water20cm')}%，规则判断为 {record.get('display_label')}。"
         )
 
@@ -172,7 +172,7 @@ class ResponseService:
             return "当前范围内未发现命中规则的墒情异常点位。"
         names = []
         for record in anomalies[:5]:
-            region_name = record.get("county_name") or record.get("city_name") or record.get("device_sn")
+            region_name = record.get("county") or record.get("city") or record.get("sn")
             names.append(f"{region_name}（{record.get('display_label')}）")
         return f"当前共识别出 {len(anomalies)} 个异常点位，重点关注：{'；'.join(names)}。"
 
@@ -190,13 +190,13 @@ class ResponseService:
                 final_answer = f"{final_answer}\n\n建议：{advice_result['advice_text']}"
             elif slots.get("render_mode") == "plus_explanation" and records:
                 record = records[0]
-                final_answer = f"{final_answer}\n\n说明：该结论基于 {record.get('sample_time')} 的最新监测值与规则判断生成。"
+                final_answer = f"{final_answer}\n\n说明：该结论基于 {record.get('create_time')} 的最新监测值与规则判断生成。"
             return final_answer
         if not records:
             return "没有找到可用于预警判断的最新墒情记录。"
         record = records[0]
         return (
-            f"设备 {record.get('device_sn')} 最新记录时间 {record.get('sample_time')}，20cm 相对含水量 {record.get('water20cm')}%，"
+            f"设备 {record.get('sn')} 最新记录时间 {record.get('create_time')}，20cm 相对含水量 {record.get('water20cm')}%，"
             f"规则判断为 {record.get('display_label')}。"
         )
 

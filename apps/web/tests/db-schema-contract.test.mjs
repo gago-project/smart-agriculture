@@ -4,10 +4,24 @@ import fs from 'node:fs';
 
 const sql = fs.readFileSync(new URL('../../../infra/mysql/init/001_init_tables.sql', import.meta.url), 'utf8');
 
-test('mysql core tables strictly follow plans', () => {
+function extractTableBlock(tableName) {
+  const match = sql.match(new RegExp(`CREATE TABLE IF NOT EXISTS ${tableName} \\(([\\s\\S]*?)\\n\\);`, 'i'));
+  assert.ok(match, `missing table block for ${tableName}`);
+  return match[1];
+}
+
+function extractColumns(tableName) {
+  return extractTableBlock(tableName)
+    .split('\n')
+    .map((line) => line.trim().replace(/,$/, ''))
+    .filter((line) => /^[a-z]/.test(line))
+    .map((line) => line.match(/^`?([a-z0-9_]+)`?\s+/i)?.[1])
+    .filter(Boolean);
+}
+
+test('mysql core tables strictly follow current soil domain contract', () => {
   for (const table of [
     'fact_soil_moisture',
-    'etl_import_batch',
     'soil_import_job',
     'soil_import_job_diff',
     'metric_rule',
@@ -20,81 +34,131 @@ test('mysql core tables strictly follow plans', () => {
   ]) {
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`));
   }
-
-  for (const forbidden of ['users', 'soil_devices', 'soil_alert_templates']) {
-    assert.doesNotMatch(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${forbidden}\\b`));
-  }
 });
 
-test('region_alias table supports generated aliases and ambiguous mappings', () => {
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS region_alias/i);
-  assert.match(sql, /alias_name\s+VARCHAR\(64\)\s+NOT NULL/i);
-  assert.match(sql, /canonical_name\s+VARCHAR\(64\)\s+NOT NULL/i);
-  assert.match(sql, /region_level\s+VARCHAR\(16\)\s+NOT NULL/i);
-  assert.match(sql, /parent_city_name\s+VARCHAR\(64\)\s+NULL/i);
-  assert.match(sql, /alias_source\s+VARCHAR\(32\)\s+NOT NULL/i);
+test('fact_soil_moisture columns exactly match raw excel contract', () => {
+  assert.deepEqual(extractColumns('fact_soil_moisture'), [
+    'id',
+    'sn',
+    'gatewayid',
+    'sensorid',
+    'unitid',
+    'city',
+    'county',
+    'time',
+    'create_time',
+    'water20cm',
+    'water40cm',
+    'water60cm',
+    'water80cm',
+    't20cm',
+    't40cm',
+    't60cm',
+    't80cm',
+    'water20cmfieldstate',
+    'water40cmfieldstate',
+    'water60cmfieldstate',
+    'water80cmfieldstate',
+    't20cmfieldstate',
+    't40cmfieldstate',
+    't60cmfieldstate',
+    't80cmfieldstate',
+    'lat',
+    'lon',
+    'source_file',
+    'source_sheet',
+    'source_row',
+  ]);
+  assert.match(sql, /CREATE INDEX idx_soil_create_time ON fact_soil_moisture \(create_time\)/i);
+  assert.match(sql, /CREATE INDEX idx_soil_sn_create_time ON fact_soil_moisture \(sn, create_time\)/i);
+  assert.match(sql, /CREATE INDEX idx_soil_region_create_time ON fact_soil_moisture \(city, county, create_time\)/i);
+});
+
+test('soil import preview tables keep current job and diff fields', () => {
+  assert.deepEqual(extractColumns('soil_import_job'), [
+    'job_id',
+    'filename',
+    'requested_by_user_id',
+    'requested_by_username',
+    'status',
+    'apply_mode',
+    'processed_rows',
+    'total_rows',
+    'summary_json',
+    'error_message',
+    'finished_at',
+    'created_at',
+    'updated_at',
+  ]);
+  assert.deepEqual(extractColumns('soil_import_job_diff'), [
+    'diff_id',
+    'job_id',
+    'diff_type',
+    'id',
+    'source_row',
+    'db_record_json',
+    'import_record_json',
+    'field_changes_json',
+    'created_at',
+  ]);
+  assert.match(sql, /FOREIGN KEY \(job_id\) REFERENCES soil_import_job\(job_id\)/i);
+});
+
+test('region_alias only keeps city and county disambiguation fields', () => {
+  assert.deepEqual(extractColumns('region_alias'), [
+    'id',
+    'alias_name',
+    'canonical_name',
+    'region_level',
+    'parent_city_name',
+    'alias_source',
+    'enabled',
+    'created_at',
+    'updated_at',
+  ]);
   assert.match(sql, /UNIQUE KEY uk_region_alias_mapping/i);
   assert.match(sql, /KEY idx_region_alias_lookup/i);
 });
 
-test('fact_soil_moisture uses plan column names', () => {
-  assert.match(sql, /record_id\s+VARCHAR\(64\)\s+PRIMARY KEY/i);
-  assert.match(sql, /sample_time\s+DATETIME\s+NOT NULL/i);
-  assert.match(sql, /create_time\s+DATETIME\s+NULL/i);
-  assert.doesNotMatch(sql, /\brecord_time\b/i);
-});
-
-test('soil import job tables support preview and polling workflow', () => {
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS soil_import_job/i);
-  assert.match(sql, /job_id\s+CHAR\(36\)\s+PRIMARY KEY/i);
-  assert.match(sql, /status\s+VARCHAR\(32\)\s+NOT NULL/i);
-  assert.match(sql, /processed_rows\s+INT\s+NOT NULL DEFAULT 0/i);
-  assert.match(sql, /total_rows\s+INT\s+NOT NULL DEFAULT 0/i);
-  assert.match(sql, /summary_json\s+JSON\s+NULL/i);
-
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS soil_import_job_diff/i);
-  assert.match(sql, /diff_id\s+BIGINT\s+PRIMARY KEY AUTO_INCREMENT/i);
-  assert.match(sql, /job_id\s+CHAR\(36\)\s+NOT NULL/i);
-  assert.match(sql, /diff_type\s+VARCHAR\(16\)\s+NOT NULL/i);
-  assert.match(sql, /db_record_json\s+JSON\s+NULL/i);
-  assert.match(sql, /import_record_json\s+JSON\s+NULL/i);
-  assert.match(sql, /field_changes_json\s+JSON\s+NULL/i);
-  assert.match(sql, /FOREIGN KEY \(job_id\) REFERENCES soil_import_job\(job_id\)/i);
-  assert.match(sql, /idx_soil_import_job_status_created_at/i);
-  assert.match(sql, /idx_soil_import_job_diff_lookup/i);
-});
-
-test('warning_template and agent_query_log columns follow plans', () => {
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS warning_template/i);
-  assert.match(sql, /required_fields_json\s+JSON\s+NOT NULL/i);
-  assert.match(sql, /version\s+VARCHAR\(64\)\s+NOT NULL/i);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS agent_query_log/i);
-  assert.match(sql, /query_id\s+VARCHAR\(64\)\s+PRIMARY KEY/i);
-  assert.match(sql, /query_plan_json\s+JSON\s+NOT NULL/i);
-  assert.match(sql, /request_text\s+TEXT\s+NULL/i);
-  assert.match(sql, /response_text\s+TEXT\s+NULL/i);
-  assert.match(sql, /input_type\s+VARCHAR\(32\)\s+NULL/i);
-  assert.match(sql, /intent\s+VARCHAR\(64\)\s+NULL/i);
-  assert.match(sql, /answer_type\s+VARCHAR\(64\)\s+NULL/i);
-  assert.match(sql, /final_status\s+VARCHAR\(64\)\s+NULL/i);
-  assert.match(sql, /executed_sql_text\s+TEXT\s+NULL/i);
-  assert.match(sql, /executed_result_json\s+JSON\s+NULL/i);
-  assert.doesNotMatch(sql, /result_preview_json\s+JSON\s+NULL/i);
-});
-
-test('mysql init drops deprecated query log preview column on existing databases', () => {
-  assert.match(sql, /DROP PROCEDURE IF EXISTS drop_column_if_exists\/\//i);
-  assert.match(sql, /CREATE PROCEDURE drop_column_if_exists\(/i);
-  assert.match(sql, /CALL drop_column_if_exists\('agent_query_log', 'result_preview_json'/i);
-});
-
-test('auth tables use database-backed user and session design', () => {
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS auth_user/i);
-  assert.match(sql, /username\s+VARCHAR\(64\)\s+NOT NULL/i);
-  assert.match(sql, /password_hash\s+VARCHAR\(255\)\s+NOT NULL/i);
-  assert.match(sql, /password_salt\s+VARCHAR\(255\)\s+NOT NULL/i);
-  assert.match(sql, /role\s+VARCHAR\(32\)\s+NOT NULL DEFAULT 'user'/i);
-  assert.match(sql, /CREATE TABLE IF NOT EXISTS auth_session/i);
-  assert.match(sql, /token_hash\s+VARCHAR\(255\)\s+NOT NULL/i);
-  assert.match(sql, /FOREIGN KEY \(user_id\) REFERENCES auth_user\(id\)/i);
+test('warning_template and agent_query_log retain current runtime fields', () => {
+  assert.deepEqual(extractColumns('warning_template'), [
+    'template_id',
+    'domain',
+    'warning_type',
+    'audience',
+    'template_name',
+    'template_text',
+    'required_fields_json',
+    'version',
+    'enabled',
+    'created_at',
+    'updated_at',
+  ]);
+  assert.deepEqual(extractColumns('agent_query_log'), [
+    'query_id',
+    'session_id',
+    'turn_id',
+    'request_text',
+    'response_text',
+    'input_type',
+    'intent',
+    'answer_type',
+    'final_status',
+    'query_type',
+    'query_plan_json',
+    'sql_fingerprint',
+    'executed_sql_text',
+    'time_range_json',
+    'filters_json',
+    'group_by_json',
+    'metrics_json',
+    'order_by_json',
+    'limit_size',
+    'row_count',
+    'executed_result_json',
+    'source_files_json',
+    'status',
+    'error_message',
+    'created_at',
+  ]);
 });

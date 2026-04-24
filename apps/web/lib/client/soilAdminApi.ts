@@ -1,13 +1,13 @@
 export interface SoilRecord {
-  record_id: string;
-  device_sn?: string | null;
-  city_name?: string | null;
-  county_name?: string | null;
-  town_name?: string | null;
-  device_name?: string | null;
-  longitude?: number | string | null;
-  latitude?: number | string | null;
-  sample_time?: string | null;
+  id: string;
+  sn?: string | null;
+  gatewayid?: string | null;
+  sensorid?: string | null;
+  unitid?: string | null;
+  city?: string | null;
+  county?: string | null;
+  time?: string | null;
+  create_time?: string | null;
   water20cm?: number | string | null;
   water40cm?: number | string | null;
   water60cm?: number | string | null;
@@ -16,8 +16,16 @@ export interface SoilRecord {
   t40cm?: number | string | null;
   t60cm?: number | string | null;
   t80cm?: number | string | null;
-  soil_anomaly_type?: string | null;
-  soil_anomaly_score?: number | string | null;
+  water20cmfieldstate?: string | null;
+  water40cmfieldstate?: string | null;
+  water60cmfieldstate?: string | null;
+  water80cmfieldstate?: string | null;
+  t20cmfieldstate?: string | null;
+  t40cmfieldstate?: string | null;
+  t60cmfieldstate?: string | null;
+  t80cmfieldstate?: string | null;
+  lat?: number | string | null;
+  lon?: number | string | null;
   source_file?: string | null;
   source_sheet?: string | null;
   source_row?: number | string | null;
@@ -92,7 +100,7 @@ export async function updateSoilRecordField(recordId: string, field: string, val
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ field, value }),
   });
-  return parseJson<{ record_id: string; field: string; old_value?: unknown; new_value?: unknown }>(response);
+  return parseJson<{ id: string; field: string; old_value?: unknown; new_value?: unknown }>(response);
 }
 
 export async function deleteSoilRecord(recordId: string) {
@@ -100,11 +108,11 @@ export async function deleteSoilRecord(recordId: string) {
   return parseJson<{ deleted_count: number }>(response);
 }
 
-export async function bulkDeleteSoilRecords(recordIds: string[]) {
+export async function bulkDeleteSoilRecords(ids: string[]) {
   const response = await fetch('/api/admin/soil/records/bulk-delete', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ record_ids: recordIds }),
+    body: JSON.stringify({ ids }),
   });
   return parseJson<{ deleted_count: number }>(response);
 }

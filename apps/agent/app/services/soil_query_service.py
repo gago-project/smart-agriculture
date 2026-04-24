@@ -51,10 +51,9 @@ class SoilQueryService:
         }
         query_type, sql_template = query_type_map.get(intent, ("recent_summary", "SQL-01"))
         filters = {
-            "city_name": slots.get("city_name"),
-            "county_name": slots.get("county_name"),
-            "town_name": slots.get("town_name"),
-            "device_sn": slots.get("device_sn"),
+            "city": slots.get("city"),
+            "county": slots.get("county"),
+            "sn": slots.get("sn"),
         }
         time_range = {
             "mode": business_time.get("resolved_time_range"),
@@ -63,14 +62,14 @@ class SoilQueryService:
             "time_basis": business_time.get("time_basis"),
         }
         group_by = [slots["aggregation"]] if slots.get("aggregation") else None
-        order_by = ["soil_anomaly_score DESC"] if query_type == "severity_ranking" else ["sample_time DESC"]
+        order_by = ["create_time DESC"]
         limit_size = None
         return {
             "query_type": query_type,
             "sql_template": sql_template,
             "filters": filters,
             "group_by": group_by,
-            "metrics": ["soil_anomaly_score"] if query_type == "severity_ranking" else None,
+            "metrics": None,
             "order_by": order_by,
             "limit_size": limit_size,
             "time_range": time_range,
@@ -95,10 +94,9 @@ class SoilQueryService:
             "sql_template": "SQL-07",
             "fallback_scenario": fallback_scenario,
             "filters": {
-                "city_name": slots.get("city_name"),
-                "county_name": slots.get("county_name"),
-                "town_name": slots.get("town_name"),
-                "device_sn": slots.get("device_sn"),
+                "city": slots.get("city"),
+                "county": slots.get("county"),
+                "sn": slots.get("sn"),
             },
             "time_range": {
                 "mode": business_time.get("resolved_time_range"),
@@ -119,19 +117,17 @@ class SoilQueryService:
         if query_type == "fallback":
             return await self._execute_fallback(query_plan)
         executed_sql_text = self.repository.build_filter_records_audit_sql(
-            city_name=filters.get("city_name"),
-            county_name=filters.get("county_name"),
-            town_name=filters.get("town_name"),
-            device_sn=filters.get("device_sn"),
+            city=filters.get("city"),
+            county=filters.get("county"),
+            sn=filters.get("sn"),
             start_time=time_range.get("start_time"),
             end_time=time_range.get("end_time"),
             limit=query_plan.get("limit_size"),
         )
         records = await self.repository.filter_records_async(
-            city_name=filters.get("city_name"),
-            county_name=filters.get("county_name"),
-            town_name=filters.get("town_name"),
-            device_sn=filters.get("device_sn"),
+            city=filters.get("city"),
+            county=filters.get("county"),
+            sn=filters.get("sn"),
             start_time=time_range.get("start_time"),
             end_time=time_range.get("end_time"),
             limit=query_plan.get("limit_size"),
@@ -191,10 +187,9 @@ class SoilQueryService:
         filters = dict(query_plan.get("filters") or {})
         time_range = dict(query_plan.get("time_range") or {})
         executed_sql_text = self.repository.build_filter_records_audit_sql(
-            city_name=filters.get("city_name"),
-            county_name=filters.get("county_name"),
-            town_name=filters.get("town_name"),
-            device_sn=filters.get("device_sn"),
+            city=filters.get("city"),
+            county=filters.get("county"),
+            sn=filters.get("sn"),
             start_time=time_range.get("start_time"),
             end_time=time_range.get("end_time"),
             limit=1 if scenario == "latest_business_time" else None,
@@ -202,33 +197,31 @@ class SoilQueryService:
         if scenario == "region_exists":
             return {
                 "region_record_count": await self.repository.region_record_count_async(
-                    city_name=filters.get("city_name"),
-                    county_name=filters.get("county_name"),
-                    town_name=filters.get("town_name"),
+                    city=filters.get("city"),
+                    county=filters.get("county"),
                 ),
-                "latest_sample_time": await self.repository.latest_business_time_async(),
+                "latest_create_time": await self.repository.latest_business_time_async(),
                 "executed_sql_text": executed_sql_text,
             }
         if scenario == "device_exists":
             return {
                 "device_record_count": await self.repository.device_record_count_async(
-                    filters.get("device_sn") or "",
+                    filters.get("sn") or "",
                 ),
-                "latest_sample_time": await self.repository.latest_business_time_async(),
+                "latest_create_time": await self.repository.latest_business_time_async(),
                 "executed_sql_text": executed_sql_text,
             }
         if scenario in {"period_exists", "latest_business_time"}:
             result = await self.repository.period_record_summary_async(
-                city_name=filters.get("city_name"),
-                county_name=filters.get("county_name"),
-                town_name=filters.get("town_name"),
-                device_sn=filters.get("device_sn"),
+                city=filters.get("city"),
+                county=filters.get("county"),
+                sn=filters.get("sn"),
                 start_time=time_range.get("start_time"),
                 end_time=time_range.get("end_time"),
             )
             return {**result, "executed_sql_text": executed_sql_text}
         return {
-            "latest_sample_time": await self.repository.latest_business_time_async(),
+            "latest_create_time": await self.repository.latest_business_time_async(),
             "executed_sql_text": executed_sql_text,
         }
 

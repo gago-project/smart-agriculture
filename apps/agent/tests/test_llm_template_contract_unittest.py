@@ -104,7 +104,7 @@ class LlmTemplateContractTest(unittest.TestCase):
             result = await service.parse("SNS00204333 最近有没有异常", "session-1")
             self.assertEqual(result.intent, "soil_device_query")
             self.assertEqual(result.answer_type, "soil_detail_answer")
-            self.assertEqual(result.slots["device_sn"], "SNS00204333")
+            self.assertEqual(result.slots["sn"], "SNS00204333")
 
         asyncio.run(run_case())
 
@@ -127,8 +127,8 @@ class LlmTemplateContractTest(unittest.TestCase):
             result = await service.generate(
                 intent="soil_recent_summary",
                 answer_type="soil_summary_answer",
-                query_result={"records": [{"sample_time": "2026-04-21 09:00:00", "water20cm": 66, "soil_status": "not_triggered"}]},
-                rule_result={"evaluated_records": [{"sample_time": "2026-04-21 09:00:00", "water20cm": 66, "soil_status": "not_triggered"}]},
+                query_result={"records": [{"create_time": "2026-04-21 09:00:00", "water20cm": 66, "soil_status": "not_triggered"}]},
+                rule_result={"evaluated_records": [{"create_time": "2026-04-21 09:00:00", "water20cm": 66, "soil_status": "not_triggered"}]},
                 template_result={},
                 advice_result={},
                 slots={},
@@ -147,7 +147,7 @@ class LlmTemplateContractTest(unittest.TestCase):
                 fallback_answer="fallback",
                 facts={
                     "query_result": QueryResultBundle(
-                        records=[{"device_sn": "SNS00204333", "water20cm": Decimal("66.10")}]
+                        records=[{"sn": "SNS00204333", "water20cm": Decimal("66.10")}]
                     )
                 },
             )
@@ -155,7 +155,7 @@ class LlmTemplateContractTest(unittest.TestCase):
             self.assertEqual(answer, "captured-qwen-answer")
             self.assertIsNotNone(client.last_messages)
             payload = json.loads(client.last_messages[1]["content"])
-            self.assertEqual(payload["facts"]["query_result"]["records"][0]["device_sn"], "SNS00204333")
+            self.assertEqual(payload["facts"]["query_result"]["records"][0]["sn"], "SNS00204333")
             self.assertEqual(payload["facts"]["query_result"]["records"][0]["water20cm"], 66.1)
 
         asyncio.run(run_case())
@@ -165,8 +165,8 @@ class LlmTemplateContractTest(unittest.TestCase):
         service = TemplateService(repository=FakeRegionRepository())
         result = service.render(
             answer_type="soil_warning_answer",
-            query_result={"records": [{"sample_time": "2026-04-21 09:00:00", "city_name": "南京市", "county_name": "玄武区", "device_sn": "SNS00204333", "water20cm": 44, "display_label": "重旱"}]},
-            rule_result={"evaluated_records": [{"sample_time": "2026-04-21 09:00:00", "city_name": "南京市", "county_name": "玄武区", "device_sn": "SNS00204333", "water20cm": 44, "display_label": "重旱", "soil_status": "heavy_drought"}], "route_action": "template_only"},
+            query_result={"records": [{"create_time": "2026-04-21 09:00:00", "city": "南京市", "county": "玄武区", "sn": "SNS00204333", "water20cm": 44, "display_label": "重旱"}]},
+            rule_result={"evaluated_records": [{"create_time": "2026-04-21 09:00:00", "city": "南京市", "county": "玄武区", "sn": "SNS00204333", "water20cm": 44, "display_label": "重旱", "soil_status": "heavy_drought"}], "route_action": "template_only"},
             slots={"render_mode": "strict"},
         )
         self.assertIn("SNS00204333", result["rendered_text"])

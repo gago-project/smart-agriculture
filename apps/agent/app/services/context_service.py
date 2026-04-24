@@ -46,7 +46,7 @@ class ContextService:
             )
             entity_context = dict(boundary_context.get("entity_context") or {})
             query_frame = dict(boundary_context.get("query_frame") or {})
-            for key in ("city_name", "county_name", "town_name", "device_sn"):
+            for key in ("city", "county", "sn"):
                 value = entity_context.get(key)
                 if value and not merged.get(key):
                     merged[key] = value
@@ -94,14 +94,14 @@ class ContextService:
         if inherit_region:
             # Only identity-like fields are inherited.  Numeric facts and prior
             # answers are intentionally excluded from the stored context shape.
-            for key in ("city_name", "county_name", "town_name"):
+            for key in ("city", "county"):
                 value = region.get(key)
                 if value and not merged.get(key):
                     merged[key] = value
                     context_used[key] = value
-            if entity_reference.get("device_sn") and not merged.get("device_sn"):
-                merged["device_sn"] = entity_reference["device_sn"]
-                context_used["device_sn"] = entity_reference["device_sn"]
+            if entity_reference.get("sn") and not merged.get("sn"):
+                merged["sn"] = entity_reference["sn"]
+                context_used["sn"] = entity_reference["sn"]
 
         if raw_slots.get("follow_up") and latest_context.get("time_window") and not merged.get("time_range"):
             merged["time_range"] = latest_context["time_window"]
@@ -116,14 +116,14 @@ class ContextService:
     def should_force_device_detail(self, *, raw_slots: dict[str, Any], merged_slots: dict[str, Any], context_used: dict[str, Any]) -> bool:
         """Promote metric follow-ups on a device into device detail answers."""
         del context_used
-        return bool(raw_slots.get("follow_up") and raw_slots.get("metric") and merged_slots.get("device_sn"))
+        return bool(raw_slots.get("follow_up") and raw_slots.get("metric") and merged_slots.get("sn"))
 
     def _latest_concrete_context(self, recent_context: list[dict[str, Any]]) -> dict[str, Any]:
         """Find the newest context with a concrete region or device reference."""
         for item in reversed(recent_context):
             region = item.get("region") or {}
             entity_reference = item.get("entity_reference") or {}
-            if entity_reference.get("device_sn") or any(region.get(key) for key in ("city_name", "county_name", "town_name")):
+            if entity_reference.get("sn") or any(region.get(key) for key in ("city", "county")):
                 return item
         return {}
 
@@ -142,10 +142,9 @@ class ContextService:
         return {
             "domain": "soil_moisture",
             "entity_context": {
-                "city_name": merged_slots.get("city_name"),
-                "county_name": merged_slots.get("county_name"),
-                "town_name": merged_slots.get("town_name"),
-                "device_sn": merged_slots.get("device_sn"),
+                "city": merged_slots.get("city"),
+                "county": merged_slots.get("county"),
+                "sn": merged_slots.get("sn"),
             },
             "query_frame": {
                 "query_family": family,
@@ -165,16 +164,14 @@ class ContextService:
             },
             "base_query_family": base_family,
             "region": {
-                "city_name": merged_slots.get("city_name"),
-                "county_name": merged_slots.get("county_name"),
-                "town_name": merged_slots.get("town_name"),
+                "city": merged_slots.get("city"),
+                "county": merged_slots.get("county"),
             },
             "time_window": merged_slots.get("time_range"),
             "entity_reference": {
-                "device_sn": merged_slots.get("device_sn"),
-                "county_name": merged_slots.get("county_name"),
-                "city_name": merged_slots.get("city_name"),
-                "town_name": merged_slots.get("town_name"),
+                "sn": merged_slots.get("sn"),
+                "county": merged_slots.get("county"),
+                "city": merged_slots.get("city"),
             },
             "last_intent": intent,
         }

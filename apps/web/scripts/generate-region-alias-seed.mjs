@@ -4,10 +4,10 @@ import { buildRegionAliasRows, buildRegionAliasSeedSql } from '../lib/server/reg
 // Generate the static `region_alias` seed block, including `alias_source`, from current local MySQL facts.
 async function loadFactRegionRecords() {
   return await withMysqlConnection(async (connection) => {
-    const [rows] = await connection.execute(
-      `SELECT DISTINCT city_name, county_name, town_name
+  const [rows] = await connection.execute(
+      `SELECT DISTINCT city, county
        FROM fact_soil_moisture
-       WHERE city_name IS NOT NULL OR county_name IS NOT NULL OR town_name IS NOT NULL`,
+       WHERE city IS NOT NULL OR county IS NOT NULL`,
     );
     return rows;
   });

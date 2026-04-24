@@ -1,10 +1,4 @@
-"""MySQL-backed repository for soil-moisture facts.
-
-This repository is the data authority for the Python Agent.  It intentionally
-does not contain seed-data fallback behavior: missing credentials, connection
-failures, and SQL errors are surfaced as explicit exceptions so API callers see
-real operational failures instead of fabricated agriculture facts.
-"""
+"""MySQL-backed repository for soil-moisture facts."""
 
 from __future__ import annotations
 
@@ -12,26 +6,21 @@ from __future__ import annotations
 import asyncio
 import os
 from dataclasses import dataclass
-from datetime import datetime
 from typing import Any
 from urllib.parse import quote_plus
 
 from app.db.mysql import MySQLDatabase
 
 
-DEFAULT_WARNING_TEMPLATE_TEXT = "{year} 年 {month} 月 {day} 日 {hour} 时 {city_name} {county_name} SN 编号 {device_sn} 土壤墒情仪监测到相对含水量 {water20cm}%，预警等级 {warning_level}，请大田/设施大棚/林果相关主体关注！"
+DEFAULT_WARNING_TEMPLATE_TEXT = "{year} 年 {month} 月 {day} 日 {hour} 时 {city} {county} SN 编号 {sn} 土壤墒情仪监测到相对含水量 {water20cm}%，预警等级 {warning_level}，请大田/设施大棚/林果相关主体关注！"
 
 
 class DatabaseUnavailableError(RuntimeError):
     """Raised when MySQL cannot be configured or connected."""
 
-    pass
-
 
 class DatabaseQueryError(RuntimeError):
     """Raised when a configured MySQL query fails."""
-
-    pass
 
 
 def _safe_float(value: Any) -> float | None:
@@ -53,27 +42,27 @@ def _evaluate_record_status(record: dict[str, Any]) -> dict[str, Any]:
             "soil_status": "device_fault",
             "warning_level": "device_fault",
             "display_label": "设备故障",
-            "soil_anomaly_score": 100.0,
+            "risk_score": 100.0,
         }
     if water20 < 50:
         return {
             "soil_status": "heavy_drought",
             "warning_level": "heavy_drought",
             "display_label": "重旱",
-            "soil_anomaly_score": round(90 + (50 - water20), 2),
+            "risk_score": round(90 + (50 - water20), 2),
         }
     if water20 >= 150:
         return {
             "soil_status": "waterlogging",
             "warning_level": "waterlogging",
             "display_label": "涝渍",
-            "soil_anomaly_score": round(80 + (water20 - 150), 2),
+            "risk_score": round(80 + (water20 - 150), 2),
         }
     return {
         "soil_status": "not_triggered",
         "warning_level": "none",
         "display_label": "未达到预警条件",
-        "soil_anomaly_score": round(max(0.0, 70 - abs(water20 - 85) / 2), 2),
+        "risk_score": round(max(0.0, 70 - abs(water20 - 85) / 2), 2),
     }
 
 
@@ -117,6 +106,7 @@ class SoilRepository:
             raise DatabaseUnavailableError("MySQL 配置不完整，已禁止使用种子数据兜底。")
         try:
             import pymysql
+
             return pymysql.connect(
                 host=self.mysql_host,
                 port=self.mysql_port or 3306,
@@ -136,11 +126,13 @@ class SoilRepository:
     def _soil_select_columns_sql() -> str:
         """Return the shared SELECT column list for soil-record queries."""
         return """
-        SELECT batch_id, device_sn, device_name, city_name, county_name, town_name,
-               DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s') AS sample_time,
+        SELECT id, sn, gatewayid, sensorid, unitid, city, county,
+               DATE_FORMAT(time, '%Y-%m-%d %H:%i:%s') AS time,
                DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
                water20cm, water40cm, water60cm, water80cm, t20cm, t40cm, t60cm, t80cm,
-               soil_anomaly_type, soil_anomaly_score, source_file, source_sheet, source_row
+               water20cmfieldstate, water40cmfieldstate, water60cmfieldstate, water80cmfieldstate,
+               t20cmfieldstate, t40cmfieldstate, t60cmfieldstate, t80cmfieldstate,
+               lat, lon, source_file, source_sheet, source_row
         FROM fact_soil_moisture
         """.strip()
 
@@ -159,33 +151,27 @@ class SoilRepository:
     @staticmethod
     def _filter_specs(
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> list[tuple[str, str, str, Any]]:
         """Return the optional filter specifications used by record queries."""
         return [
-            ("city_name", "=", "city_name", city_name),
-            ("county_name", "=", "county_name", county_name),
-            ("town_name", "=", "town_name", town_name),
-            ("device_sn", "=", "device_sn", device_sn),
-            ("batch_id", "=", "batch_id", batch_id),
-            ("sample_time", ">=", "start_time", start_time),
-            ("sample_time", "<=", "end_time", end_time),
+            ("city", "=", "city", city),
+            ("county", "=", "county", county),
+            ("sn", "=", "sn", sn),
+            ("create_time", ">=", "start_time", start_time),
+            ("create_time", "<=", "end_time", end_time),
         ]
 
     def _build_filter_records_query_pyformat(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
@@ -194,11 +180,9 @@ class SoilRepository:
         clauses: list[str] = []
         params: list[Any] = []
         for column_name, operator, _param_name, value in self._filter_specs(
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
         ):
@@ -212,7 +196,7 @@ class SoilRepository:
         sql = f"""
         {select_sql}
         {where_sql}
-        ORDER BY sample_time DESC
+        ORDER BY create_time DESC
         {limit_sql}
         """
         return sql, tuple(params)
@@ -220,11 +204,9 @@ class SoilRepository:
     def _build_filter_records_query_named(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
@@ -233,11 +215,9 @@ class SoilRepository:
         clauses: list[str] = []
         params: dict[str, Any] = {}
         for column_name, operator, param_name, value in self._filter_specs(
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
         ):
@@ -250,7 +230,7 @@ class SoilRepository:
         sql = f"""
         {self._soil_select_columns_sql()}
         {where_sql}
-        ORDER BY sample_time DESC
+        ORDER BY create_time DESC
         {limit_sql}
         """
         return sql, params
@@ -258,11 +238,9 @@ class SoilRepository:
     def build_filter_records_audit_sql(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
@@ -270,11 +248,9 @@ class SoilRepository:
         """Render the filtered record SQL with normalized literals for audit logs."""
         clauses: list[str] = []
         for column_name, operator, _param_name, value in self._filter_specs(
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
         ):
@@ -286,7 +262,7 @@ class SoilRepository:
         return (
             f"{self._soil_select_columns_sql()}\n"
             f"{where_sql}\n"
-            "ORDER BY sample_time DESC\n"
+            "ORDER BY create_time DESC\n"
             f"{limit_sql}"
         ).strip()
 
@@ -301,35 +277,28 @@ class SoilRepository:
     def filter_records(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
-        """Filter soil facts with optional region/device/batch/time predicates."""
+        """Filter soil facts with optional region/device/time predicates."""
         connection = self._connect()
         try:
             sql, params = self._build_filter_records_query_pyformat(
-                city_name=city_name,
-                county_name=county_name,
-                town_name=town_name,
-                device_sn=device_sn,
-                batch_id=batch_id,
+                city=city,
+                county=county,
+                sn=sn,
                 start_time=start_time,
                 end_time=end_time,
                 limit=limit,
             )
             with connection.cursor() as cursor:
-                # The SQL is built from a fixed column list and fixed optional
-                # predicates.  User values always enter through parameters.
                 cursor.execute(sql, params)
                 rows = cursor.fetchall()
-                enriched = [{**row, **_evaluate_record_status(row)} for row in rows]
-                return enriched
+                return [{**row, **_evaluate_record_status(row)} for row in rows]
         except Exception as exc:
             raise DatabaseQueryError(f"MySQL 查询失败，已禁止使用种子数据兜底：{exc}") from exc
         finally:
@@ -338,22 +307,18 @@ class SoilRepository:
     async def filter_records_async(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """Async wrapper that prefers SQLAlchemy async engine and falls back to a thread."""
         async_rows = await self._filter_records_with_async_engine(
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
             limit=limit,
@@ -362,11 +327,9 @@ class SoilRepository:
             return async_rows
         return await asyncio.to_thread(
             self.filter_records,
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
             limit=limit,
@@ -375,11 +338,9 @@ class SoilRepository:
     async def _filter_records_with_async_engine(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
@@ -396,11 +357,9 @@ class SoilRepository:
             except Exception:
                 return None
             sql_text, params = self._build_filter_records_query_named(
-                city_name=city_name,
-                county_name=county_name,
-                town_name=town_name,
-                device_sn=device_sn,
-                batch_id=batch_id,
+                city=city,
+                county=county,
+                sn=sn,
                 start_time=start_time,
                 end_time=end_time,
                 limit=limit,
@@ -415,20 +374,20 @@ class SoilRepository:
         finally:
             await engine.dispose()
 
-    def latest_record_by_device(self, device_sn: str) -> dict[str, Any] | None:
+    def latest_record_by_sn(self, sn: str) -> dict[str, Any] | None:
         """Return the newest record for one device SN."""
-        records = self.filter_records(device_sn=device_sn, limit=1)
+        records = self.filter_records(sn=sn, limit=1)
         return records[0] if records else None
 
     def latest_business_time(self) -> str:
-        """Return latest `sample_time` from facts, not the current wall clock."""
+        """Return latest `create_time` from facts, not the current wall clock."""
         records = self.filter_records(limit=1)
-        return str(records[0].get("sample_time")) if records else "暂无"
+        return str(records[0].get("create_time")) if records else "暂无"
 
     async def latest_business_time_async(self) -> str:
         """Async latest-business-time lookup used by time resolution."""
         records = await self.filter_records_async(limit=1)
-        return str(records[0].get("sample_time")) if records else "暂无"
+        return str(records[0].get("create_time")) if records else "暂无"
 
     def region_alias_rows(self) -> list[dict[str, Any]]:
         """Return enabled region alias mappings for parser normalization."""
@@ -437,7 +396,7 @@ class SoilRepository:
             with connection.cursor() as cursor:
                 cursor.execute(
                     """
-                    SELECT alias_name, canonical_name, region_level, parent_city_name, parent_county_name, alias_source
+                    SELECT alias_name, canonical_name, region_level, parent_city_name, alias_source
                     FROM region_alias
                     WHERE enabled = 1
                     ORDER BY alias_name ASC, canonical_name ASC
@@ -457,15 +416,13 @@ class SoilRepository:
         return await asyncio.to_thread(self.region_alias_rows)
 
     def known_region_names(self) -> set[str]:
-        """Return known city/county/town names observed in the fact table."""
+        """Return known city/county names observed in the fact table."""
         names = set()
         for record in self.filter_records():
-            if record.get("city_name"):
-                names.add(record["city_name"])
-            if record.get("county_name"):
-                names.add(record["county_name"])
-            if record.get("town_name"):
-                names.add(record["town_name"])
+            if record.get("city"):
+                names.add(record["city"])
+            if record.get("county"):
+                names.add(record["county"])
         return names
 
     async def known_region_names_async(self) -> set[str]:
@@ -473,12 +430,10 @@ class SoilRepository:
         records = await self.filter_records_async()
         names = set()
         for record in records:
-            if record.get("city_name"):
-                names.add(record["city_name"])
-            if record.get("county_name"):
-                names.add(record["county_name"])
-            if record.get("town_name"):
-                names.add(record["town_name"])
+            if record.get("city"):
+                names.add(record["city"])
+            if record.get("county"):
+                names.add(record["county"])
         return names
 
     def region_exists(self, region_name: str) -> bool:
@@ -489,110 +444,84 @@ class SoilRepository:
         """Async region existence check."""
         return region_name in await self.known_region_names_async()
 
-    def device_exists(self, device_sn: str) -> bool:
+    def device_exists(self, sn: str) -> bool:
         """Return whether a device SN appears in known fact records."""
-        return any(record.get("device_sn") == device_sn for record in self.filter_records())
+        return any(record.get("sn") == sn for record in self.filter_records())
 
-    async def device_exists_async(self, device_sn: str) -> bool:
+    async def device_exists_async(self, sn: str) -> bool:
         """Async device existence check."""
-        return any(record.get("device_sn") == device_sn for record in await self.filter_records_async())
+        return any(record.get("sn") == sn for record in await self.filter_records_async())
 
     def region_record_count(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
     ) -> int:
-        """Count records matching one region/batch combination."""
-        return len(
-            self.filter_records(
-                city_name=city_name,
-                county_name=county_name,
-                town_name=town_name,
-                batch_id=batch_id,
-            )
-        )
+        """Count records matching one region combination."""
+        return len(self.filter_records(city=city, county=county))
 
-    def device_record_count(self, device_sn: str, *, batch_id: str | None = None) -> int:
-        """Count records for one device, optionally constrained to a batch."""
-        return len(self.filter_records(device_sn=device_sn, batch_id=batch_id))
+    def device_record_count(self, sn: str) -> int:
+        """Count records for one device SN."""
+        return len(self.filter_records(sn=sn))
 
     async def region_record_count_async(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
     ) -> int:
         """Async region record count used by SQL-07 fallback checks."""
-        return len(
-            await self.filter_records_async(
-                city_name=city_name,
-                county_name=county_name,
-                town_name=town_name,
-                batch_id=batch_id,
-            )
-        )
+        return len(await self.filter_records_async(city=city, county=county))
 
-    async def device_record_count_async(self, device_sn: str, *, batch_id: str | None = None) -> int:
+    async def device_record_count_async(self, sn: str) -> int:
         """Async device record count used by SQL-07 fallback checks."""
-        return len(await self.filter_records_async(device_sn=device_sn, batch_id=batch_id))
+        return len(await self.filter_records_async(sn=sn))
 
     def period_record_summary(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> dict[str, Any]:
-        """Return count and latest sample time for a fallback time-period check."""
+        """Return count and latest create time for a fallback time-period check."""
         records = self.filter_records(
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
         )
-        latest_sample_time = max((str(item.get("sample_time") or "") for item in records), default=None)
+        latest_create_time = max((str(item.get("create_time") or "") for item in records), default=None)
         return {
             "period_record_count": len(records),
-            "latest_sample_time": latest_sample_time or self.latest_business_time(),
+            "latest_create_time": latest_create_time or self.latest_business_time(),
         }
 
     async def period_record_summary_async(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> dict[str, Any]:
         """Async period summary used by fallback existence diagnostics."""
         records = await self.filter_records_async(
-            city_name=city_name,
-            county_name=county_name,
-            town_name=town_name,
-            device_sn=device_sn,
-            batch_id=batch_id,
+            city=city,
+            county=county,
+            sn=sn,
             start_time=start_time,
             end_time=end_time,
         )
-        latest_sample_time = max((str(item.get("sample_time") or "") for item in records), default=None)
+        latest_create_time = max((str(item.get("create_time") or "") for item in records), default=None)
         return {
             "period_record_count": len(records),
-            "latest_sample_time": latest_sample_time or await self.latest_business_time_async(),
+            "latest_create_time": latest_create_time or await self.latest_business_time_async(),
         }
 
     def warning_template_text(self) -> str:

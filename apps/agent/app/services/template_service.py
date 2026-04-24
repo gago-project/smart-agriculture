@@ -9,6 +9,7 @@ from __future__ import annotations
 
 
 from pathlib import Path
+from typing import Any
 
 from jinja2 import Environment, FileSystemLoader
 from app.repositories.soil_repository import SoilRepository
@@ -45,13 +46,13 @@ class TemplateService:
         warning_label = record.get("display_label", "未达到预警条件")
         template = self.template_env.get_template("soil_warning.j2")
         rendered = template.render(
-            year=str(record["sample_time"])[:4],
-            month=str(record["sample_time"])[5:7],
-            day=str(record["sample_time"])[8:10],
-            hour=str(record["sample_time"])[11:13] or "00",
-            city_name=record.get("city_name") or "",
-            county_name=record.get("county_name") or "",
-            device_sn=record.get("device_sn") or "",
+            year=str(record["create_time"])[:4],
+            month=str(record["create_time"])[5:7],
+            day=str(record["create_time"])[8:10],
+            hour=str(record["create_time"])[11:13] or "00",
+            city=record.get("city") or "",
+            county=record.get("county") or "",
+            sn=record.get("sn") or "",
             water20cm=record.get("water20cm") or "暂无",
             warning_level=warning_label,
         )

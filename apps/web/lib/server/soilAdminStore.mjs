@@ -1,12 +1,11 @@
 const defaultRecords = [
   {
-    record_id: 'd2d096f5-fc0c-45d4-a0d5-2064fb527c70',
-    device_sn: 'SNS00204333',
-    city_name: '南通市',
-    county_name: '如东县',
-    town_name: '',
-    device_name: '土壤墒情仪-04333',
-    sample_time: '2026-04-20 00:00:00',
+    id: 'd2d096f5-fc0c-45d4-a0d5-2064fb527c70',
+    sn: 'SNS00204333',
+    city: '南通市',
+    county: '如东县',
+    time: '2026-04-20 00:00:00',
+    create_time: '2026-04-20 00:00:00',
     water20cm: 83.18,
     water40cm: null,
     water60cm: null,
@@ -15,20 +14,19 @@ const defaultRecords = [
     t40cm: null,
     t60cm: null,
     t80cm: null,
-    latitude: 32.328056,
-    longitude: 120.974167,
+    lat: 32.328056,
+    lon: 120.974167,
     source_file: '土壤墒情仪数据(2).xlsx',
     source_sheet: 'Sheet1',
     source_row: 2,
   },
   {
-    record_id: 'f8de2c8c-871a-4895-aab4-9501c2b02e94',
-    device_sn: 'SNS00204334',
-    city_name: '南通市',
-    county_name: '如东县',
-    town_name: '',
-    device_name: '土壤墒情仪-04334',
-    sample_time: '2026-04-20 00:00:00',
+    id: 'f8de2c8c-871a-4895-aab4-9501c2b02e94',
+    sn: 'SNS00204334',
+    city: '南通市',
+    county: '如东县',
+    time: '2026-04-20 00:00:00',
+    create_time: '2026-04-20 00:00:00',
     water20cm: 50.4,
     water40cm: null,
     water60cm: null,
@@ -37,20 +35,19 @@ const defaultRecords = [
     t40cm: null,
     t60cm: null,
     t80cm: null,
-    latitude: 32.301111,
-    longitude: 121.117778,
+    lat: 32.301111,
+    lon: 121.117778,
     source_file: '土壤墒情仪数据(2).xlsx',
     source_sheet: 'Sheet1',
     source_row: 3,
   },
   {
-    record_id: '5dca6d11-4cb1-401d-95f7-d3dff825f7b5',
-    device_sn: 'SNS00213807',
-    city_name: '镇江市',
-    county_name: '镇江经开区',
-    town_name: '',
-    device_name: '镇江经开区墒情仪',
-    sample_time: '2026-04-20 00:00:00',
+    id: '5dca6d11-4cb1-401d-95f7-d3dff825f7b5',
+    sn: 'SNS00213807',
+    city: '镇江市',
+    county: '镇江经开区',
+    time: '2026-04-20 00:00:00',
+    create_time: '2026-04-20 00:00:00',
     water20cm: 41.2,
     water40cm: null,
     water60cm: null,
@@ -59,20 +56,19 @@ const defaultRecords = [
     t40cm: null,
     t60cm: null,
     t80cm: null,
-    latitude: 32.1458,
-    longitude: 119.5623,
+    lat: 32.1458,
+    lon: 119.5623,
     source_file: '土壤墒情仪数据(2).xlsx',
     source_sheet: 'Sheet1',
     source_row: 21,
   },
   {
-    record_id: '3998f34d-18d8-4aef-9bd5-88973293427c',
-    device_sn: 'SNS00204418',
-    city_name: '淮安市',
-    county_name: '涟水县',
-    town_name: '',
-    device_name: '土壤墒情仪-04418',
-    sample_time: '2026-04-20 00:00:00',
+    id: '3998f34d-18d8-4aef-9bd5-88973293427c',
+    sn: 'SNS00204418',
+    city: '淮安市',
+    county: '涟水县',
+    time: '2026-04-20 00:00:00',
+    create_time: '2026-04-20 00:00:00',
     water20cm: 43.37,
     water40cm: null,
     water60cm: null,
@@ -81,8 +77,8 @@ const defaultRecords = [
     t40cm: null,
     t60cm: null,
     t80cm: null,
-    latitude: 33.722,
-    longitude: 119.188,
+    lat: 33.722,
+    lon: 119.188,
     source_file: '土壤墒情仪数据(2).xlsx',
     source_sheet: 'Sheet1',
     source_row: 16,
@@ -112,7 +108,7 @@ const defaultTemplates = [
     template_id: 'soil_warning_template_v1',
     template_name: '墒情预警模板V1',
     render_mode: 'strict',
-    template_text: '{{year}} 年 {{month}} 月 {{day}} 日 {{hour}} 时 {{city_name}} {{county_name}} SN 编号 {{device_sn}} 土壤墒情仪监测到相对含水量 {{water20cm}}%，预警等级 {{warning_level}}，请相关主体关注！',
+    template_text: '{{year}} 年 {{month}} 月 {{day}} 日 {{hour}} 时 {{city}} {{county}} SN 编号 {{sn}} 土壤墒情仪监测到相对含水量 {{water20cm}}%，预警等级 {{warning_level}}，请相关主体关注！',
   },
 ];
 
@@ -122,25 +118,17 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-export function classifySoilAnomaly(water20cm) {
-  const numeric = toNumber(water20cm);
-  if (numeric === null) {
-    return { soil_anomaly_type: 'unknown', soil_anomaly_score: 0 };
-  }
-  if (numeric < 50) {
-    return { soil_anomaly_type: 'low', soil_anomaly_score: Number((50 - numeric).toFixed(2)) };
-  }
-  if (numeric >= 150) {
-    return { soil_anomaly_type: 'high', soil_anomaly_score: Number((numeric - 150).toFixed(2)) };
-  }
-  return { soil_anomaly_type: 'normal', soil_anomaly_score: Number(Math.abs(100 - numeric).toFixed(2)) };
-}
-
 export function normalizeRecord(record) {
-  const anomaly = classifySoilAnomaly(record.water20cm);
   return {
-    town_name: '',
-    device_name: record.device_name || '',
+    id: '',
+    sn: '',
+    gatewayid: '',
+    sensorid: '',
+    unitid: '',
+    city: '',
+    county: '',
+    time: '',
+    create_time: '',
     water20cm: null,
     water40cm: null,
     water60cm: null,
@@ -149,13 +137,30 @@ export function normalizeRecord(record) {
     t40cm: null,
     t60cm: null,
     t80cm: null,
-    latitude: null,
-    longitude: null,
+    water20cmfieldstate: '',
+    water40cmfieldstate: '',
+    water60cmfieldstate: '',
+    water80cmfieldstate: '',
+    t20cmfieldstate: '',
+    t40cmfieldstate: '',
+    t60cmfieldstate: '',
+    t80cmfieldstate: '',
+    lat: null,
+    lon: null,
     source_file: '',
     source_sheet: '',
     source_row: null,
     ...record,
-    ...anomaly,
+    water20cm: toNumber(record?.water20cm),
+    water40cm: toNumber(record?.water40cm),
+    water60cm: toNumber(record?.water60cm),
+    water80cm: toNumber(record?.water80cm),
+    t20cm: toNumber(record?.t20cm),
+    t40cm: toNumber(record?.t40cm),
+    t60cm: toNumber(record?.t60cm),
+    t80cm: toNumber(record?.t80cm),
+    lat: toNumber(record?.lat),
+    lon: toNumber(record?.lon),
   };
 }
 
@@ -170,22 +175,20 @@ export function createDefaultAdminState() {
 export function querySoilRecords(records, query) {
   const page = Math.max(1, Number(query.page || 1));
   const pageSize = Math.min(100, Math.max(1, Number(query.page_size || 50)));
-  const cityName = String(query.city_name || '').trim();
-  const countyName = String(query.county_name || '').trim();
-  const deviceSn = String(query.device_sn || '').trim().toUpperCase();
-  const anomalyType = String(query.soil_anomaly_type || '').trim();
-  const from = String(query.sample_time_from || '').trim();
-  const to = String(query.sample_time_to || '').trim();
+  const city = String(query.city || '').trim();
+  const county = String(query.county || '').trim();
+  const sn = String(query.sn || '').trim().toUpperCase();
+  const from = String(query.create_time_from || '').trim();
+  const to = String(query.create_time_to || '').trim();
 
   let filtered = [...records].map(normalizeRecord);
-  if (cityName) filtered = filtered.filter((item) => String(item.city_name || '').includes(cityName));
-  if (countyName) filtered = filtered.filter((item) => String(item.county_name || '').includes(countyName));
-  if (deviceSn) filtered = filtered.filter((item) => String(item.device_sn || '').toUpperCase().includes(deviceSn));
-  if (anomalyType) filtered = filtered.filter((item) => item.soil_anomaly_type === anomalyType);
-  if (from) filtered = filtered.filter((item) => String(item.sample_time || '') >= from);
-  if (to) filtered = filtered.filter((item) => String(item.sample_time || '') <= to);
+  if (city) filtered = filtered.filter((item) => String(item.city || '').includes(city));
+  if (county) filtered = filtered.filter((item) => String(item.county || '').includes(county));
+  if (sn) filtered = filtered.filter((item) => String(item.sn || '').toUpperCase().includes(sn));
+  if (from) filtered = filtered.filter((item) => String(item.create_time || '') >= from);
+  if (to) filtered = filtered.filter((item) => String(item.create_time || '') <= to);
 
-  filtered.sort((left, right) => String(right.sample_time || '').localeCompare(String(left.sample_time || '')));
+  filtered.sort((left, right) => String(right.create_time || '').localeCompare(String(left.create_time || '')));
 
   const total = filtered.length;
   const totalPages = total === 0 ? 0 : Math.ceil(total / pageSize);
@@ -201,13 +204,13 @@ export function querySoilRecords(records, query) {
 
 export function updateSoilRecordField(records, recordId, field, value) {
   const nextRecords = records.map((item) => {
-    if (item.record_id !== recordId) return normalizeRecord(item);
+    if (item.id !== recordId) return normalizeRecord(item);
     return normalizeRecord({
       ...item,
       [field]: value,
     });
   });
-  const record = nextRecords.find((item) => item.record_id === recordId);
+  const record = nextRecords.find((item) => item.id === recordId);
   if (!record) {
     throw new Error('没有找到要修改的墒情记录');
   }
@@ -216,7 +219,7 @@ export function updateSoilRecordField(records, recordId, field, value) {
 
 export function deleteSoilRecords(records, recordIds) {
   const idSet = new Set(recordIds);
-  const nextRecords = records.filter((item) => !idSet.has(item.record_id)).map(normalizeRecord);
+  const nextRecords = records.filter((item) => !idSet.has(item.id)).map(normalizeRecord);
   return {
     records: nextRecords,
     deleted_count: records.length - nextRecords.length,
@@ -227,12 +230,11 @@ export function mergeImportedRecords(existingRecords, importedRecords, mode) {
   if (mode === 'replace') {
     return importedRecords.map(normalizeRecord);
   }
-  const seenKeys = new Set(existingRecords.map((item) => `${item.record_id}:${item.device_sn}:${item.sample_time}`));
+  const seenIds = new Set(existingRecords.map((item) => item.id));
   const appended = [...existingRecords];
   for (const item of importedRecords.map(normalizeRecord)) {
-    const key = `${item.record_id}:${item.device_sn}:${item.sample_time}`;
-    if (!seenKeys.has(key)) {
-      seenKeys.add(key);
+    if (!seenIds.has(item.id)) {
+      seenIds.add(item.id);
       appended.push(item);
     }
   }

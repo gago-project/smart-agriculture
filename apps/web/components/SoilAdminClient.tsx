@@ -19,19 +19,31 @@ import {
 const PAGE_SIZE = 20;
 
 const EDITABLE_FIELDS = [
-  'city_name',
-  'county_name',
-  'town_name',
-  'device_name',
-  'longitude',
-  'latitude',
+  'gatewayid',
+  'sensorid',
+  'unitid',
+  'city',
+  'county',
+  'time',
+  'create_time',
   'water20cm',
   'water40cm',
   'water60cm',
   'water80cm',
   't20cm',
-  'soil_anomaly_type',
-  'soil_anomaly_score',
+  't40cm',
+  't60cm',
+  't80cm',
+  'water20cmfieldstate',
+  'water40cmfieldstate',
+  'water60cmfieldstate',
+  'water80cmfieldstate',
+  't20cmfieldstate',
+  't40cmfieldstate',
+  't60cmfieldstate',
+  't80cmfieldstate',
+  'lat',
+  'lon',
 ] as const;
 
 const EMPTY_PAGE: SoilRecordPage = { rows: [], total: 0, page: 1, page_size: PAGE_SIZE, total_pages: 0 };
@@ -47,12 +59,11 @@ function valueOf(record: SoilRecord, field: string) {
 
 export function SoilAdminClient() {
   const [filters, setFilters] = useState({
-    city_name: '',
-    county_name: '',
-    device_sn: '',
-    soil_anomaly_type: '',
-    sample_time_from: '',
-    sample_time_to: '',
+    city: '',
+    county: '',
+    sn: '',
+    create_time_from: '',
+    create_time_to: '',
   });
   const [page, setPage] = useState(1);
   const [data, setData] = useState<SoilRecordPage>(EMPTY_PAGE);
@@ -133,19 +144,19 @@ export function SoilAdminClient() {
   }
 
   async function handleEdit(record: SoilRecord) {
-    const field = editFields[record.record_id] || 'city_name';
-    const nextValue = editValues[record.record_id] ?? valueOf(record, field);
-    const confirmed = window.confirm(`确认修改 ${record.record_id} 的 ${field}：${valueOf(record, field)} -> ${nextValue}？`);
+    const field = editFields[record.id] || 'city';
+    const nextValue = editValues[record.id] ?? valueOf(record, field);
+    const confirmed = window.confirm(`确认修改 ${record.id} 的 ${field}：${valueOf(record, field)} -> ${nextValue}？`);
     if (!confirmed) return;
-    const result = await updateSoilRecordField(record.record_id, field, nextValue);
-    setMessage(`已修改 ${result.record_id} 的 ${field}`);
+    const result = await updateSoilRecordField(record.id, field, nextValue);
+    setMessage(`已修改 ${result.id} 的 ${field}`);
     await refreshCurrentPage();
   }
 
   async function handleDelete(record: SoilRecord) {
-    const confirmed = window.confirm(`确认删除记录 ${record.record_id}？设备：${record.device_sn}，时间：${record.sample_time}`);
+    const confirmed = window.confirm(`确认删除记录 ${record.id}？设备：${record.sn}，时间：${record.create_time}`);
     if (!confirmed) return;
-    const result = await deleteSoilRecord(record.record_id);
+    const result = await deleteSoilRecord(record.id);
     setMessage(`已删除 ${result.deleted_count} 条记录`);
     await refreshCurrentPage();
   }
@@ -220,18 +231,11 @@ export function SoilAdminClient() {
               <button className="button secondary" type="button" onClick={() => void handleBulkDelete()} disabled={selectedIds.length === 0}>删除选中</button>
             </div>
             <div className="admin-filters">
-              <input className="input" value={filters.city_name} onChange={(event) => updateFilter('city_name', event.target.value)} placeholder="城市" />
-              <input className="input" value={filters.county_name} onChange={(event) => updateFilter('county_name', event.target.value)} placeholder="区县" />
-              <input className="input" value={filters.device_sn} onChange={(event) => updateFilter('device_sn', event.target.value)} placeholder="设备 SN" />
-              <select className="input" value={filters.soil_anomaly_type} onChange={(event) => updateFilter('soil_anomaly_type', event.target.value)}>
-                <option value="">全部异常类型</option>
-                <option value="low">低墒</option>
-                <option value="high">高墒</option>
-                <option value="normal">正常</option>
-                <option value="unknown">未知</option>
-              </select>
-              <input className="input" value={filters.sample_time_from} onChange={(event) => updateFilter('sample_time_from', event.target.value)} placeholder="开始时间" />
-              <input className="input" value={filters.sample_time_to} onChange={(event) => updateFilter('sample_time_to', event.target.value)} placeholder="结束时间" />
+              <input className="input" value={filters.city} onChange={(event) => updateFilter('city', event.target.value)} placeholder="城市" />
+              <input className="input" value={filters.county} onChange={(event) => updateFilter('county', event.target.value)} placeholder="区县" />
+              <input className="input" value={filters.sn} onChange={(event) => updateFilter('sn', event.target.value)} placeholder="设备 SN" />
+              <input className="input" value={filters.create_time_from} onChange={(event) => updateFilter('create_time_from', event.target.value)} placeholder="开始时间" />
+              <input className="input" value={filters.create_time_to} onChange={(event) => updateFilter('create_time_to', event.target.value)} placeholder="结束时间" />
               <button className="button" type="button" onClick={() => void loadRecords(1)} disabled={isLoading}>查询</button>
             </div>
             <div className="admin-pagination">
@@ -246,11 +250,11 @@ export function SoilAdminClient() {
                 <thead>
                   <tr>
                     <th>选中</th>
+                    <th>ID</th>
                     <th>设备</th>
                     <th>地区</th>
-                    <th>采样时间</th>
+                    <th>查询时间</th>
                     <th>20cm</th>
-                    <th>异常</th>
                     <th>来源</th>
                     <th>字段修改</th>
                     <th>操作</th>
@@ -258,33 +262,33 @@ export function SoilAdminClient() {
                 </thead>
                 <tbody>
                   {data.rows.map((record) => {
-                    const field = editFields[record.record_id] || 'city_name';
-                    const nextValue = editValues[record.record_id] ?? valueOf(record, field);
+                    const field = editFields[record.id] || 'city';
+                    const nextValue = editValues[record.id] ?? valueOf(record, field);
                     return (
-                      <tr key={record.record_id}>
+                      <tr key={record.id}>
                         <td>
                           <input
                             type="checkbox"
-                            checked={selectedSet.has(record.record_id)}
-                            onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, record.record_id] : current.filter((item) => item !== record.record_id))}
+                            checked={selectedSet.has(record.id)}
+                            onChange={(event) => setSelectedIds((current) => event.target.checked ? [...current, record.id] : current.filter((item) => item !== record.id))}
                           />
                         </td>
-                        <td>{record.device_sn}</td>
-                        <td>{[record.city_name, record.county_name, record.town_name].filter(Boolean).join(' / ')}</td>
-                        <td>{record.sample_time}</td>
+                        <td>{record.id}</td>
+                        <td>{record.sn}</td>
+                        <td>{[record.city, record.county].filter(Boolean).join(' / ')}</td>
+                        <td>{record.create_time}</td>
                         <td>{record.water20cm ?? '-'}</td>
-                        <td>{record.soil_anomaly_type} / {record.soil_anomaly_score}</td>
                         <td>{record.source_file || '-'}</td>
                         <td>
                           <div className="edit-inline">
                             <select className="input" value={field} onChange={(event) => {
                               const nextField = event.target.value;
-                              setEditFields((current) => ({ ...current, [record.record_id]: nextField }));
-                              setEditValues((current) => ({ ...current, [record.record_id]: valueOf(record, nextField) }));
+                              setEditFields((current) => ({ ...current, [record.id]: nextField }));
+                              setEditValues((current) => ({ ...current, [record.id]: valueOf(record, nextField) }));
                             }}>
                               {EDITABLE_FIELDS.map((item) => <option key={item} value={item}>{item}</option>)}
                             </select>
-                            <input className="input" value={nextValue} onChange={(event) => setEditValues((current) => ({ ...current, [record.record_id]: event.target.value }))} />
+                            <input className="input" value={nextValue} onChange={(event) => setEditValues((current) => ({ ...current, [record.id]: event.target.value }))} />
                             <button className="button secondary" type="button" onClick={() => void handleEdit(record)}>修改</button>
                           </div>
                         </td>

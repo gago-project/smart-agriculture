@@ -22,7 +22,7 @@ class AdviceService:
         audience = slots.get("audience", "general")
         facts = ""
         if record:
-            facts = f"当前最新记录为 {record.get('sample_time')}，20cm 相对含水量 {record.get('water20cm')}%，规则判断为 {record.get('display_label')}。"
+            facts = f"当前最新记录为 {record.get('create_time')}，20cm 相对含水量 {record.get('water20cm')}%，规则判断为 {record.get('display_label')}。"
         if audience == "greenhouse":
             advice = "建议优先检查棚内通风与排灌条件，避免长时间积水或局部失墒。"
         else:

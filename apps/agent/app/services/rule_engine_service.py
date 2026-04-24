@@ -37,27 +37,27 @@ def evaluate_record_status(record: dict[str, Any], *, thresholds: dict[str, floa
             "soil_status": "device_fault",
             "warning_level": "device_fault",
             "display_label": "设备故障",
-            "soil_anomaly_score": 100.0,
+            "risk_score": 100.0,
         }
     if water20 < thresholds["heavy_drought_max"]:
         return {
             "soil_status": "heavy_drought",
             "warning_level": "heavy_drought",
             "display_label": "重旱",
-            "soil_anomaly_score": round(90 + (thresholds["heavy_drought_max"] - water20), 2),
+            "risk_score": round(90 + (thresholds["heavy_drought_max"] - water20), 2),
         }
     if water20 >= thresholds["waterlogging_min"]:
         return {
             "soil_status": "waterlogging",
             "warning_level": "waterlogging",
             "display_label": "涝渍",
-            "soil_anomaly_score": round(80 + (water20 - thresholds["waterlogging_min"]), 2),
+            "risk_score": round(80 + (water20 - thresholds["waterlogging_min"]), 2),
         }
     return {
         "soil_status": "not_triggered",
         "warning_level": "none",
         "display_label": "未达到预警条件",
-        "soil_anomaly_score": round(max(0.0, 70 - abs(water20 - 85) / 2), 2),
+        "risk_score": round(max(0.0, 70 - abs(water20 - 85) / 2), 2),
     }
 
 

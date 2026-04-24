@@ -4,7 +4,40 @@ import * as XLSX from 'xlsx';
 
 import { parseSoilWorkbookBuffer } from '../lib/server/soilImport.mjs';
 
-test('parseSoilWorkbookBuffer maps the real soil excel headers into admin records', () => {
+const EXPECTED_RECORD_KEYS = [
+  'id',
+  'sn',
+  'gatewayid',
+  'sensorid',
+  'unitid',
+  'city',
+  'county',
+  'time',
+  'create_time',
+  'water20cm',
+  'water40cm',
+  'water60cm',
+  'water80cm',
+  't20cm',
+  't40cm',
+  't60cm',
+  't80cm',
+  'water20cmfieldstate',
+  'water40cmfieldstate',
+  'water60cmfieldstate',
+  'water80cmfieldstate',
+  't20cmfieldstate',
+  't40cmfieldstate',
+  't60cmfieldstate',
+  't80cmfieldstate',
+  'lat',
+  'lon',
+  'source_file',
+  'source_sheet',
+  'source_row',
+].sort();
+
+test('parseSoilWorkbookBuffer keeps raw excel field contract', () => {
   const rows = [
     {
       id: 'record-1',
@@ -22,8 +55,8 @@ test('parseSoilWorkbookBuffer maps the real soil excel headers into admin record
       lon: 118.88,
       city: '南京市',
       county: '江宁区',
-      create_time: '2026-04-21 00:00:00'
-    }
+      create_time: '2026-04-21 00:00:00',
+    },
   ];
   const workbook = XLSX.utils.book_new();
   const worksheet = XLSX.utils.json_to_sheet(rows);
@@ -34,9 +67,16 @@ test('parseSoilWorkbookBuffer maps the real soil excel headers into admin record
 
   assert.equal(parsed.raw_rows, 1);
   assert.equal(parsed.records.length, 1);
-  assert.equal(parsed.records[0].device_sn, 'SNS90000001');
-  assert.equal(parsed.records[0].city_name, '南京市');
-  assert.equal(parsed.records[0].soil_anomaly_type, 'low');
+  assert.equal(parsed.records[0].id, 'record-1');
+  assert.equal(parsed.records[0].sn, 'SNS90000001');
+  assert.equal(parsed.records[0].city, '南京市');
+  assert.equal(parsed.records[0].county, '江宁区');
+  assert.equal(parsed.records[0].time, '2026-04-21 00:00:00');
+  assert.equal(parsed.records[0].create_time, '2026-04-21 00:00:00');
+  assert.equal(parsed.records[0].source_file, 'soil.xlsx');
+  assert.equal(parsed.records[0].source_sheet, 'soil');
+  assert.equal(parsed.records[0].source_row, 2);
+  assert.deepEqual(Object.keys(parsed.records[0]).sort(), EXPECTED_RECORD_KEYS);
 });
 
 test('parseSoilWorkbookBuffer converts excel serial datetime and keeps source ids', () => {
@@ -63,10 +103,10 @@ test('parseSoilWorkbookBuffer converts excel serial datetime and keeps source id
   const parsed = parseSoilWorkbookBuffer(buffer, 'soil.xlsx');
 
   assert.equal(parsed.records.length, 1);
-  assert.equal(parsed.records[0].record_id, 'record-serial-1');
-  assert.equal(parsed.records[0].gateway_id, 'GW-1');
-  assert.equal(parsed.records[0].sensor_id, 'SE-1');
-  assert.equal(parsed.records[0].unit_id, 'UNIT-1');
-  assert.equal(parsed.records[0].sample_time, '2025-06-01 00:00:00');
+  assert.equal(parsed.records[0].id, 'record-serial-1');
+  assert.equal(parsed.records[0].gatewayid, 'GW-1');
+  assert.equal(parsed.records[0].sensorid, 'SE-1');
+  assert.equal(parsed.records[0].unitid, 'UNIT-1');
+  assert.equal(parsed.records[0].time, '2025-06-01 00:00:00');
   assert.equal(parsed.records[0].create_time, '2025-06-01 00:00:00');
 });

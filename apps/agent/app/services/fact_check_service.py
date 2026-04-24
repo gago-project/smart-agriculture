@@ -34,7 +34,7 @@ class FactCheckService:
             }
         if answer_type == "soil_warning_answer" and template_result.get("render_mode") == "strict":
             records = rule_result.get("evaluated_records") or query_result.get("records") or []
-            if records and records[0].get("device_sn") not in final_answer:
+            if records and records[0].get("sn") not in final_answer:
                 return {
                     "failed": False,
                     "need_retry": True,

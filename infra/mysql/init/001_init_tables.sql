@@ -1,18 +1,6 @@
 CREATE DATABASE IF NOT EXISTS smart_agriculture CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 USE smart_agriculture;
 
-CREATE TABLE IF NOT EXISTS etl_import_batch (
-  batch_id CHAR(36) PRIMARY KEY,
-  source_name VARCHAR(64) NOT NULL,
-  source_file VARCHAR(255) NOT NULL,
-  started_at DATETIME NOT NULL,
-  finished_at DATETIME NULL,
-  status VARCHAR(32) NOT NULL,
-  raw_row_count INT NOT NULL DEFAULT 0,
-  loaded_row_count INT NOT NULL DEFAULT 0,
-  note TEXT NULL
-);
-
 CREATE TABLE IF NOT EXISTS soil_import_job (
   job_id CHAR(36) PRIMARY KEY,
   filename VARCHAR(255) NOT NULL,
@@ -33,7 +21,7 @@ CREATE TABLE IF NOT EXISTS soil_import_job_diff (
   diff_id BIGINT PRIMARY KEY AUTO_INCREMENT,
   job_id CHAR(36) NOT NULL,
   diff_type VARCHAR(16) NOT NULL,
-  record_id VARCHAR(64) NULL,
+  id VARCHAR(64) NULL,
   source_row INT NULL,
   db_record_json JSON NULL,
   import_record_json JSON NULL,
@@ -43,18 +31,15 @@ CREATE TABLE IF NOT EXISTS soil_import_job_diff (
 );
 
 CREATE TABLE IF NOT EXISTS fact_soil_moisture (
-  record_id VARCHAR(64) PRIMARY KEY,
-  batch_id CHAR(36) NOT NULL,
-  device_sn VARCHAR(64) NOT NULL,
-  gateway_id VARCHAR(64) NULL,
-  sensor_id VARCHAR(64) NULL,
-  unit_id VARCHAR(64) NULL,
-  device_name VARCHAR(128) NULL,
-  city_name VARCHAR(64) NULL,
-  county_name VARCHAR(64) NULL,
-  town_name VARCHAR(64) NULL,
-  sample_time DATETIME NOT NULL,
-  create_time DATETIME NULL,
+  id VARCHAR(64) PRIMARY KEY,
+  sn VARCHAR(64) NOT NULL,
+  gatewayid VARCHAR(64) NULL,
+  sensorid VARCHAR(64) NULL,
+  unitid VARCHAR(64) NULL,
+  city VARCHAR(64) NULL,
+  county VARCHAR(64) NULL,
+  time DATETIME NULL,
+  create_time DATETIME NOT NULL,
   water20cm DECIMAL(10,2) NULL,
   water40cm DECIMAL(10,2) NULL,
   water60cm DECIMAL(10,2) NULL,
@@ -63,22 +48,19 @@ CREATE TABLE IF NOT EXISTS fact_soil_moisture (
   t40cm DECIMAL(10,2) NULL,
   t60cm DECIMAL(10,2) NULL,
   t80cm DECIMAL(10,2) NULL,
-  water20cm_field_state VARCHAR(32) NULL,
-  water40cm_field_state VARCHAR(32) NULL,
-  water60cm_field_state VARCHAR(32) NULL,
-  water80cm_field_state VARCHAR(32) NULL,
-  t20cm_field_state VARCHAR(32) NULL,
-  t40cm_field_state VARCHAR(32) NULL,
-  t60cm_field_state VARCHAR(32) NULL,
-  t80cm_field_state VARCHAR(32) NULL,
-  soil_anomaly_type VARCHAR(32) NULL,
-  soil_anomaly_score DECIMAL(10,4) NULL,
-  longitude DECIMAL(10,6) NULL,
-  latitude DECIMAL(10,6) NULL,
+  water20cmfieldstate VARCHAR(32) NULL,
+  water40cmfieldstate VARCHAR(32) NULL,
+  water60cmfieldstate VARCHAR(32) NULL,
+  water80cmfieldstate VARCHAR(32) NULL,
+  t20cmfieldstate VARCHAR(32) NULL,
+  t40cmfieldstate VARCHAR(32) NULL,
+  t60cmfieldstate VARCHAR(32) NULL,
+  t80cmfieldstate VARCHAR(32) NULL,
+  lat DECIMAL(10,6) NULL,
+  lon DECIMAL(10,6) NULL,
   source_file VARCHAR(255) NOT NULL,
   source_sheet VARCHAR(128) NULL,
-  source_row INT NULL,
-  CONSTRAINT fk_fact_batch FOREIGN KEY (batch_id) REFERENCES etl_import_batch(batch_id)
+  source_row INT NULL
 );
 
 CREATE TABLE IF NOT EXISTS metric_rule (
@@ -122,7 +104,6 @@ CREATE TABLE IF NOT EXISTS region_alias (
   canonical_name VARCHAR(64) NOT NULL,
   region_level VARCHAR(16) NOT NULL,
   parent_city_name VARCHAR(64) NULL,
-  parent_county_name VARCHAR(64) NULL,
   alias_source VARCHAR(32) NOT NULL,
   enabled TINYINT NOT NULL DEFAULT 1,
   created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -264,11 +245,9 @@ CALL ensure_column('agent_query_log', 'executed_sql_text', 'ALTER TABLE agent_qu
 CALL ensure_column('agent_query_log', 'executed_result_json', 'ALTER TABLE agent_query_log ADD COLUMN executed_result_json JSON NULL AFTER row_count');
 CALL drop_column_if_exists('agent_query_log', 'result_preview_json', 'ALTER TABLE agent_query_log DROP COLUMN result_preview_json');
 
-CALL ensure_index('fact_soil_moisture', 'idx_soil_sample_time', 'CREATE INDEX idx_soil_sample_time ON fact_soil_moisture (sample_time)');
-CALL ensure_index('fact_soil_moisture', 'idx_soil_batch_id', 'CREATE INDEX idx_soil_batch_id ON fact_soil_moisture (batch_id)');
-CALL ensure_index('fact_soil_moisture', 'idx_soil_device_time', 'CREATE INDEX idx_soil_device_time ON fact_soil_moisture (device_sn, sample_time)');
-CALL ensure_index('fact_soil_moisture', 'idx_soil_region_time', 'CREATE INDEX idx_soil_region_time ON fact_soil_moisture (city_name, county_name, town_name, sample_time)');
-CALL ensure_index('fact_soil_moisture', 'idx_soil_anomaly', 'CREATE INDEX idx_soil_anomaly ON fact_soil_moisture (soil_anomaly_type, soil_anomaly_score)');
+CALL ensure_index('fact_soil_moisture', 'idx_soil_create_time', 'CREATE INDEX idx_soil_create_time ON fact_soil_moisture (create_time)');
+CALL ensure_index('fact_soil_moisture', 'idx_soil_sn_create_time', 'CREATE INDEX idx_soil_sn_create_time ON fact_soil_moisture (sn, create_time)');
+CALL ensure_index('fact_soil_moisture', 'idx_soil_region_create_time', 'CREATE INDEX idx_soil_region_create_time ON fact_soil_moisture (city, county, create_time)');
 CALL ensure_index('soil_import_job', 'idx_soil_import_job_status_created_at', 'CREATE INDEX idx_soil_import_job_status_created_at ON soil_import_job (status, created_at)');
 CALL ensure_index('soil_import_job_diff', 'idx_soil_import_job_diff_lookup', 'CREATE INDEX idx_soil_import_job_diff_lookup ON soil_import_job_diff (job_id, diff_type, diff_id)');
 CALL ensure_index('metric_rule', 'idx_metric_rule_scope_enabled', 'CREATE INDEX idx_metric_rule_scope_enabled ON metric_rule (enabled, rule_scope, updated_at)');

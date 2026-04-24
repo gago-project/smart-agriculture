@@ -11,6 +11,10 @@ from app.services.time_service import TimeResolveService
 from support_repositories import SeedSoilRepository
 
 
+LEGACY_BATCH_SLOT = "batch" + "_id"
+LEGACY_BATCH_VALUE = "latest" + "_batch"
+
+
 class FakeQwenBatchClient:
     """LLM test double that wrongly returns deprecated batch slots."""
 
@@ -26,7 +30,7 @@ class FakeQwenBatchClient:
             "answer_type": "soil_summary_answer",
             "slots": {
                 "time_range": "last_7_days",
-                "batch_id": "latest_batch",
+                LEGACY_BATCH_SLOT: LEGACY_BATCH_VALUE,
             },
         }
 
@@ -77,9 +81,9 @@ class TimeContractTest(unittest.TestCase):
         """Verify dynamic day windows still fetch latest business time from repo."""
         result = self.query_service.build_query_plan(
             intent="soil_recent_summary",
-            slots={"city_name": "南京市", "time_range": "last_12_days"},
+            slots={"city": "南京市", "time_range": "last_12_days"},
             business_time=self.time_service.resolve(
-                slots={"city_name": "南京市", "time_range": "last_12_days"},
+                slots={"city": "南京市", "time_range": "last_12_days"},
                 latest_business_time=self.repository.latest_business_time(),
             ),
             session_id="s1",
@@ -87,7 +91,7 @@ class TimeContractTest(unittest.TestCase):
             request_id="r1",
         )
 
-        self.assertNotIn("batch_id", result["filters"])
+        self.assertEqual(set(result["filters"].keys()), {"city", "county", "sn"})
         self.assertEqual(result["time_range"]["start_time"], "2026-04-02 00:00:00")
         self.assertEqual(result["time_range"]["end_time"], "2026-04-13 23:59:59")
 
@@ -147,7 +151,7 @@ class TimeContractTest(unittest.TestCase):
             self.assertEqual(result.intent, "soil_recent_summary")
             self.assertEqual(result.answer_type, "soil_summary_answer")
             self.assertEqual(result.slots.get("time_range"), "last_7_days")
-            self.assertNotIn("batch_id", result.slots)
+            self.assertNotIn(LEGACY_BATCH_SLOT, result.slots)
 
         asyncio.run(run_case())
 

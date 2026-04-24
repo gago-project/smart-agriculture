@@ -49,30 +49,36 @@ def _load_seed_records() -> list[dict[str, Any]]:
             values = [_coerce_value(item) for item in _parse_sql_tuple(tuple_line[1:-1])]
             records.append(
                 {
-                    "record_id": values[0],
-                    "batch_id": values[1],
-                    "device_sn": values[2],
-                    "device_name": values[6],
-                    "city_name": values[7],
-                    "county_name": values[8],
-                    "town_name": values[9],
-                    "sample_time": values[10],
-                    "create_time": values[11],
-                    "water20cm": values[12],
-                    "water40cm": values[13],
-                    "water60cm": values[14],
-                    "water80cm": values[15],
-                    "t20cm": values[16],
-                    "t40cm": values[17],
-                    "t60cm": values[18],
-                    "t80cm": values[19],
-                    "soil_anomaly_type": values[28],
-                    "soil_anomaly_score": values[29],
-                    "longitude": values[30],
-                    "latitude": values[31],
-                    "source_file": values[32],
-                    "source_sheet": values[33],
-                    "source_row": values[34],
+                    "id": values[0],
+                    "sn": values[1],
+                    "gatewayid": values[2],
+                    "sensorid": values[3],
+                    "unitid": values[4],
+                    "city": values[5],
+                    "county": values[6],
+                    "time": values[7],
+                    "create_time": values[8],
+                    "water20cm": values[9],
+                    "water40cm": values[10],
+                    "water60cm": values[11],
+                    "water80cm": values[12],
+                    "t20cm": values[13],
+                    "t40cm": values[14],
+                    "t60cm": values[15],
+                    "t80cm": values[16],
+                    "water20cmfieldstate": values[17],
+                    "water40cmfieldstate": values[18],
+                    "water60cmfieldstate": values[19],
+                    "water80cmfieldstate": values[20],
+                    "t20cmfieldstate": values[21],
+                    "t40cmfieldstate": values[22],
+                    "t60cmfieldstate": values[23],
+                    "t80cmfieldstate": values[24],
+                    "lat": values[25],
+                    "lon": values[26],
+                    "source_file": values[27],
+                    "source_sheet": values[28],
+                    "source_row": values[29],
                 }
             )
     return records
@@ -93,11 +99,9 @@ class SeedSoilRepository(SoilRepository):
     def filter_records(
         self,
         *,
-        city_name: str | None = None,
-        county_name: str | None = None,
-        town_name: str | None = None,
-        device_sn: str | None = None,
-        batch_id: str | None = None,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
         start_time: str | None = None,
         end_time: str | None = None,
         limit: int | None = None,
@@ -106,16 +110,14 @@ class SeedSoilRepository(SoilRepository):
         records = [
             record
             for record in self.records
-            if (not city_name or record.get("city_name") == city_name)
-            and (not county_name or record.get("county_name") == county_name)
-            and (not town_name or record.get("town_name") == town_name)
-            and (not device_sn or record.get("device_sn") == device_sn)
-            and (not batch_id or record.get("batch_id") == batch_id)
-            and (not start_time or str(record.get("sample_time") or "") >= start_time)
-            and (not end_time or str(record.get("sample_time") or "") <= end_time)
+            if (not city or record.get("city") == city)
+            and (not county or record.get("county") == county)
+            and (not sn or record.get("sn") == sn)
+            and (not start_time or str(record.get("create_time") or "") >= start_time)
+            and (not end_time or str(record.get("create_time") or "") <= end_time)
         ]
         enriched_records = [{**record, **_evaluate_record_status(record)} for record in records]
-        enriched_records.sort(key=lambda item: str(item.get("sample_time") or ""), reverse=True)
+        enriched_records.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
         return enriched_records[:limit] if limit else enriched_records
 
     async def filter_records_async(self, **kwargs) -> list[dict[str, Any]]:
@@ -124,8 +126,8 @@ class SeedSoilRepository(SoilRepository):
 
     def latest_business_time(self) -> str:
         """Return the latest business time."""
-        latest_record = max(self.records, key=lambda item: str(item.get("sample_time") or ""), default=None)
-        return str(latest_record.get("sample_time")) if latest_record else "暂无"
+        latest_record = max(self.records, key=lambda item: str(item.get("create_time") or ""), default=None)
+        return str(latest_record.get("create_time")) if latest_record else "暂无"
 
     async def latest_business_time_async(self) -> str:
         """Return the latest business time async."""

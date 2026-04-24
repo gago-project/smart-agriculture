@@ -28,7 +28,7 @@ class SoilDataQueryNode(BaseNode):
             )
             query_result = await self.service.execute(query_plan)
             query_log_entry = self.service.build_query_log_entry(state=state, query_plan=query_plan, query_result=query_result)
-            target = state.merged_slots.get("town_name") or state.merged_slots.get("county_name") or state.merged_slots.get("city_name") or state.merged_slots.get("device_sn")
+            target = state.merged_slots.get("county") or state.merged_slots.get("city") or state.merged_slots.get("sn")
             return self.ensure_result(
                 NodeResult(
                     next_action="fallback",
@@ -62,8 +62,8 @@ class SoilDataQueryNode(BaseNode):
             )
             fallback_result = await self.service.execute(fallback_plan)
             fallback_log_entry = self.service.build_query_log_entry(state=state, query_plan=fallback_plan, query_result=fallback_result)
-            target = state.merged_slots.get("town_name") or state.merged_slots.get("county_name") or state.merged_slots.get("city_name") or state.merged_slots.get("device_sn") or "当前对象"
-            latest_time = fallback_result.get("latest_sample_time") or state.business_time.get("latest_business_time") or "暂无"
+            target = state.merged_slots.get("county") or state.merged_slots.get("city") or state.merged_slots.get("sn") or "当前对象"
+            latest_time = fallback_result.get("latest_create_time") or state.business_time.get("latest_business_time") or "暂无"
             return self.ensure_result(
                 NodeResult(
                     next_action="fallback",

@@ -67,7 +67,7 @@ class AgentServiceContractTest(unittest.TestCase):
             answer_bundle=AnswerBundle(final_answer="ok"),
             query_log_entries=[{"query_id": "q1"}],
             final_status="verified_end",
-            merged_slots={"county_name": "如东县", "time_range": "last_7_days"},
+            merged_slots={"county": "如东县", "time_range": "last_7_days"},
         )
         context_repository = StubSessionContextRepository()
         log_repository = StubQueryLogRepository()

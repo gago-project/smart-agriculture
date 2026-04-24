@@ -65,8 +65,8 @@
 - 默认已存在有效设备：
   - `SNS00204333`
   - `SNS00213807`
-- 默认事实表保留 `batch_id` 作为导入追溯字段，但 Agent 不按导入批次语义回答用户问题
 - 默认所有事实查询只查当前有效数据
+- 默认所有事实查询统一按 `create_time` 过滤和排序
 - 默认 `ExecutionGate` 生效：
   - 排名类最大时间窗 `365` 天
   - 异常类最大时间窗 `180` 天
@@ -80,10 +80,10 @@
 - 非业务输入不得触发 SQL。
 - `safe_hint_answer`、`clarification_answer`、`boundary_answer` 默认不写 `agent_query_log`。
 - “现在 / 当前 / 最新”必须先取库内最新业务时间。
-- “这批 / 本批 / 这一批 / 这次”不得生成 `batch_id` 查询语义；正式 Case 应改成明确时间窗问法。
+- “这批 / 本批 / 这一批 / 这次”不再作为查询能力；正式 Case 应改成明确时间窗问法。
 - 异常 SQL 只拉候选，最终异常统计必须以 `RuleEngine` 结果为准。
 - 概览回答默认不直接暴露样本数、最新业务时间、数据来源。
-- 排名回答默认不直接暴露 `soil_anomaly_score`、异常分或内部排序字段名。
+- 排名回答默认不直接暴露 `risk_score`、异常分或内部排序字段名。
 - 异常回答默认不直接点名 `SoilStatusRuleEngine` 等内部规则组件。
 - `soil_warning_answer` 未命中时，内部返回应是 `soil_status=not_triggered`、`warning_level=none`。
 - 模板 `strict_mode` 下，正文不能被自由改写。

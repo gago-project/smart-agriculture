@@ -212,7 +212,7 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：`city_name=南京市`
+- `预期 slots`：`city=南京市`
 - `预期 query_type / SQL`：无
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`clarification_answer`
@@ -250,7 +250,7 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：`city_name=南京市`
+- `预期 slots`：`city=南京市`
 - `预期 query_type / SQL`：无
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`clarification_answer`
@@ -348,7 +348,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city_name=南通市; time=近7天`
+- `预期 slots`：`city=南通市; time=近7天`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -386,7 +386,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city_name=南京市; time=30天`
+- `预期 slots`：`city=南京市; time=30天`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -405,13 +405,13 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`county_name=如东县; city_name=南通市; time=本周`
+- `预期 slots`：`county=如东县; city=南通市; time=本周`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
 - `规则触发`：`no`
 - `是否写查询日志`：是
-- `关键断言`：县级概览需补齐父级市；不能只落裸 `county_name`
+- `关键断言`：县级概览需补齐父级市；不能只落裸 `county`
 - `备注`：补充县区概览。
 
 ### SU-07
@@ -424,7 +424,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city_name=镇江市; time=最新业务时间`
+- `预期 slots`：`city=镇江市; time=最新业务时间`
 - `预期 query_type / SQL`：`SQL-07 场景4 -> SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -462,7 +462,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city_name=南通市; time=本周`
+- `预期 slots`：`city=南通市; time=本周`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -500,7 +500,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=南京市; time_range=last_7_days`
+- `预期 slots`：`city=南京市; time_range=last_7_days`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -538,7 +538,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`county_name=如东县; city_name=南通市; time=7天`
+- `预期 slots`：`county=如东县; city=南通市; time=7天`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -557,7 +557,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city_name=镇江市; time=14天`
+- `预期 slots`：`city=镇江市; time=14天`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -604,7 +604,7 @@
 - `预期 answer_type`：`soil_ranking_answer`
 - `规则触发`：`no`
 - `是否写查询日志`：是
-- `关键断言`：默认按县区排名；对外只给综合风险顺序，不直接暴露 `soil_anomaly_score` 等内部字段名
+- `关键断言`：默认按县区排名；对外只给综合风险顺序，不直接暴露 `risk_score` 等内部字段名
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
 ### RK-02
@@ -693,7 +693,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city_name=南通市; time=30天; aggregation=county`
+- `预期 slots`：`city=南通市; time=30天; aggregation=county`
 - `预期 query_type / SQL`：`severity_ranking / SQL-02`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_ranking_answer`
@@ -788,7 +788,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city_name=镇江市; top_n=1; aggregation=county`
+- `预期 slots`：`city=镇江市; top_n=1; aggregation=county`
 - `预期 query_type / SQL`：`severity_ranking / SQL-02`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_ranking_answer`
@@ -826,7 +826,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city_name=南京市; time=30天; aggregation=county`
+- `预期 slots`：`city=南京市; time=30天; aggregation=county`
 - `预期 query_type / SQL`：`severity_ranking / SQL-02`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_ranking_answer`
@@ -845,7 +845,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city_name=南通市; time=7天; top_n=5; aggregation=device`
+- `预期 slots`：`city=南通市; time=7天; top_n=5; aggregation=device`
 - `预期 query_type / SQL`：`severity_ranking / SQL-02`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_ranking_answer`
@@ -864,7 +864,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`county_name=如东县; city_name=南通市; top_n=3; aggregation=device`
+- `预期 slots`：`county=如东县; city=南通市; top_n=3; aggregation=device`
 - `预期 query_type / SQL`：`severity_ranking / SQL-02`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_ranking_answer`
@@ -886,7 +886,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=如东县; time=最近`
+- `预期 slots`：`county=如东县; time=最近`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -905,7 +905,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNS00204333; time=最近`
+- `预期 slots`：`sn=SNS00204333; time=最近`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -921,10 +921,10 @@
 - `用户问题`：那上周的呢
 - `当前回答`：请补充地区、设备或时间范围后再查询。例如：如东县最近怎么样，或 SNS00204333 最近有没有异常。
 - `样本状态`：已实测（2026-04-22 商务评审版来源）
-- `上下文`：上一轮已确认 `county_name=如东县`
+- `上下文`：上一轮已确认 `county=如东县`
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=继承如东县; time=上周`
+- `预期 slots`：`county=继承如东县; time=上周`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -943,7 +943,7 @@
 - `上下文`：上一轮设备详情上下文有效
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=继承; metric=water20cm`
+- `预期 slots`：`sn=继承; metric=water20cm`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -981,7 +981,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=南京市; time=30天`
+- `预期 slots`：`city=南京市; time=30天`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1000,7 +1000,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=如东县; city_name=南通市; time=最近`
+- `预期 slots`：`county=如东县; city=南通市; time=最近`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1019,7 +1019,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=镇江经开区; city_name=镇江市; time=最近`
+- `预期 slots`：`county=镇江经开区; city=镇江市; time=最近`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1038,7 +1038,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=南京市; time=最近`
+- `预期 slots`：`city=南京市; time=最近`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1057,7 +1057,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=南通市; time=本周`
+- `预期 slots`：`city=南通市; time=本周`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1076,7 +1076,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNS00213807; time=最近`
+- `预期 slots`：`sn=SNS00213807; time=最近`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1095,7 +1095,7 @@
 - `上下文`：上一轮设备详情上下文有效
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=继承; metric=water40cm`
+- `预期 slots`：`sn=继承; metric=water40cm`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1114,7 +1114,7 @@
 - `上下文`：上一轮设备详情上下文有效
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=继承; metric=water10cm`
+- `预期 slots`：`sn=继承; metric=water10cm`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1130,10 +1130,10 @@
 - `用户问题`：南京上周情况呢
 - `当前回答`：待实测回填；期望回答要点：若上一轮已确认南京市对象，则只重算上周时间范围。
 - `样本状态`：补充待实测（2026-04-22 扩充）
-- `上下文`：上一轮已确认 city_name=南京市
+- `上下文`：上一轮已确认 city=南京市
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=继承南京市; time=上周`
+- `预期 slots`：`city=继承南京市; time=上周`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1152,7 +1152,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=如东县; city_name=南通市; time=昨天`
+- `预期 slots`：`county=如东县; city=南通市; time=昨天`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1171,7 +1171,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=镇江市; time=30天`
+- `预期 slots`：`city=镇江市; time=30天`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1190,7 +1190,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=镇江经开区; city_name=镇江市; time=本周`
+- `预期 slots`：`county=镇江经开区; city=镇江市; time=本周`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1209,7 +1209,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNS00204333; time=昨天`
+- `预期 slots`：`sn=SNS00204333; time=昨天`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -1307,7 +1307,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=南京市; time=最近`
+- `预期 slots`：`city=南京市; time=最近`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1326,7 +1326,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`device_sn=SNS00204333; time=7天; status_target=heavy_drought`
+- `预期 slots`：`sn=SNS00204333; time=7天; status_target=heavy_drought`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1364,7 +1364,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=南京市; time=最近`
+- `预期 slots`：`city=南京市; time=最近`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1383,7 +1383,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=南通市; time=最近; status_target=heavy_drought`
+- `预期 slots`：`city=南通市; time=最近; status_target=heavy_drought`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1402,7 +1402,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`county_name=如东县; city_name=南通市; time=最近`
+- `预期 slots`：`county=如东县; city=南通市; time=最近`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1459,7 +1459,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=镇江市; time=最近; status_target=waterlogging`
+- `预期 slots`：`city=镇江市; time=最近; status_target=waterlogging`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1478,7 +1478,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=南京市; time=30天`
+- `预期 slots`：`city=南京市; time=30天`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1497,7 +1497,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`device_sn=SNS00213807; time=7天`
+- `预期 slots`：`sn=SNS00213807; time=7天`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -1557,7 +1557,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00204333`
+- `预期 slots`：`sn=SNS00204333`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1576,7 +1576,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00213807; render_mode=strict`
+- `预期 slots`：`sn=SNS00213807; render_mode=strict`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1614,7 +1614,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00204333; render_mode=conditional_no_template_if_not_triggered`
+- `预期 slots`：`sn=SNS00204333; render_mode=conditional_no_template_if_not_triggered`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1633,7 +1633,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`county_name=如东县; city_name=南通市`
+- `预期 slots`：`county=如东县; city=南通市`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1671,7 +1671,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00213807`
+- `预期 slots`：`sn=SNS00213807`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1690,7 +1690,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`county_name=如东县; city_name=南通市; need_template=true`
+- `预期 slots`：`county=如东县; city=南通市; need_template=true`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1709,7 +1709,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`city_name=南京市; need_template=true; time=最新业务时间`
+- `预期 slots`：`city=南京市; need_template=true; time=最新业务时间`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1728,7 +1728,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00204333; need_template=true; status_target=heavy_drought`
+- `预期 slots`：`sn=SNS00204333; need_template=true; status_target=heavy_drought`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1747,7 +1747,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00213807; render_mode=strict`
+- `预期 slots`：`sn=SNS00213807; render_mode=strict`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1766,7 +1766,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`city_name=南通市`
+- `预期 slots`：`city=南通市`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1785,7 +1785,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`city_name=镇江市; render_mode=strict`
+- `预期 slots`：`city=镇江市; render_mode=strict`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1804,7 +1804,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`device_sn=SNS00204333; no_template_if_not_triggered=true`
+- `预期 slots`：`sn=SNS00204333; no_template_if_not_triggered=true`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -1823,7 +1823,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`county_name=如东县; city_name=南通市; render_mode=plus_explanation`
+- `预期 slots`：`county=如东县; city=南通市; render_mode=plus_explanation`
 - `预期 query_type / SQL`：`latest_record / SQL-05`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_warning_answer`
@@ -2051,13 +2051,13 @@
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：无效地区兜底
-- `用户问题`：XX乡镇最近怎么样
-- `当前回答`：没有找到 XX乡镇 的有效墒情数据，请核对名称或设备编号后重试。
+- `用户问题`：XX县最近怎么样
+- `当前回答`：没有找到 XX县 的有效墒情数据，请核对名称或设备编号后重试。
 - `样本状态`：已实测（2026-04-22 商务评审版来源）
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`town_name=XX乡镇`
+- `预期 slots`：`county=XX县`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2076,7 +2076,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=如东县; time=2026-04-15`
+- `预期 slots`：`county=如东县; time=2026-04-15`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2095,7 +2095,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNS00299999; time_range=last_7_days`
+- `预期 slots`：`sn=SNS00299999; time_range=last_7_days`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2114,7 +2114,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=不存在区`
+- `预期 slots`：`county=不存在区`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2133,7 +2133,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNSABC`
+- `预期 slots`：`sn=SNSABC`
 - `预期 query_type / SQL`：无
 - `ExecutionGate`：`clarify`
 - `预期 answer_type`：`fallback_answer`
@@ -2152,7 +2152,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=南京市; time=2025-01-01`
+- `预期 slots`：`city=南京市; time=2025-01-01`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2171,7 +2171,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city_name=南京市; time_range=last_7_days`
+- `预期 slots`：`city=南京市; time_range=last_7_days`
 - `预期 query_type / SQL`：`region_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -2190,7 +2190,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNS00000000; time=最近`
+- `预期 slots`：`sn=SNS00000000; time=最近`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2209,7 +2209,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=如东县; city_name=南通市; time=2030-01-01`
+- `预期 slots`：`county=如东县; city=南通市; time=2030-01-01`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2228,7 +2228,7 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county_name=某某区; time=最近`
+- `预期 slots`：`county=某某区; time=最近`
 - `预期 query_type / SQL`：`fallback / SQL-07`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`fallback_answer`
@@ -2342,7 +2342,7 @@
 - `用户问题`：如东县最近怎么样 -> 谢谢
 - `当前回答`：待实测回填；期望第二轮返回简短结束语。
 - `样本状态`：补充待实测（2026-04-23 多轮边界增强）
-- `上下文`：第一轮已保存 `county_name=如东县` 的业务上下文
+- `上下文`：第一轮已保存 `county=如东县` 的业务上下文
 - `预期 input_type`：第二轮 `conversation_closing`
 - `预期 intent`：无业务 intent
 - `预期 slots`：无
@@ -2383,7 +2383,7 @@
 - `上下文`：可有可无
 - `预期 input_type`：`business_colloquial` 或 `business_direct`
 - `预期 intent`：按上下文框架或独立南京查询解析
-- `预期 slots`：`city_name=南京市`
+- `预期 slots`：`city=南京市`
 - `预期 query_type / SQL`：视上下文而定；不得因“谢谢”直接结束
 - `ExecutionGate`：按业务请求判断
 - `预期 answer_type`：不得为 `closing_answer`
@@ -2399,10 +2399,10 @@
 - `用户问题`：南京最近30天异常概况 -> 徐州呢？
 - `当前回答`：待实测回填；期望第二轮输出徐州异常概况。
 - `样本状态`：补充待实测（2026-04-23 多轮边界增强）
-- `上下文`：上一轮 `city_name=南京市; query_family=anomaly; start_time/end_time=最近30天`
+- `上下文`：上一轮 `city=南京市; query_family=anomaly; start_time/end_time=最近30天`
 - `预期 input_type`：第二轮 `business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=徐州市; time=继承上一轮绝对 start_time/end_time`
+- `预期 slots`：`city=徐州市; time=继承上一轮绝对 start_time/end_time`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -2421,7 +2421,7 @@
 - `上下文`：上一轮 `query_family=anomaly`
 - `预期 input_type`：`business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city_name=盐城市; time=昨天; metric=water20cm`
+- `预期 slots`：`city=盐城市; time=昨天; metric=water20cm`
 - `预期 query_type / SQL`：`anomaly_list / SQL-04`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_anomaly_answer`
@@ -2440,7 +2440,7 @@
 - `上下文`：上一轮 `query_family=ranking`
 - `预期 input_type`：`business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`device_sn=SNS00204333; time=继承上一轮时间窗`
+- `预期 slots`：`sn=SNS00204333; time=继承上一轮时间窗`
 - `预期 query_type / SQL`：`device_detail / SQL-03`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_detail_answer`
@@ -2459,7 +2459,7 @@
 - `上下文`：第一轮 `base_query_family=anomaly`，第二轮 `answer_type=soil_advice_answer`
 - `预期 input_type`：第三轮 `business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_anomaly_query` 或最近兼容的数据查询 intent
-- `预期 slots`：`city_name=徐州市; time=继承可用窗口`
+- `预期 slots`：`city=徐州市; time=继承可用窗口`
 - `预期 query_type / SQL`：不得固定为 advice 的 `latest_record / SQL-06`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：不得继续为 `soil_advice_answer`
@@ -2475,10 +2475,10 @@
 - `用户问题`：如东县最近怎么样 -> 那个情况呢
 - `当前回答`：待实测回填；期望第二轮继承如东县，而不是 InputGuard 直接澄清。
 - `样本状态`：补充待实测（2026-04-23 多轮边界增强）
-- `上下文`：上一轮 `county_name=如东县`
+- `上下文`：上一轮 `county=如东县`
 - `预期 input_type`：第二轮 `business_colloquial`
 - `预期 intent`：继承上一轮兼容 intent
-- `预期 slots`：`county_name=继承如东县`
+- `预期 slots`：`county=继承如东县`
 - `预期 query_type / SQL`：按继承框架查询
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：不得因 `InputGuard` 提前变成 `clarification_answer`
@@ -2494,10 +2494,10 @@
 - `用户问题`：如东县最近怎么样 -> 南京最近15天墒情怎么样
 - `当前回答`：待实测回填；期望第二轮作为完整新问题处理。
 - `样本状态`：补充待实测（2026-04-23 多轮边界增强）
-- `上下文`：上一轮 `county_name=如东县`
+- `上下文`：上一轮 `county=如东县`
 - `预期 input_type`：第二轮 `business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city_name=南京市; time=最近15天`
+- `预期 slots`：`city=南京市; time=最近15天`
 - `预期 query_type / SQL`：`recent_summary / SQL-01`
 - `ExecutionGate`：`pass`
 - `预期 answer_type`：`soil_summary_answer`
@@ -2516,7 +2516,7 @@
 - `上下文`：距离上次明确如东县对象已 4~5 轮，但当前轮显式给出南京
 - `预期 input_type`：最后一轮 `business_colloquial` 或 `business_direct`
 - `预期 intent`：按最近可兼容数据框架处理
-- `预期 slots`：`city_name=南京市`
+- `预期 slots`：`city=南京市`
 - `预期 query_type / SQL`：若框架可兼容则查库
 - `ExecutionGate`：按业务请求判断
 - `预期 answer_type`：不得仅因衰减返回 `clarification_answer`

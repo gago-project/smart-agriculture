@@ -24,12 +24,15 @@ const DIFF_PAGE_SIZE = 20;
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const EDITABLE_FIELDS = [
-  { key: 'city_name', label: '城市' },
-  { key: 'county_name', label: '区县' },
-  { key: 'town_name', label: '乡镇' },
-  { key: 'device_name', label: '设备名称' },
-  { key: 'longitude', label: '经度' },
-  { key: 'latitude', label: '纬度' },
+  { key: 'gatewayid', label: '网关编号' },
+  { key: 'sensorid', label: '传感器编号' },
+  { key: 'unitid', label: '单元编号' },
+  { key: 'city', label: '城市' },
+  { key: 'county', label: '区县' },
+  { key: 'time', label: '原始时间' },
+  { key: 'create_time', label: '查询时间' },
+  { key: 'lon', label: '经度' },
+  { key: 'lat', label: '纬度' },
   { key: 'water20cm', label: '20cm 水分' },
   { key: 'water40cm', label: '40cm 水分' },
   { key: 'water60cm', label: '60cm 水分' },
@@ -38,19 +41,24 @@ const EDITABLE_FIELDS = [
   { key: 't40cm', label: '40cm 温度' },
   { key: 't60cm', label: '60cm 温度' },
   { key: 't80cm', label: '80cm 温度' },
-  { key: 'soil_anomaly_type', label: '异常类型' },
-  { key: 'soil_anomaly_score', label: '异常分值' },
+  { key: 'water20cmfieldstate', label: '20cm 水分状态' },
+  { key: 'water40cmfieldstate', label: '40cm 水分状态' },
+  { key: 'water60cmfieldstate', label: '60cm 水分状态' },
+  { key: 'water80cmfieldstate', label: '80cm 水分状态' },
+  { key: 't20cmfieldstate', label: '20cm 温度状态' },
+  { key: 't40cmfieldstate', label: '40cm 温度状态' },
+  { key: 't60cmfieldstate', label: '60cm 温度状态' },
+  { key: 't80cmfieldstate', label: '80cm 温度状态' },
 ] as const;
 
 type EditableField = (typeof EDITABLE_FIELDS)[number]['key'];
 
 interface Filters {
-  city_name: string;
-  county_name: string;
-  device_sn: string;
-  soil_anomaly_type: string;
-  sample_time_from: string;
-  sample_time_to: string;
+  city: string;
+  county: string;
+  sn: string;
+  create_time_from: string;
+  create_time_to: string;
 }
 
 interface EditModalState {
@@ -93,12 +101,11 @@ const emptyDiffPage: SoilImportDiffPage = {
 };
 
 const initialFilters: Filters = {
-  city_name: '',
-  county_name: '',
-  device_sn: '',
-  soil_anomaly_type: '',
-  sample_time_from: '',
-  sample_time_to: '',
+  city: '',
+  county: '',
+  sn: '',
+  create_time_from: '',
+  create_time_to: '',
 };
 
 function compactFilters(filters: Filters) {
@@ -119,7 +126,7 @@ function statusLabel(status?: string | null) {
 }
 
 function recordRegion(record: SoilRecord) {
-  return [record.city_name, record.county_name, record.town_name].filter(Boolean).join(' / ') || '-';
+  return [record.city, record.county].filter(Boolean).join(' / ') || '-';
 }
 
 function summaryNumber(summary: SoilImportSummary | null | undefined, key: keyof SoilImportSummary) {
@@ -136,9 +143,9 @@ function progressText(job: SoilImportJob | null) {
 function summarizeRecord(record?: SoilRecord | null) {
   if (!record) return '-';
   return [
-    record.device_sn || '-',
+    record.sn || '-',
     recordRegion(record),
-    record.sample_time || '-',
+    record.create_time || '-',
     record.water20cm === null || record.water20cm === undefined || record.water20cm === '' ? '-' : `${record.water20cm}`,
   ].join(' · ');
 }
@@ -181,7 +188,7 @@ export function SoilAdminPage() {
   const lastImportStatusRef = useRef<string | null>(null);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
-  const currentPageIds = useMemo(() => data.rows.map((record) => record.record_id), [data.rows]);
+  const currentPageIds = useMemo(() => data.rows.map((record) => record.id), [data.rows]);
   const allPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selectedSet.has(id));
   const importSummary = importJob?.summary || null;
   const incrementalApplyRows = summaryNumber(importSummary, 'create_rows');
@@ -336,8 +343,8 @@ export function SoilAdminPage() {
     setIsSubmittingEdit(true);
     setError(null);
     try {
-      const result = await updateSoilRecordField(editModal.record.record_id, editModal.field, editModal.value);
-      setMessage(`已更新 ${fieldLabel(editModal.field)}：${editModal.record.record_id}`);
+      const result = await updateSoilRecordField(editModal.record.id, editModal.field, editModal.value);
+      setMessage(`已更新 ${fieldLabel(editModal.field)}：${editModal.record.id}`);
       setEditModal(null);
       if (result.record) {
         await loadRecords(data.page || 1, pageSize, filters);
@@ -350,12 +357,12 @@ export function SoilAdminPage() {
   }
 
   async function handleDelete(record: SoilRecord) {
-    const confirmed = window.confirm(`确认删除记录 ${record.record_id}？`);
+    const confirmed = window.confirm(`确认删除记录 ${record.id}？`);
     if (!confirmed) return;
     setIsDeleting(true);
     setError(null);
     try {
-      const result = await deleteSoilRecord(record.record_id);
+      const result = await deleteSoilRecord(record.id);
       setMessage(`已删除 ${result.deleted_count ?? 0} 条记录`);
       await loadRecords(Math.max(1, data.page), pageSize, filters);
     } catch (caughtError) {
@@ -545,7 +552,7 @@ export function SoilAdminPage() {
                   ) : diffData.rows.map((row) => (
                     <tr key={row.diff_id}>
                       <td><span className={`admin-diff-tag is-${row.diff_type}`}>{DIFF_TYPE_LABELS[row.diff_type]}</span></td>
-                      <td>{row.record_id || '-'}</td>
+                      <td>{row.id || '-'}</td>
                       <td>{row.source_row || '-'}</td>
                       <td>{formatFieldChanges(row)}</td>
                       <td>{summarizeRecord(row.import_record)}</td>
@@ -575,33 +582,23 @@ export function SoilAdminPage() {
           </div>
           <label>
             城市
-            <input value={draftFilters.city_name} onChange={(event) => updateDraftFilter('city_name', event.target.value)} placeholder="如：徐州市" />
+            <input value={draftFilters.city} onChange={(event) => updateDraftFilter('city', event.target.value)} placeholder="如：徐州市" />
           </label>
           <label>
             区县
-            <input value={draftFilters.county_name} onChange={(event) => updateDraftFilter('county_name', event.target.value)} placeholder="如：睢宁县" />
+            <input value={draftFilters.county} onChange={(event) => updateDraftFilter('county', event.target.value)} placeholder="如：睢宁县" />
           </label>
           <label>
             设备 SN
-            <input value={draftFilters.device_sn} onChange={(event) => updateDraftFilter('device_sn', event.target.value)} placeholder="SNS..." />
-          </label>
-          <label>
-            异常类型
-            <select value={draftFilters.soil_anomaly_type} onChange={(event) => updateDraftFilter('soil_anomaly_type', event.target.value)}>
-              <option value="">全部</option>
-              <option value="low">低墒</option>
-              <option value="high">高墒</option>
-              <option value="normal">正常</option>
-              <option value="unknown">未知</option>
-            </select>
+            <input value={draftFilters.sn} onChange={(event) => updateDraftFilter('sn', event.target.value)} placeholder="SNS..." />
           </label>
           <label>
             开始时间
-            <input value={draftFilters.sample_time_from} onChange={(event) => updateDraftFilter('sample_time_from', event.target.value)} placeholder="2026-04-01 00:00:00" />
+            <input value={draftFilters.create_time_from} onChange={(event) => updateDraftFilter('create_time_from', event.target.value)} placeholder="2026-04-01 00:00:00" />
           </label>
           <label>
             结束时间
-            <input value={draftFilters.sample_time_to} onChange={(event) => updateDraftFilter('sample_time_to', event.target.value)} placeholder="2026-04-30 23:59:59" />
+            <input value={draftFilters.create_time_to} onChange={(event) => updateDraftFilter('create_time_to', event.target.value)} placeholder="2026-04-30 23:59:59" />
           </label>
         </div>
 
@@ -646,14 +643,16 @@ export function SoilAdminPage() {
                     />
                   </th>
                   <th>设备 SN</th>
-                  <th>设备名称</th>
+                  <th>网关</th>
+                  <th>传感器</th>
+                  <th>单元</th>
                   <th>城市</th>
                   <th>区县</th>
-                  <th>乡镇</th>
+                  <th>原始时间</th>
                   <th>采样时间</th>
                   <th>20cm 水分</th>
                   <th>20cm 温度</th>
-                  <th>异常</th>
+                  <th>状态字段</th>
                   <th>来源</th>
                   <th>操作</th>
                 </tr>
@@ -661,39 +660,45 @@ export function SoilAdminPage() {
               <tbody>
                 {data.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={12} className="admin-empty">暂无符合条件的数据。</td>
+                    <td colSpan={14} className="admin-empty">暂无符合条件的数据。</td>
                   </tr>
                 ) : data.rows.map((record) => (
-                  <tr key={record.record_id} className={selectedSet.has(record.record_id) ? 'selected' : ''}>
+                  <tr key={record.id} className={selectedSet.has(record.id) ? 'selected' : ''}>
                     <td>
                       <input
                         type="checkbox"
-                        aria-label={`选择 ${record.record_id}`}
-                        checked={selectedSet.has(record.record_id)}
-                        onChange={(event) => toggleSelectRecord(record.record_id, event.target.checked)}
+                        aria-label={`选择 ${record.id}`}
+                        checked={selectedSet.has(record.id)}
+                        onChange={(event) => toggleSelectRecord(record.id, event.target.checked)}
                       />
                     </td>
-                    <td>{record.device_sn}</td>
-                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'device_name')} title="双击编辑">
-                      {record.device_name || '-'}
+                    <td>{record.sn}</td>
+                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'gatewayid')} title="双击编辑">
+                      {record.gatewayid || '-'}
                     </td>
-                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'city_name')} title="双击编辑">
-                      {record.city_name || '-'}
+                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'sensorid')} title="双击编辑">
+                      {record.sensorid || '-'}
                     </td>
-                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'county_name')} title="双击编辑">
-                      {record.county_name || '-'}
+                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'unitid')} title="双击编辑">
+                      {record.unitid || '-'}
                     </td>
-                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'town_name')} title="双击编辑">
-                      {record.town_name || '-'}
+                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'city')} title="双击编辑">
+                      {record.city || '-'}
                     </td>
-                    <td>{record.sample_time || '-'}</td>
+                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'county')} title="双击编辑">
+                      {record.county || '-'}
+                    </td>
+                    <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'time')} title="双击编辑">
+                      {record.time || '-'}
+                    </td>
+                    <td>{record.create_time || '-'}</td>
                     <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 'water20cm')} title="双击编辑">
                       {record.water20cm ?? '-'}
                     </td>
                     <td className="admin-editable-cell" onDoubleClick={() => openEditModal(record, 't20cm')} title="双击编辑">
                       {record.t20cm ?? '-'}
                     </td>
-                    <td>{record.soil_anomaly_type || '-'} / {record.soil_anomaly_score ?? '-'}</td>
+                    <td>{record.water20cmfieldstate || '-'} / {record.t20cmfieldstate || '-'}</td>
                     <td>{record.source_file || '-'}</td>
                     <td>
                       <button className="danger-outline" onClick={() => void handleDelete(record)} disabled={isDeleting}>
@@ -728,8 +733,8 @@ export function SoilAdminPage() {
               <button onClick={() => setEditModal(null)}>关闭</button>
             </div>
             <div className="admin-modal-body">
-              <p><strong>记录 ID：</strong>{editModal.record.record_id}</p>
-              <p><strong>设备：</strong>{editModal.record.device_sn || '-'}</p>
+              <p><strong>记录 ID：</strong>{editModal.record.id}</p>
+              <p><strong>设备：</strong>{editModal.record.sn || '-'}</p>
               <p><strong>地区：</strong>{recordRegion(editModal.record)}</p>
               <p><strong>字段：</strong>{fieldLabel(editModal.field)}</p>
               <label>

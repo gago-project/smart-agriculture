@@ -57,9 +57,9 @@ class SessionContextRepositoryTest(unittest.TestCase):
                     turn_id=turn_id,
                     turn_context={
                         "domain": "soil_moisture",
-                        "region": {"county_name": f"区域-{turn_id}"},
+                        "region": {"county": f"区域-{turn_id}"},
                         "time_window": "last_7_days",
-                        "entity_reference": {"county_name": f"区域-{turn_id}"},
+                        "entity_reference": {"county": f"区域-{turn_id}"},
                         "last_intent": "soil_recent_summary",
                     },
                 )
@@ -69,9 +69,9 @@ class SessionContextRepositoryTest(unittest.TestCase):
                 turn_id=3,
                 turn_context={
                     "domain": "soil_moisture",
-                    "region": {"county_name": "旧区域"},
+                    "region": {"county": "旧区域"},
                     "time_window": "last_7_days",
-                    "entity_reference": {"county_name": "旧区域"},
+                    "entity_reference": {"county": "旧区域"},
                     "last_intent": "soil_recent_summary",
                 },
             )
@@ -79,8 +79,8 @@ class SessionContextRepositoryTest(unittest.TestCase):
             recent = await repository.load_recent_context("session-1")
             self.assertEqual(len(recent), 5)
             self.assertEqual([item["turn_id"] for item in recent], [3, 4, 5, 6, 7])
-            self.assertEqual(recent[-1]["region"]["county_name"], "区域-7")
-            self.assertNotEqual(recent[0]["region"]["county_name"], "旧区域")
+            self.assertEqual(recent[-1]["region"]["county"], "区域-7")
+            self.assertNotEqual(recent[0]["region"]["county"], "旧区域")
 
         asyncio.run(run_case())
 
@@ -95,9 +95,9 @@ class SessionContextRepositoryTest(unittest.TestCase):
                 turn_id=1,
                 turn_context={
                     "domain": "soil_moisture",
-                    "region": {"county_name": "如东县"},
+                    "region": {"county": "如东县"},
                     "time_window": "last_7_days",
-                    "entity_reference": {"county_name": "如东县"},
+                    "entity_reference": {"county": "如东县"},
                     "last_intent": "soil_recent_summary",
                 },
             )

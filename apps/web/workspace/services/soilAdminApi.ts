@@ -1,18 +1,14 @@
 import { useAuthStore } from '../store/authStore';
 
 export interface SoilRecord {
-  record_id: string;
-  device_sn?: string | null;
-  gateway_id?: string | null;
-  sensor_id?: string | null;
-  unit_id?: string | null;
-  city_name?: string | null;
-  county_name?: string | null;
-  town_name?: string | null;
-  device_name?: string | null;
-  longitude?: number | string | null;
-  latitude?: number | string | null;
-  sample_time?: string | null;
+  id: string;
+  sn?: string | null;
+  gatewayid?: string | null;
+  sensorid?: string | null;
+  unitid?: string | null;
+  city?: string | null;
+  county?: string | null;
+  time?: string | null;
   create_time?: string | null;
   water20cm?: number | string | null;
   water40cm?: number | string | null;
@@ -22,16 +18,16 @@ export interface SoilRecord {
   t40cm?: number | string | null;
   t60cm?: number | string | null;
   t80cm?: number | string | null;
-  water20cm_field_state?: string | null;
-  water40cm_field_state?: string | null;
-  water60cm_field_state?: string | null;
-  water80cm_field_state?: string | null;
-  t20cm_field_state?: string | null;
-  t40cm_field_state?: string | null;
-  t60cm_field_state?: string | null;
-  t80cm_field_state?: string | null;
-  soil_anomaly_type?: string | null;
-  soil_anomaly_score?: number | string | null;
+  water20cmfieldstate?: string | null;
+  water40cmfieldstate?: string | null;
+  water60cmfieldstate?: string | null;
+  water80cmfieldstate?: string | null;
+  t20cmfieldstate?: string | null;
+  t40cmfieldstate?: string | null;
+  t60cmfieldstate?: string | null;
+  t80cmfieldstate?: string | null;
+  lat?: number | string | null;
+  lon?: number | string | null;
   source_file?: string | null;
   source_sheet?: string | null;
   source_row?: number | string | null;
@@ -41,12 +37,11 @@ export interface SoilRecord {
 export interface SoilRecordQuery {
   page: number;
   page_size: number;
-  city_name?: string;
-  county_name?: string;
-  device_sn?: string;
-  soil_anomaly_type?: string;
-  sample_time_from?: string;
-  sample_time_to?: string;
+  city?: string;
+  county?: string;
+  sn?: string;
+  create_time_from?: string;
+  create_time_to?: string;
 }
 
 export interface SoilRecordPage {
@@ -76,7 +71,7 @@ export interface SoilUploadResult {
 }
 
 export interface SoilMutationResult {
-  record_id?: string;
+  id?: string;
   field?: string;
   old_value?: unknown;
   new_value?: unknown;
@@ -118,7 +113,7 @@ export interface SoilImportFieldChange {
 export interface SoilImportDiffRow {
   diff_id: number;
   diff_type: Exclude<SoilImportDiffType, 'all'>;
-  record_id?: string | null;
+  id?: string | null;
   source_row?: number | null;
   db_record?: SoilRecord | null;
   import_record?: SoilRecord | null;
@@ -213,12 +208,11 @@ export async function fetchSoilRecords(query: SoilRecordQuery): Promise<SoilReco
   const params = new URLSearchParams();
   appendParam(params, 'page', query.page);
   appendParam(params, 'page_size', query.page_size);
-  appendParam(params, 'city_name', query.city_name);
-  appendParam(params, 'county_name', query.county_name);
-  appendParam(params, 'device_sn', query.device_sn);
-  appendParam(params, 'soil_anomaly_type', query.soil_anomaly_type);
-  appendParam(params, 'sample_time_from', query.sample_time_from);
-  appendParam(params, 'sample_time_to', query.sample_time_to);
+  appendParam(params, 'city', query.city);
+  appendParam(params, 'county', query.county);
+  appendParam(params, 'sn', query.sn);
+  appendParam(params, 'create_time_from', query.create_time_from);
+  appendParam(params, 'create_time_to', query.create_time_to);
 
   return requestJson<SoilRecordPage>(`/api/admin/soil/records?${params.toString()}`, {
     method: 'GET',
@@ -305,6 +299,6 @@ export async function bulkDeleteSoilRecords(recordIds: string[]): Promise<SoilMu
   return requestJson<SoilMutationResult>('/api/admin/soil/records/bulk-delete', {
     method: 'POST',
     headers: authHeaders(true),
-    body: JSON.stringify({ record_ids: recordIds }),
+    body: JSON.stringify({ ids: recordIds }),
   });
 }

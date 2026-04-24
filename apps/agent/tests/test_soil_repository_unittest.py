@@ -33,10 +33,10 @@ class SoilRepositoryPathTest(unittest.TestCase):
         """Verify filter sql escapes date format percent for pyformat."""
         repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
 
-        sql, params = repository._build_filter_records_query_pyformat(batch_id="batch-1")
+        sql, params = repository._build_filter_records_query_pyformat(start_time="2026-04-01 00:00:00")
 
         rendered = sql % params
-        self.assertIn("DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s')", rendered)
+        self.assertIn("DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s')", rendered)
 
 
 class EmptyResultCursor:

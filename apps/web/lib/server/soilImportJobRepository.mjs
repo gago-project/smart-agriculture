@@ -5,18 +5,15 @@ import { openMysqlConnection, withMysqlConnection } from './mysql.mjs';
 import { refreshGeneratedRegionAliasesFromFacts } from './regionAliasSeed.mjs';
 import { parseSoilWorkbookBuffer } from './soilImport.mjs';
 
-const FACT_INSERT_COLUMNS = [
-  'record_id',
-  'batch_id',
-  'device_sn',
-  'gateway_id',
-  'sensor_id',
-  'unit_id',
-  'device_name',
-  'city_name',
-  'county_name',
-  'town_name',
-  'sample_time',
+const FACT_COLUMNS = [
+  'id',
+  'sn',
+  'gatewayid',
+  'sensorid',
+  'unitid',
+  'city',
+  'county',
+  'time',
   'create_time',
   'water20cm',
   'water40cm',
@@ -26,34 +23,30 @@ const FACT_INSERT_COLUMNS = [
   't40cm',
   't60cm',
   't80cm',
-  'water20cm_field_state',
-  'water40cm_field_state',
-  'water60cm_field_state',
-  'water80cm_field_state',
-  't20cm_field_state',
-  't40cm_field_state',
-  't60cm_field_state',
-  't80cm_field_state',
-  'soil_anomaly_type',
-  'soil_anomaly_score',
-  'longitude',
-  'latitude',
+  'water20cmfieldstate',
+  'water40cmfieldstate',
+  'water60cmfieldstate',
+  'water80cmfieldstate',
+  't20cmfieldstate',
+  't40cmfieldstate',
+  't60cmfieldstate',
+  't80cmfieldstate',
+  'lat',
+  'lon',
   'source_file',
   'source_sheet',
   'source_row',
 ];
 
 const FACT_SNAPSHOT_SELECT = `SELECT
-  record_id,
-  device_sn,
-  gateway_id,
-  sensor_id,
-  unit_id,
-  device_name,
-  city_name,
-  county_name,
-  town_name,
-  DATE_FORMAT(sample_time, '%Y-%m-%d %H:%i:%s') AS sample_time,
+  id,
+  sn,
+  gatewayid,
+  sensorid,
+  unitid,
+  city,
+  county,
+  DATE_FORMAT(time, '%Y-%m-%d %H:%i:%s') AS time,
   DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
   water20cm,
   water40cm,
@@ -63,18 +56,16 @@ const FACT_SNAPSHOT_SELECT = `SELECT
   t40cm,
   t60cm,
   t80cm,
-  water20cm_field_state,
-  water40cm_field_state,
-  water60cm_field_state,
-  water80cm_field_state,
-  t20cm_field_state,
-  t40cm_field_state,
-  t60cm_field_state,
-  t80cm_field_state,
-  soil_anomaly_type,
-  soil_anomaly_score,
-  longitude,
-  latitude,
+  water20cmfieldstate,
+  water40cmfieldstate,
+  water60cmfieldstate,
+  water80cmfieldstate,
+  t20cmfieldstate,
+  t40cmfieldstate,
+  t60cmfieldstate,
+  t80cmfieldstate,
+  lat,
+  lon,
   source_file,
   source_sheet,
   source_row
@@ -104,88 +95,21 @@ function parseJsonField(value) {
   }
 }
 
-function fromFactSnapshotRow(row) {
-  return {
-    record_id: row.record_id,
-    device_sn: row.device_sn,
-    gateway_id: row.gateway_id,
-    sensor_id: row.sensor_id,
-    unit_id: row.unit_id,
-    device_name: row.device_name,
-    city_name: row.city_name,
-    county_name: row.county_name,
-    town_name: row.town_name,
-    sample_time: row.sample_time,
-    create_time: row.create_time,
-    water20cm: row.water20cm,
-    water40cm: row.water40cm,
-    water60cm: row.water60cm,
-    water80cm: row.water80cm,
-    t20cm: row.t20cm,
-    t40cm: row.t40cm,
-    t60cm: row.t60cm,
-    t80cm: row.t80cm,
-    water20cm_field_state: row.water20cm_field_state,
-    water40cm_field_state: row.water40cm_field_state,
-    water60cm_field_state: row.water60cm_field_state,
-    water80cm_field_state: row.water80cm_field_state,
-    t20cm_field_state: row.t20cm_field_state,
-    t40cm_field_state: row.t40cm_field_state,
-    t60cm_field_state: row.t60cm_field_state,
-    t80cm_field_state: row.t80cm_field_state,
-    soil_anomaly_type: row.soil_anomaly_type,
-    soil_anomaly_score: row.soil_anomaly_score,
-    longitude: row.longitude,
-    latitude: row.latitude,
-    source_file: row.source_file,
-    source_sheet: row.source_sheet,
-    source_row: row.source_row,
-  };
-}
-
-function toFactInsertRow(record, batchId) {
-  return [
-    record.record_id,
-    batchId,
-    record.device_sn,
-    record.gateway_id || null,
-    record.sensor_id || null,
-    record.unit_id || null,
-    record.device_name || null,
-    record.city_name || null,
-    record.county_name || null,
-    record.town_name || null,
-    record.sample_time,
-    record.create_time || record.sample_time || null,
-    record.water20cm,
-    record.water40cm,
-    record.water60cm,
-    record.water80cm,
-    record.t20cm,
-    record.t40cm,
-    record.t60cm,
-    record.t80cm,
-    record.water20cm_field_state || null,
-    record.water40cm_field_state || null,
-    record.water60cm_field_state || null,
-    record.water80cm_field_state || null,
-    record.t20cm_field_state || null,
-    record.t40cm_field_state || null,
-    record.t60cm_field_state || null,
-    record.t80cm_field_state || null,
-    record.soil_anomaly_type || null,
-    record.soil_anomaly_score,
-    record.longitude,
-    record.latitude,
-    record.source_file || null,
-    record.source_sheet || null,
-    record.source_row ?? null,
-  ];
+function toFactInsertRow(record) {
+  return FACT_COLUMNS.map((column) => {
+    if (column === 'time' || column === 'create_time') {
+      return record[column] || null;
+    }
+    if (column === 'source_row') {
+      return record[column] ?? null;
+    }
+    return record[column] ?? null;
+  });
 }
 
 async function loadFactSnapshots(connection) {
-  const [rows] = await connection.query(`${FACT_SNAPSHOT_SELECT} ORDER BY record_id ASC`);
-  return rows.map(fromFactSnapshotRow);
+  const [rows] = await connection.query(`${FACT_SNAPSHOT_SELECT} ORDER BY id ASC`);
+  return rows;
 }
 
 async function updateJobProgress(connection, jobId, patch) {
@@ -212,7 +136,7 @@ async function insertDiffRows(connection, jobId, diffRows, onProgress) {
     const values = chunk.flatMap((row) => [
       jobId,
       row.diff_type,
-      row.record_id,
+      row.id,
       row.source_row,
       row.db_record_json ? JSON.stringify(row.db_record_json) : null,
       row.import_record_json ? JSON.stringify(row.import_record_json) : null,
@@ -221,7 +145,7 @@ async function insertDiffRows(connection, jobId, diffRows, onProgress) {
     const placeholders = chunk.map(() => '(?, ?, ?, ?, ?, ?, ?)').join(', ');
     await connection.execute(
       `INSERT INTO soil_import_job_diff (
-        job_id, diff_type, record_id, source_row, db_record_json, import_record_json, field_changes_json
+        job_id, diff_type, id, source_row, db_record_json, import_record_json, field_changes_json
       ) VALUES ${placeholders}`,
       values,
     );
@@ -232,14 +156,14 @@ async function insertDiffRows(connection, jobId, diffRows, onProgress) {
   }
 }
 
-async function insertFactRows(connection, records, batchId, onProgress) {
+async function insertFactRows(connection, records, onProgress) {
   const chunks = chunkArray(records, 200);
   let processed = 0;
   for (const chunk of chunks) {
-    const values = chunk.flatMap((record) => toFactInsertRow(record, batchId));
-    const placeholders = chunk.map(() => `(${FACT_INSERT_COLUMNS.map(() => '?').join(', ')})`).join(', ');
+    const values = chunk.flatMap((record) => toFactInsertRow(record));
+    const placeholders = chunk.map(() => `(${FACT_COLUMNS.map(() => '?').join(', ')})`).join(', ');
     await connection.execute(
-      `INSERT INTO fact_soil_moisture (${FACT_INSERT_COLUMNS.join(', ')}) VALUES ${placeholders}`,
+      `INSERT INTO fact_soil_moisture (${FACT_COLUMNS.join(', ')}) VALUES ${placeholders}`,
       values,
     );
     processed += chunk.length;
@@ -322,14 +246,14 @@ async function runPreviewJob(jobId, filename, contentBase64) {
       invalidRows: parsed.invalid_rows,
     });
 
-    if (preview.duplicate_record_ids?.length) {
-      const duplicateMessage = preview.duplicate_record_ids
-        .map((item) => `${item.record_id} [${item.source_rows.join(', ')}]`)
+    if (preview.duplicate_ids?.length) {
+      const duplicateMessage = preview.duplicate_ids
+        .map((item) => `${item.id} [${item.source_rows.join(', ')}]`)
         .join('；');
       await connection.execute('DELETE FROM soil_import_job_diff WHERE job_id = ?', [jobId]);
       await updateJobProgress(connection, jobId, {
         status: 'failed',
-        error_message: `上传文件中存在重复 record_id：${duplicateMessage}`,
+        error_message: `上传文件中存在重复 id：${duplicateMessage}`,
         finished_at: new Date(),
       });
       return;
@@ -386,15 +310,12 @@ async function loadImportRecordsForApply(connection, jobId, mode) {
 async function runApplyJob(jobId, mode) {
   const connection = await openMysqlConnection({ connectTimeout: 5000 });
   const progressConnection = await openMysqlConnection({ connectTimeout: 5000 });
-  let batchId = null;
-  let loadedRows = 0;
 
   try {
     const job = await formatJob(connection, jobId);
     const summary = job.summary || {};
     const records = await loadImportRecordsForApply(connection, jobId, mode);
     const totalRows = getApplyRowsForMode(summary, mode);
-    batchId = crypto.randomUUID();
 
     await updateJobProgress(progressConnection, jobId, {
       status: 'applying',
@@ -405,36 +326,20 @@ async function runApplyJob(jobId, mode) {
       finished_at: null,
     });
 
-    await connection.execute(
-      `INSERT INTO etl_import_batch (
-         batch_id, source_name, source_file, started_at, finished_at, status, raw_row_count, loaded_row_count, note
-       ) VALUES (?, ?, ?, NOW(), NULL, 'processing', ?, 0, NULL)`,
-      [batchId, 'soil_admin_import_job', job.filename, records.length],
-    );
-
     await connection.beginTransaction();
     if (mode === 'replace') {
       await connection.execute('DELETE FROM fact_soil_moisture');
     }
 
-    await insertFactRows(connection, records, batchId, async (processed) => {
-      loadedRows = processed;
+    await insertFactRows(connection, records, async (processed) => {
       await updateJobProgress(progressConnection, jobId, { processed_rows: processed });
     });
-
-    await connection.execute(
-      `UPDATE etl_import_batch
-       SET finished_at = NOW(), status = 'success', loaded_row_count = ?, note = NULL
-       WHERE batch_id = ?`,
-      [records.length, batchId],
-    );
 
     await refreshGeneratedRegionAliasesFromFacts(connection);
     await connection.commit();
 
     await updateJobProgress(progressConnection, jobId, {
-      status: 'succeeded',
-      apply_mode: mode,
+      status: 'applied',
       processed_rows: totalRows,
       total_rows: totalRows,
       finished_at: new Date(),
@@ -443,19 +348,6 @@ async function runApplyJob(jobId, mode) {
     try {
       await connection.rollback();
     } catch {
-      // noop
-    }
-    if (batchId) {
-      try {
-        await connection.execute(
-          `UPDATE etl_import_batch
-           SET finished_at = NOW(), status = 'failed', loaded_row_count = ?, note = ?
-           WHERE batch_id = ?`,
-          [loadedRows, error instanceof Error ? error.message.slice(0, 500) : 'import job apply failed', batchId],
-        );
-      } catch {
-        // noop
-      }
     }
     await updateJobProgress(progressConnection, jobId, {
       status: 'failed',
@@ -521,7 +413,7 @@ export async function listSoilImportJobDiff(jobId, query = {}) {
       `SELECT
          diff_id,
          diff_type,
-         record_id,
+         id,
          source_row,
          db_record_json,
          import_record_json,
@@ -539,7 +431,7 @@ export async function listSoilImportJobDiff(jobId, query = {}) {
       rows: rows.map((row) => ({
         diff_id: Number(row.diff_id),
         diff_type: row.diff_type,
-        record_id: row.record_id,
+        id: row.id,
         source_row: row.source_row,
         db_record: parseJsonField(row.db_record_json),
         import_record: parseJsonField(row.import_record_json),

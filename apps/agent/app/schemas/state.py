@@ -55,10 +55,9 @@ class BundleModel(BaseModel):
 class SlotBundle(BundleModel):
     """Parsed and merged user slots used for query planning."""
 
-    city_name: str | None = None
-    county_name: str | None = None
-    town_name: str | None = None
-    device_sn: str | None = None
+    city: str | None = None
+    county: str | None = None
+    sn: str | None = None
     target_date: str | None = None
     time_range: str | None = None
     time_explicit: bool = False
@@ -137,7 +136,7 @@ class QueryResultBundle(BundleModel):
     period_record_count: int | None = None
     device_record_count: int | None = None
     region_record_count: int | None = None
-    latest_sample_time: str | None = None
+    latest_create_time: str | None = None
 
 
 class RuleResultBundle(BundleModel):

@@ -1,9 +1,4 @@
-"""Region alias resolution and existence validation.
-
-This module owns two related responsibilities:
-1. turn user text or LLM slots into canonical city/county/town slots;
-2. validate those resolved slots against MySQL facts before SQL planning.
-"""
+"""Region alias resolution and existence validation."""
 
 from __future__ import annotations
 
@@ -14,12 +9,11 @@ from typing import Any
 from app.repositories.soil_repository import SoilRepository
 
 
-REGION_LEVEL_PRIORITY = {"town": 3, "county": 2, "city": 1}
-REGION_SLOT_KEY = {"city": "city_name", "county": "county_name", "town": "town_name"}
+REGION_LEVEL_PRIORITY = {"county": 2, "city": 1}
+REGION_SLOT_KEY = {"city": "city", "county": "county"}
 REGION_SUFFIXES = {
     "city": ("市",),
     "county": ("县", "区", "市"),
-    "town": ("镇", "乡"),
 }
 
 
@@ -34,15 +28,13 @@ def strip_region_suffix(name: str, region_level: str) -> str:
 
 def build_generated_region_alias_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Create canonical and suffix-stripped aliases from soil fact records."""
-    mappings: dict[tuple[str, str, str, str | None, str | None], dict[str, Any]] = {}
+    mappings: dict[tuple[str, str, str, str | None], dict[str, Any]] = {}
     for record in records:
-        city_name = str(record.get("city_name") or "").strip() or None
-        county_name = str(record.get("county_name") or "").strip() or None
-        town_name = str(record.get("town_name") or "").strip() or None
-        for canonical_name, region_level, parent_city_name, parent_county_name in (
-            (city_name, "city", None, None),
-            (county_name, "county", city_name, None),
-            (town_name, "town", city_name, county_name),
+        city = str(record.get("city") or "").strip() or None
+        county = str(record.get("county") or "").strip() or None
+        for canonical_name, region_level, parent_city_name in (
+            (city, "city", None),
+            (county, "county", city),
         ):
             if not canonical_name:
                 continue
@@ -50,13 +42,12 @@ def build_generated_region_alias_rows(records: list[dict[str, Any]]) -> list[dic
                 alias_name = alias_name.strip()
                 if len(alias_name) < 2:
                     continue
-                key = (alias_name, canonical_name, region_level, parent_city_name, parent_county_name)
+                key = (alias_name, canonical_name, region_level, parent_city_name)
                 mappings[key] = {
                     "alias_name": alias_name,
                     "canonical_name": canonical_name,
                     "region_level": region_level,
                     "parent_city_name": parent_city_name,
-                    "parent_county_name": parent_county_name,
                     "alias_source": "generated_fact",
                 }
     return sorted(
@@ -66,7 +57,6 @@ def build_generated_region_alias_rows(records: list[dict[str, Any]]) -> list[dic
             item["alias_name"],
             item["canonical_name"],
             item.get("parent_city_name") or "",
-            item.get("parent_county_name") or "",
         ),
     )
 
@@ -99,12 +89,12 @@ class RegionAliasResolver:
         self.repository = repository
 
     async def resolve_from_text(self, text: str) -> dict[str, Any]:
-        """Handle resolve from text on the region alias resolver."""
+        """Resolve region slots from user text."""
         mappings = await self._load_alias_mappings()
         return self._resolve_text(text=text, mappings=mappings)
 
     async def normalize_slots(self, slots: dict[str, Any]) -> dict[str, Any]:
-        """Handle normalize slots on the region alias resolver."""
+        """Normalize region slots returned by upstream parsers."""
         mappings = await self._load_alias_mappings()
         normalized = dict(slots)
         for region_level, slot_key in REGION_SLOT_KEY.items():
@@ -119,7 +109,6 @@ class RegionAliasResolver:
         return normalized
 
     async def _load_alias_mappings(self) -> list[dict[str, Any]]:
-        """Handle load alias mappings on the region alias resolver."""
         mappings = await self.repository.region_alias_rows_async()
         existing = {
             (
@@ -127,7 +116,6 @@ class RegionAliasResolver:
                 item.get("canonical_name"),
                 item.get("region_level"),
                 item.get("parent_city_name"),
-                item.get("parent_county_name"),
             )
             for item in mappings
         }
@@ -135,8 +123,8 @@ class RegionAliasResolver:
             region_name = str(region_name or "").strip()
             if not region_name:
                 continue
-            region_level = "city" if region_name.endswith("市") else "county" if region_name.endswith(("县", "区")) else "town"
-            key = (region_name, region_name, region_level, None, None)
+            region_level = "city" if region_name.endswith("市") else "county"
+            key = (region_name, region_name, region_level, None)
             if key not in existing:
                 mappings.append(
                     {
@@ -144,14 +132,12 @@ class RegionAliasResolver:
                         "canonical_name": region_name,
                         "region_level": region_level,
                         "parent_city_name": None,
-                        "parent_county_name": None,
                         "alias_source": "canonical",
                     }
                 )
         return mappings
 
     def _resolve_text(self, *, text: str, mappings: list[dict[str, Any]], preferred_level: str | None = None) -> dict[str, Any]:
-        """Handle resolve text on the region alias resolver."""
         compact = str(text or "").replace(" ", "")
         exact_matches = self._collect_exact_matches(compact=compact, mappings=mappings, preferred_level=preferred_level)
         if exact_matches:
@@ -168,7 +154,6 @@ class RegionAliasResolver:
         mappings: list[dict[str, Any]],
         preferred_level: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Handle collect exact matches on the region alias resolver."""
         matches: dict[tuple[str, str], dict[str, Any]] = {}
         for mapping in mappings:
             alias_name = str(mapping.get("alias_name") or "").strip()
@@ -200,7 +185,6 @@ class RegionAliasResolver:
         mappings: list[dict[str, Any]],
         preferred_level: str | None = None,
     ) -> list[dict[str, Any]]:
-        """Handle collect fuzzy matches on the region alias resolver."""
         chinese_only = "".join(re.findall(r"[\u4e00-\u9fff]+", compact))
         if len(chinese_only) < 2:
             return []
@@ -232,7 +216,6 @@ class RegionAliasResolver:
         return list(matches.values())
 
     def _build_fuzzy_segments(self, chinese_only: str) -> list[str]:
-        """Handle build fuzzy segments on the region alias resolver."""
         marker_match = re.search(
             r"(最近一个月|过去一个月|近一个月|最近7天|近7天|上周|最近|数据|墒情|异常|预警|模板|建议|怎么办|什么意思|怎么处理|趋势|排名|最严重|整体情况|总体情况|现在|当前)",
             chinese_only,
@@ -242,7 +225,6 @@ class RegionAliasResolver:
         return [chinese_only]
 
     def _pick_resolution(self, candidates: list[dict[str, Any]], *, fuzzy_only: bool = False) -> dict[str, Any]:
-        """Handle pick resolution on the region alias resolver."""
         ordered = list(candidates)
         if not ordered:
             return {"status": "none", "slots": {}, "candidates": []}
@@ -267,20 +249,15 @@ class RegionAliasResolver:
         return {"status": "matched", "slots": self._mapping_to_slots(top), "candidates": [top["canonical_name"]], "fuzzy_only": fuzzy_only}
 
     def _is_parent_child_pair(self, left: dict[str, Any], right: dict[str, Any]) -> bool:
-        """Handle is parent child pair on the region alias resolver."""
         return bool(
             left.get("canonical_name") == right.get("parent_city_name")
             or right.get("canonical_name") == left.get("parent_city_name")
-            or left.get("canonical_name") == right.get("parent_county_name")
-            or right.get("canonical_name") == left.get("parent_county_name")
         )
 
     def _is_same_match_span(self, left: dict[str, Any], right: dict[str, Any]) -> bool:
-        """Handle is same match span on the region alias resolver."""
         return left.get("match_start") == right.get("match_start") and left.get("match_end") == right.get("match_end")
 
     def _mapping_to_slots(self, mapping: dict[str, Any]) -> dict[str, Any]:
-        """Handle mapping to slots on the region alias resolver."""
         slots = {}
         region_level = str(mapping.get("region_level") or "")
         slot_key = REGION_SLOT_KEY.get(region_level)
@@ -288,31 +265,24 @@ class RegionAliasResolver:
         if slot_key and canonical_name:
             slots[slot_key] = canonical_name
         if region_level == "county" and mapping.get("parent_city_name"):
-            slots["city_name"] = mapping.get("parent_city_name")
-        if region_level == "town":
-            if mapping.get("parent_city_name"):
-                slots["city_name"] = mapping.get("parent_city_name")
-            if mapping.get("parent_county_name"):
-                slots["county_name"] = mapping.get("parent_county_name")
+            slots["city"] = mapping.get("parent_city_name")
         return slots
 
 
 class RegionResolveService:
-    """Validate parsed region/device slots against MySQL facts."""
+    """Validate parsed region/sn slots against MySQL facts."""
 
     def __init__(self, repository: SoilRepository):
-        """Repository provides async existence checks."""
         self.repository = repository
 
     async def resolve(self, *, slots: dict[str, Any], intent: str) -> dict[str, Any]:
-        """Return slots plus `region_exists` and `device_exists` booleans."""
         del intent
         resolved = dict(slots)
         resolved["region_exists"] = True
         resolved["device_exists"] = True
-        if slots.get("device_sn") and not await self.repository.device_exists_async(slots["device_sn"]):
+        if slots.get("sn") and not await self.repository.device_exists_async(slots["sn"]):
             resolved["device_exists"] = False
-        region_name = slots.get("town_name") or slots.get("county_name") or slots.get("city_name")
+        region_name = slots.get("county") or slots.get("city")
         if region_name and not await self.repository.region_exists_async(region_name):
             resolved["region_exists"] = False
         return resolved

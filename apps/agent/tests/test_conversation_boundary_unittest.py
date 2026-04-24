@@ -26,12 +26,12 @@ class ConversationBoundaryServiceTest(unittest.TestCase):
 
     def test_region_switch_should_carry_compatible_frame(self) -> None:
         result = self.service.decide(
-            raw_slots={"city_name": "徐州市"},
+            raw_slots={"city": "徐州市"},
             intent="soil_region_query",
             recent_context=[
                 {
                     "turn_id": 1,
-                    "entity_context": {"city_name": "南京市"},
+                    "entity_context": {"city": "南京市"},
                     "query_frame": {"query_family": "anomaly", "intent": "soil_anomaly_query"},
                     "resolved_window": {
                         "start_time": "2026-03-15 00:00:00",
@@ -48,16 +48,16 @@ class ConversationBoundaryServiceTest(unittest.TestCase):
         self.assertEqual(result["patch"]["intent"], "soil_anomaly_query")
         self.assertEqual(result["patch"]["answer_type"], "soil_anomaly_answer")
         self.assertEqual(result["patch"]["context_used"]["inheritance_mode"], "carry_frame")
-        self.assertIn("city_name", result["patch"]["context_used"]["overridden_fields"])
+        self.assertIn("city", result["patch"]["context_used"]["overridden_fields"])
 
     def test_ranking_to_device_should_convert_to_detail(self) -> None:
         result = self.service.decide(
-            raw_slots={"device_sn": "SNS00204333"},
+            raw_slots={"sn": "SNS00204333"},
             intent="soil_region_query",
             recent_context=[
                 {
                     "turn_id": 1,
-                    "entity_context": {"county_name": "如东县"},
+                    "entity_context": {"county": "如东县"},
                     "query_frame": {"query_family": "ranking", "intent": "soil_severity_ranking"},
                     "resolved_window": {
                         "start_time": "2026-04-07 00:00:00",

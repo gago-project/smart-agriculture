@@ -7,8 +7,8 @@ from pydantic import BaseModel
 
 class SoilRecord(BaseModel):
     """Schema describing one soil-moisture fact record."""
-    device_sn: str
-    city_name: str | None = None
-    county_name: str | None = None
-    sample_time: str
+    sn: str
+    city: str | None = None
+    county: str | None = None
+    create_time: str
     water20cm: float | None = None

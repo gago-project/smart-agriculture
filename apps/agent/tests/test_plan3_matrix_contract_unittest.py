@@ -101,8 +101,8 @@ class Plan3MatrixContractTest(unittest.TestCase):
         self.chat("SNS00204333 最近怎么样", session_id=session_id, turn_id=1)
         result = self.chat("换成20cm看", session_id=session_id, turn_id=2)
 
-        self.assertEqual(result["context_used"].get("device_sn"), "SNS00204333")
-        self.assertEqual(result["merged_slots"].get("device_sn"), "SNS00204333")
+        self.assertEqual(result["context_used"].get("sn"), "SNS00204333")
+        self.assertEqual(result["merged_slots"].get("sn"), "SNS00204333")
         self.assert_route(
             result,
             intent="soil_device_query",

@@ -7,6 +7,31 @@ from app.services.agent_service import SoilAgentService
 from support_repositories import SeedSoilRepository
 
 
+EXPECTED_FILTER_KEYS = {"city", "county", "sn"}
+SUPPORTED_SLOT_KEYS = {
+    "aggregation",
+    "audience",
+    "batch_devices",
+    "city",
+    "county",
+    "device_exists",
+    "follow_up",
+    "metric",
+    "need_template",
+    "raw_time_expr",
+    "region_exists",
+    "render_mode",
+    "resolved_end_time",
+    "resolved_start_time",
+    "sn",
+    "target_date",
+    "time_explicit",
+    "time_range",
+    "top_n",
+    "trend",
+}
+
+
 class AvailablePassthroughQwenClient(QwenClient):
     """Qwen test double that stays available without doing real network IO."""
 
@@ -31,6 +56,14 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         """Prepare the shared fixtures for each test case."""
         self.service = SoilAgentService(repository=SeedSoilRepository(), qwen_client=QwenClient(api_key=""))
 
+    def assert_current_filters(self, result):
+        """Verify current query-plan filters only use city/county/sn."""
+        self.assertEqual(set(result["query_plan"].get("filters", {}).keys()), EXPECTED_FILTER_KEYS)
+
+    def assert_current_slots(self, result):
+        """Verify merged slots stay inside the current supported contract."""
+        self.assertTrue(SUPPORTED_SLOT_KEYS.issuperset(result["merged_slots"].keys()))
+
     def test_recent_summary_should_use_last_7_days_window(self):
         """Verify recent summary should use last 7 days window."""
         result = self.service.chat("最近墒情怎么样", session_id="summary", turn_id=1)
@@ -39,7 +72,8 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["merged_slots"].get("time_range"), "last_7_days")
         self.assertEqual(result["business_time"].get("resolution_mode"), "relative_window")
         self.assertEqual(result["query_plan"].get("sql_template"), "SQL-01")
-        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
+        self.assert_current_filters(result)
+        self.assert_current_slots(result)
         self.assertNotIn("当前样本", result["final_answer"])
         self.assertNotIn("数据来源", result["final_answer"])
         self.assertNotIn("最新业务时间", result["final_answer"])
@@ -52,7 +86,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["answer_type"], "clarification_answer")
         self.assertFalse(result["should_query"])
         self.assertEqual(result["query_plan"], {})
-        self.assertNotIn("batch_id", result["merged_slots"])
+        self.assert_current_slots(result)
         self.assertIn("时间范围", result["final_answer"])
 
     def test_batch_phrase_with_explicit_time_should_ignore_filler(self):
@@ -61,10 +95,10 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result["answer_type"], "soil_summary_answer")
         self.assertEqual(result["intent"], "soil_recent_summary")
-        self.assertEqual(result["merged_slots"].get("city_name"), "南京市")
+        self.assertEqual(result["merged_slots"].get("city"), "南京市")
         self.assertEqual(result["merged_slots"].get("time_range"), "last_7_days")
-        self.assertNotIn("batch_id", result["merged_slots"])
-        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
+        self.assert_current_slots(result)
+        self.assert_current_filters(result)
         self.assertEqual(result["query_plan"].get("sql_template"), "SQL-01")
 
     def test_now_summary_should_resolve_from_latest_business_time(self):
@@ -86,13 +120,13 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["query_plan"], {})
         self.assertIn("前 20", result["final_answer"])
 
-    def test_unknown_region_should_return_fallback(self):
-        """Verify unknown region should return fallback."""
-        result = self.service.chat("XX乡镇最近怎么样", session_id="fb", turn_id=1)
+    def test_unknown_device_should_return_fallback(self):
+        """Verify unknown device should return fallback."""
+        result = self.service.chat("SNS00299999 最近怎么样", session_id="fb", turn_id=1)
 
         self.assertEqual(result["answer_type"], "fallback_answer")
         self.assertIn("核对名称", result["final_answer"])
-        self.assertEqual(result["intent"], "soil_region_query")
+        self.assertEqual(result["intent"], "soil_device_query")
         self.assertEqual(result["query_plan"].get("query_type"), "fallback")
         self.assertEqual(result["query_plan"].get("sql_template"), "SQL-07")
 
@@ -102,8 +136,8 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         result = self.service.chat("那上周的呢", session_id="ctx", turn_id=2)
 
         self.assertEqual(result["answer_type"], "soil_detail_answer")
-        self.assertEqual(result["context_used"].get("county_name"), "如东县")
-        self.assertEqual(result["merged_slots"].get("county_name"), "如东县")
+        self.assertEqual(result["context_used"].get("county"), "如东县")
+        self.assertEqual(result["merged_slots"].get("county"), "如东县")
         self.assertEqual(result["merged_slots"].get("time_range"), "last_week")
 
     def test_available_qwen_path_should_still_persist_context_for_follow_up(self):
@@ -115,7 +149,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(first["final_status"], "verified_end")
         self.assertEqual(follow["answer_type"], "soil_detail_answer")
-        self.assertEqual(follow["merged_slots"].get("county_name"), "如东县")
+        self.assertEqual(follow["merged_slots"].get("county"), "如东县")
         self.assertEqual(follow["merged_slots"].get("time_range"), "last_week")
 
     def test_yesterday_region_query_should_resolve_to_full_day_window(self):
@@ -127,7 +161,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["merged_slots"].get("time_range"), "yesterday")
         self.assertEqual(result["business_time"].get("start_time"), "2026-04-12 00:00:00")
         self.assertEqual(result["business_time"].get("end_time"), "2026-04-12 23:59:59")
-        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
+        self.assert_current_filters(result)
 
     def test_dynamic_last_n_days_should_resolve_and_query_without_batch_filters(self):
         """Verify dynamic last-N-day windows are supported end-to-end."""
@@ -138,7 +172,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertEqual(result["merged_slots"].get("time_range"), "last_12_days")
         self.assertEqual(result["business_time"].get("start_time"), "2026-04-02 00:00:00")
         self.assertEqual(result["business_time"].get("end_time"), "2026-04-13 23:59:59")
-        self.assertNotIn("batch_id", result["query_plan"].get("filters", {}))
+        self.assert_current_filters(result)
 
     def test_weather_question_should_be_boundary_answer(self):
         """Verify weather question should be boundary answer."""
@@ -204,7 +238,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result["answer_type"], "soil_ranking_answer")
         self.assertNotIn("按综合风险排序", result["final_answer"])
-        self.assertNotIn("soil_anomaly_score", result["final_answer"])
+        self.assertNotIn("risk_score", result["final_answer"])
         self.assertNotIn("异常分", result["final_answer"])
         self.assertNotIn("维度", result["final_answer"])
 
@@ -244,7 +278,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result["answer_type"], "soil_anomaly_answer")
         self.assertEqual(result["intent"], "soil_anomaly_query")
-        self.assertEqual(result["merged_slots"].get("city_name"), "徐州市")
+        self.assertEqual(result["merged_slots"].get("city"), "徐州市")
         self.assertEqual(result["context_used"].get("inheritance_mode"), "carry_frame")
         self.assertEqual(result["business_time"].get("resolved_time_range"), "last_30_days")
 
@@ -264,7 +298,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result["answer_type"], "soil_anomaly_answer")
         self.assertEqual(result["intent"], "soil_anomaly_query")
-        self.assertEqual(result["merged_slots"].get("city_name"), "盐城市")
+        self.assertEqual(result["merged_slots"].get("city"), "盐城市")
         self.assertEqual(result["merged_slots"].get("metric"), "water20cm")
         self.assertEqual(result["merged_slots"].get("time_range"), "yesterday")
         self.assertEqual(result["business_time"].get("resolved_time_range"), "yesterday")
@@ -277,7 +311,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result["answer_type"], "soil_anomaly_answer")
         self.assertEqual(result["intent"], "soil_anomaly_query")
-        self.assertEqual(result["merged_slots"].get("city_name"), "徐州市")
+        self.assertEqual(result["merged_slots"].get("city"), "徐州市")
         self.assertNotEqual(result["query_plan"].get("query_type"), "latest_record")
 
     def test_context_dependent_short_follow_up_should_reach_boundary(self):
@@ -287,7 +321,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertNotEqual(result["input_type"], "ambiguous_low_confidence")
         self.assertEqual(result["context_used"].get("inheritance_mode"), "carry_frame")
-        self.assertEqual(result["merged_slots"].get("county_name"), "如东县")
+        self.assertEqual(result["merged_slots"].get("county"), "如东县")
 
     def test_complete_new_question_should_reset_frame(self):
         """Verify complete new question does not inherit old region."""
@@ -296,8 +330,8 @@ class AgentFlowBehaviorTest(unittest.TestCase):
 
         self.assertEqual(result["intent"], "soil_recent_summary")
         self.assertEqual(result["answer_type"], "soil_summary_answer")
-        self.assertEqual(result["merged_slots"].get("city_name"), "南京市")
-        self.assertNotIn("county_name", result["merged_slots"])
+        self.assertEqual(result["merged_slots"].get("city"), "南京市")
+        self.assertNotIn("county", result["merged_slots"])
         self.assertEqual(result["context_used"].get("inheritance_mode"), "reset_frame")
 
     def test_decayed_context_should_not_block_explicit_new_region(self):
@@ -317,7 +351,7 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         result = self.service.chat("南京呢？", session_id=session_id, turn_id=6)
 
         self.assertNotEqual(result["answer_type"], "clarification_answer")
-        self.assertEqual(result["merged_slots"].get("city_name"), "南京市")
+        self.assertEqual(result["merged_slots"].get("city"), "南京市")
 
     def test_five_year_anomaly_should_clarify_without_query(self):
         """Verify five year anomaly should clarify without query."""

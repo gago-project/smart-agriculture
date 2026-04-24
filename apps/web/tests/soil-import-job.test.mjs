@@ -7,15 +7,15 @@ import {
   getApplyRowsForMode,
 } from '../lib/server/soilImportJob.mjs';
 
-test('findDuplicateRecordIds returns conflicting record ids with source rows', () => {
+test('findDuplicateRecordIds returns conflicting ids with source rows', () => {
   const duplicates = findDuplicateRecordIds([
-    { record_id: 'soil-1', source_row: 2 },
-    { record_id: 'soil-2', source_row: 3 },
-    { record_id: 'soil-1', source_row: 8 },
+    { id: 'soil-1', source_row: 2 },
+    { id: 'soil-2', source_row: 3 },
+    { id: 'soil-1', source_row: 8 },
   ]);
 
   assert.deepEqual(duplicates, [
-    { record_id: 'soil-1', source_rows: [2, 8] },
+    { id: 'soil-1', source_rows: [2, 8] },
   ]);
 });
 
@@ -23,28 +23,28 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
   const preview = buildSoilImportPreview({
     existingRecords: [
       {
-        record_id: 'keep-same',
-        device_sn: 'SNS-1',
-        city_name: '南京市',
-        sample_time: '2026-04-20 00:00:00',
+        id: 'keep-same',
+        sn: 'SNS-1',
+        city: '南京市',
+        create_time: '2026-04-20 00:00:00',
         water20cm: 30,
         source_file: 'old.xlsx',
         source_row: 2,
       },
       {
-        record_id: 'need-update',
-        device_sn: 'SNS-2',
-        city_name: '苏州市',
-        sample_time: '2026-04-20 00:00:00',
+        id: 'need-update',
+        sn: 'SNS-2',
+        city: '苏州市',
+        create_time: '2026-04-20 00:00:00',
         water20cm: 40,
         source_file: 'old.xlsx',
         source_row: 3,
       },
       {
-        record_id: 'missing-in-file',
-        device_sn: 'SNS-3',
-        city_name: '南通市',
-        sample_time: '2026-04-20 00:00:00',
+        id: 'missing-in-file',
+        sn: 'SNS-3',
+        city: '南通市',
+        create_time: '2026-04-20 00:00:00',
         water20cm: 50,
         source_file: 'old.xlsx',
         source_row: 4,
@@ -52,28 +52,28 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
     ],
     importedRecords: [
       {
-        record_id: 'keep-same',
-        device_sn: 'SNS-1',
-        city_name: '南京市',
-        sample_time: '2026-04-20 00:00:00',
+        id: 'keep-same',
+        sn: 'SNS-1',
+        city: '南京市',
+        create_time: '2026-04-20 00:00:00',
         water20cm: 30,
         source_file: 'new.xlsx',
         source_row: 2,
       },
       {
-        record_id: 'need-update',
-        device_sn: 'SNS-2',
-        city_name: '南京市',
-        sample_time: '2026-04-20 00:00:00',
+        id: 'need-update',
+        sn: 'SNS-2',
+        city: '南京市',
+        create_time: '2026-04-20 00:00:00',
         water20cm: 45,
         source_file: 'new.xlsx',
         source_row: 3,
       },
       {
-        record_id: 'brand-new',
-        device_sn: 'SNS-4',
-        city_name: '扬州市',
-        sample_time: '2026-04-20 00:00:00',
+        id: 'brand-new',
+        sn: 'SNS-4',
+        city: '扬州市',
+        create_time: '2026-04-20 00:00:00',
         water20cm: 60,
         source_file: 'new.xlsx',
         source_row: 4,
@@ -82,12 +82,12 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
     invalidRows: [
       {
         source_row: 5,
-        reason: '缺少 device_sn 或 sample_time',
+        reason: '缺少 id、sn 或 create_time',
         record: {
-          record_id: 'invalid-1',
-          device_sn: '',
-          city_name: '镇江市',
-          sample_time: '',
+          id: 'invalid-1',
+          sn: '',
+          city: '镇江市',
+          create_time: '',
           source_row: 5,
         },
       },
@@ -109,18 +109,18 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
   assert.match(JSON.stringify(preview.diff_rows.find((item) => item.diff_type === 'update')?.field_changes_json), /南京市/);
 });
 
-test('buildSoilImportPreview stops on duplicate valid record ids', () => {
+test('buildSoilImportPreview stops on duplicate valid ids', () => {
   const preview = buildSoilImportPreview({
     existingRecords: [],
     importedRecords: [
-      { record_id: 'dup-1', source_row: 2 },
-      { record_id: 'dup-1', source_row: 6 },
+      { id: 'dup-1', source_row: 2 },
+      { id: 'dup-1', source_row: 6 },
     ],
     invalidRows: [],
   });
 
-  assert.deepEqual(preview.duplicate_record_ids, [
-    { record_id: 'dup-1', source_rows: [2, 6] },
+  assert.deepEqual(preview.duplicate_ids, [
+    { id: 'dup-1', source_rows: [2, 6] },
   ]);
 });
 

@@ -1,13 +1,11 @@
 const SOIL_RECORD_SNAPSHOT_FIELDS = [
-  'device_sn',
-  'gateway_id',
-  'sensor_id',
-  'unit_id',
-  'device_name',
-  'city_name',
-  'county_name',
-  'town_name',
-  'sample_time',
+  'sn',
+  'gatewayid',
+  'sensorid',
+  'unitid',
+  'city',
+  'county',
+  'time',
   'create_time',
   'water20cm',
   'water40cm',
@@ -17,18 +15,16 @@ const SOIL_RECORD_SNAPSHOT_FIELDS = [
   't40cm',
   't60cm',
   't80cm',
-  'water20cm_field_state',
-  'water40cm_field_state',
-  'water60cm_field_state',
-  'water80cm_field_state',
-  't20cm_field_state',
-  't40cm_field_state',
-  't60cm_field_state',
-  't80cm_field_state',
-  'soil_anomaly_type',
-  'soil_anomaly_score',
-  'longitude',
-  'latitude',
+  'water20cmfieldstate',
+  'water40cmfieldstate',
+  'water60cmfieldstate',
+  'water80cmfieldstate',
+  't20cmfieldstate',
+  't40cmfieldstate',
+  't60cmfieldstate',
+  't80cmfieldstate',
+  'lat',
+  'lon',
   'source_file',
   'source_sheet',
   'source_row',
@@ -46,9 +42,8 @@ const NUMERIC_FIELDS = new Set([
   't40cm',
   't60cm',
   't80cm',
-  'soil_anomaly_score',
-  'longitude',
-  'latitude',
+  'lat',
+  'lon',
   'source_row',
 ]);
 
@@ -65,7 +60,7 @@ function normalizeComparableValue(field, value) {
 
 export function snapshotSoilRecord(record) {
   return {
-    record_id: String(record.record_id || '').trim() || null,
+    id: String(record.id || '').trim() || null,
     ...Object.fromEntries(
       SOIL_RECORD_SNAPSHOT_FIELDS.map((field) => [field, normalizeComparableValue(field, record[field])]),
     ),
@@ -87,7 +82,7 @@ export function buildSoilFieldChanges(currentRecord, nextRecord) {
 export function findDuplicateRecordIds(records) {
   const seen = new Map();
   for (const record of records) {
-    const recordId = String(record.record_id || '').trim();
+    const recordId = String(record.id || '').trim();
     if (!recordId) {
       continue;
     }
@@ -97,7 +92,7 @@ export function findDuplicateRecordIds(records) {
   }
   return [...seen.entries()]
     .filter(([, rows]) => rows.length > 1)
-    .map(([record_id, source_rows]) => ({ record_id, source_rows }));
+    .map(([id, source_rows]) => ({ id, source_rows }));
 }
 
 export function getApplyRowsForMode(summary, mode) {
@@ -110,7 +105,7 @@ export function getApplyRowsForMode(summary, mode) {
 export function buildSoilImportPreview({ existingRecords, importedRecords, invalidRows = [] }) {
   const duplicateRecordIds = findDuplicateRecordIds(importedRecords);
   if (duplicateRecordIds.length > 0) {
-    return { duplicate_record_ids: duplicateRecordIds };
+    return { duplicate_ids: duplicateRecordIds };
   }
 
   const summary = {
@@ -125,13 +120,13 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
   };
 
   const diffRows = [];
-  const existingByRecordId = new Map(existingRecords.map((record) => [record.record_id, record]));
-  const importedRecordIds = new Set();
+  const existingById = new Map(existingRecords.map((record) => [record.id, record]));
+  const importedIds = new Set();
 
   for (const invalidRow of invalidRows) {
     diffRows.push({
       diff_type: 'invalid',
-      record_id: invalidRow.record?.record_id || null,
+      id: invalidRow.record?.id || null,
       source_row: invalidRow.source_row || null,
       db_record_json: null,
       import_record_json: invalidRow.record ? snapshotSoilRecord(invalidRow.record) : null,
@@ -141,13 +136,13 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
 
   for (const importedRecord of importedRecords) {
     const importedSnapshot = snapshotSoilRecord(importedRecord);
-    importedRecordIds.add(importedSnapshot.record_id);
-    const existingRecord = existingByRecordId.get(importedSnapshot.record_id);
+    importedIds.add(importedSnapshot.id);
+    const existingRecord = existingById.get(importedSnapshot.id);
     if (!existingRecord) {
       summary.create_rows += 1;
       diffRows.push({
         diff_type: 'create',
-        record_id: importedSnapshot.record_id,
+        id: importedSnapshot.id,
         source_row: importedSnapshot.source_row,
         db_record_json: null,
         import_record_json: importedSnapshot,
@@ -162,7 +157,7 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
       summary.unchanged_rows += 1;
       diffRows.push({
         diff_type: 'unchanged',
-        record_id: importedSnapshot.record_id,
+        id: importedSnapshot.id,
         source_row: importedSnapshot.source_row,
         db_record_json: existingSnapshot,
         import_record_json: importedSnapshot,
@@ -174,7 +169,7 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
     summary.update_rows += 1;
     diffRows.push({
       diff_type: 'update',
-      record_id: importedSnapshot.record_id,
+      id: importedSnapshot.id,
       source_row: importedSnapshot.source_row,
       db_record_json: existingSnapshot,
       import_record_json: importedSnapshot,
@@ -183,13 +178,13 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
   }
 
   for (const existingRecord of existingRecords) {
-    if (importedRecordIds.has(existingRecord.record_id)) {
+    if (importedIds.has(existingRecord.id)) {
       continue;
     }
     summary.delete_rows += 1;
     diffRows.push({
       diff_type: 'delete',
-      record_id: existingRecord.record_id,
+      id: existingRecord.id,
       source_row: null,
       db_record_json: snapshotSoilRecord(existingRecord),
       import_record_json: null,

@@ -28,28 +28,28 @@ class RegionAliasResolutionTest(unittest.TestCase):
         """Verify city short name should resolve to canonical city."""
         result = self.parse("南京最近一个月的数据")
 
-        self.assertEqual(result.slots.get("city_name"), "南京市")
+        self.assertEqual(result.slots.get("city"), "南京市")
         self.assertEqual(result.slots.get("time_range"), "last_30_days")
 
     def test_county_short_name_should_resolve_to_canonical_county(self) -> None:
         """Verify county short name should resolve to canonical county."""
         result = self.parse("如东最近怎么样")
 
-        self.assertEqual(result.slots.get("county_name"), "如东县")
+        self.assertEqual(result.slots.get("county"), "如东县")
         self.assertEqual(result.intent, "soil_region_query")
 
     def test_city_short_name_should_keep_existing_summary_routing(self) -> None:
         """Verify city short name should keep existing summary routing."""
         result = self.parse("南通最近7天墒情怎么样")
 
-        self.assertEqual(result.slots.get("city_name"), "南通市")
+        self.assertEqual(result.slots.get("city"), "南通市")
         self.assertEqual(result.intent, "soil_recent_summary")
 
     def test_typo_should_resolve_when_candidate_is_unique(self) -> None:
         """Verify typo should resolve when candidate is unique."""
         result = self.parse("苏洲最近一个月的数据")
 
-        self.assertEqual(result.slots.get("city_name"), "苏州市")
+        self.assertEqual(result.slots.get("city"), "苏州市")
 
     def test_batch_phrase_without_explicit_time_should_clarify(self) -> None:
         """Verify batch-like filler words no longer imply latest-batch queries."""
@@ -57,8 +57,7 @@ class RegionAliasResolutionTest(unittest.TestCase):
 
         self.assertEqual(result.intent, "clarification_needed")
         self.assertEqual(result.answer_type, "clarification_answer")
-        self.assertNotIn("batch_id", result.slots)
-        self.assertNotIn("city_name", result.slots)
+        self.assertEqual(result.slots, {})
 
     def test_batch_phrase_with_explicit_time_should_ignore_filler(self) -> None:
         """Verify batch-like filler words are ignored when real time exists."""
@@ -66,9 +65,9 @@ class RegionAliasResolutionTest(unittest.TestCase):
 
         self.assertEqual(result.intent, "soil_recent_summary")
         self.assertEqual(result.answer_type, "soil_summary_answer")
-        self.assertEqual(result.slots.get("city_name"), "南京市")
+        self.assertEqual(result.slots.get("city"), "南京市")
         self.assertEqual(result.slots.get("time_range"), "last_7_days")
-        self.assertNotIn("batch_id", result.slots)
+        self.assertTrue({"city", "time_range", "time_explicit", "raw_time_expr", "follow_up"}.issuperset(result.slots.keys()))
 
     def test_ambiguous_alias_should_clarify_without_query(self) -> None:
         """Verify ambiguous alias should clarify without query."""
@@ -78,7 +77,6 @@ class RegionAliasResolutionTest(unittest.TestCase):
                 "canonical_name": "甲新区",
                 "region_level": "county",
                 "parent_city_name": "甲市",
-                "parent_county_name": None,
                 "alias_source": "manual",
             },
             {
@@ -86,7 +84,6 @@ class RegionAliasResolutionTest(unittest.TestCase):
                 "canonical_name": "乙新区",
                 "region_level": "county",
                 "parent_city_name": "乙市",
-                "parent_county_name": None,
                 "alias_source": "manual",
             },
         ]

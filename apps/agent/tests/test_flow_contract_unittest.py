@@ -155,14 +155,14 @@ class FlowContractTest(unittest.TestCase):
                     "continue",
                     {
                         "answer_type": "soil_detail_answer",
-                        "merged_slots": {"device_sn": "SNS00204333"},
+                        "merged_slots": {"sn": "SNS00204333"},
                         "query_result": {
                             "records": [
                                 {
-                                    "device_sn": "SNS00204333",
-                                    "sample_time": "2026-04-21 10:00:00",
-                                    "city_name": "南京市",
-                                    "county_name": "江宁区",
+                                    "sn": "SNS00204333",
+                                    "create_time": "2026-04-21 10:00:00",
+                                    "city": "南京市",
+                                    "county": "江宁区",
                                     "water20cm": 42,
                                     "display_label": "重旱",
                                 }

@@ -7,8 +7,8 @@ export async function POST(request: NextRequest) {
   try {
     await requireAdminRequestUser(request);
     const payload = await request.json();
-    const recordIds = Array.isArray(payload.record_ids) ? payload.record_ids : [];
-    const result = await removeSoilRecords(recordIds);
+    const ids = Array.isArray(payload.ids) ? payload.ids : [];
+    const result = await removeSoilRecords(ids);
     return NextResponse.json(result);
   } catch (error) {
     if (error instanceof AuthRequestError) {

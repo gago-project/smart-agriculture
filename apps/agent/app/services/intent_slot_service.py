@@ -23,7 +23,28 @@ DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
 TOP_N_RE = re.compile(r"前\s*(\d+)")
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
-BATCH_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
+DEPRECATED_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
+SUPPORTED_SLOT_KEYS = {
+    "aggregation",
+    "audience",
+    "batch_devices",
+    "city",
+    "county",
+    "end_time",
+    "follow_up",
+    "metric",
+    "need_template",
+    "raw_time_expr",
+    "render_mode",
+    "sn",
+    "start_time",
+    "target_date",
+    "time_explicit",
+    "time_range",
+    "top_n",
+    "trend",
+    "_region_resolution_status",
+}
 
 
 @dataclass(frozen=True)
@@ -63,7 +84,7 @@ class IntentSlotService:
         slots: dict[str, Any] = {}
         device_match = DEVICE_RE.search(text)
         if device_match:
-            slots["device_sn"] = device_match.group(0).upper()
+            slots["sn"] = device_match.group(0).upper()
         date_match = DATE_RE.search(text)
         if date_match:
             slots["target_date"] = date_match.group(1)
@@ -75,11 +96,6 @@ class IntentSlotService:
             slots.update(region_resolution["slots"])
         elif region_resolution["status"] == "ambiguous":
             return ParseResult("clarification_needed", "clarification_answer", slots)
-
-        if "乡镇" in text and "town_name" not in slots:
-            candidate = text.split("乡镇")[0]
-            if candidate:
-                slots["town_name"] = f"{candidate}乡镇"
 
         if self._batch_phrase_requires_explicit_time(text):
             return ParseResult("clarification_needed", "clarification_answer", slots)
@@ -96,7 +112,7 @@ class IntentSlotService:
             or compact in {"有没有问题", "那个情况呢", "这种情况呢"}
             or (
                 compact_no_punctuation.endswith("呢")
-                and (slots.get("device_sn") or slots.get("city_name") or slots.get("county_name") or slots.get("town_name") or slots.get("metric"))
+                and (slots.get("sn") or slots.get("city") or slots.get("county") or slots.get("metric"))
             )
         )
         slots["follow_up"] = bool(follow_up_detected)
@@ -143,20 +159,20 @@ class IntentSlotService:
             return ParseResult("soil_recent_summary", "soil_summary_answer", slots)
         if compact == "有没有问题":
             return ParseResult("clarification_needed", "clarification_answer", slots)
-        if slots.get("device_sn") and "异常" in text:
+        if slots.get("sn") and "异常" in text:
             return ParseResult("soil_device_query", "soil_detail_answer", slots)
         if any(token in text for token in ["异常", "重旱", "涝渍", "需要关注"]):
             return ParseResult("soil_anomaly_query", "soil_anomaly_answer", slots)
         if any(token in text for token in ["排名", "最严重", "Top", "top", "前"]) and "预警" not in text:
             slots.setdefault("aggregation", "county")
             return ParseResult("soil_severity_ranking", "soil_ranking_answer", slots)
-        if slots.get("trend") and (slots.get("device_sn") or slots.get("batch_devices") == "all" or slots.get("aggregation") == "device"):
+        if slots.get("trend") and (slots.get("sn") or slots.get("batch_devices") == "all" or slots.get("aggregation") == "device"):
             return ParseResult("soil_device_query", "soil_detail_answer", slots)
         if slots.get("trend"):
             return ParseResult("soil_region_query", "soil_detail_answer", slots)
-        if slots.get("device_sn"):
+        if slots.get("sn"):
             return ParseResult("soil_device_query", "soil_detail_answer", slots)
-        if slots.get("city_name") or slots.get("county_name") or slots.get("town_name") or slots.get("follow_up"):
+        if slots.get("city") or slots.get("county") or slots.get("follow_up"):
             return ParseResult("soil_region_query", "soil_detail_answer", slots)
         return ParseResult("soil_recent_summary", "soil_summary_answer", slots)
 
@@ -240,13 +256,13 @@ class IntentSlotService:
     @staticmethod
     def _has_batch_filler(text: str) -> bool:
         """Return whether text contains deprecated batch-like filler words."""
-        return any(token in text for token in BATCH_FILLER_TOKENS)
+        return any(token in text for token in DEPRECATED_FILLER_TOKENS)
 
     @staticmethod
     def _strip_batch_fillers(text: str) -> str:
         """Remove batch-like filler words without assigning batch query semantics."""
         result = text
-        for token in BATCH_FILLER_TOKENS:
+        for token in DEPRECATED_FILLER_TOKENS:
             result = result.replace(token, "")
         return result
 
@@ -282,13 +298,8 @@ class IntentSlotService:
 
     @staticmethod
     def _sanitize_slots(slots: dict[str, Any]) -> dict[str, Any]:
-        """Drop deprecated Agent batch-query slots from parser outputs."""
-        sanitized = dict(slots)
-        sanitized.pop("batch_id", None)
-        sanitized.pop("latest_batch", None)
-        if sanitized.get("time_range") == "latest_batch":
-            sanitized.pop("time_range", None)
-        return sanitized
+        """Keep only supported Agent slots."""
+        return {key: value for key, value in slots.items() if key in SUPPORTED_SLOT_KEYS}
 
 
 __all__ = ["IntentSlotService", "ParseResult"]

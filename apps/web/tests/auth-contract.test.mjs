@@ -22,7 +22,7 @@ test('admin repository no longer falls back to runtime file state', () => {
 test('soil admin paginated listing avoids prepared execute for LIMIT/OFFSET', () => {
   assert.match(
     repositorySource,
-    /const \[rows\] = await connection\.query\([\s\S]*ORDER BY sample_time DESC[\s\S]*LIMIT \? OFFSET \?/,
+    /const \[rows\] = await connection\.query\([\s\S]*ORDER BY create_time DESC[\s\S]*LIMIT \? OFFSET \?/,
   );
 });
 
