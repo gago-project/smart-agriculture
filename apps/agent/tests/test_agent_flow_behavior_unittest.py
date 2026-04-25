@@ -28,7 +28,6 @@ SUPPORTED_SLOT_KEYS = {
     "time_explicit",
     "time_range",
     "top_n",
-    "trend",
 }
 
 
@@ -182,9 +181,9 @@ class AgentFlowBehaviorTest(unittest.TestCase):
         self.assertFalse(result["should_query"])
         self.assertEqual(result["intent"], "out_of_scope")
 
-    def test_all_devices_trend_should_block(self):
-        """Verify all devices trend should block."""
-        result = self.service.chat("查所有设备最近90天趋势", session_id="gate", turn_id=1)
+    def test_all_devices_query_should_block(self):
+        """Verify all devices batch query should block."""
+        result = self.service.chat("查所有设备最近90天墒情", session_id="gate", turn_id=1)
 
         self.assertEqual(result["intent"], "soil_device_query")
         self.assertEqual(result["answer_type"], "clarification_answer")

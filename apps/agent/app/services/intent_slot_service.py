@@ -42,7 +42,6 @@ SUPPORTED_SLOT_KEYS = {
     "time_explicit",
     "time_range",
     "top_n",
-    "trend",
     "_region_resolution_status",
 }
 
@@ -122,8 +121,6 @@ class IntentSlotService:
 
         if any(token in text for token in ["所有设备", "全部设备"]):
             slots["batch_devices"] = "all"
-        if "趋势" in text:
-            slots["trend"] = "daily" if "每天" in text else "series"
         if "全省" in text:
             slots["aggregation"] = "province"
         if "设备" in text:
@@ -166,10 +163,6 @@ class IntentSlotService:
         if any(token in text for token in ["排名", "最严重", "Top", "top", "前"]) and "预警" not in text:
             slots.setdefault("aggregation", "county")
             return ParseResult("soil_severity_ranking", "soil_ranking_answer", slots)
-        if slots.get("trend") and (slots.get("sn") or slots.get("batch_devices") == "all" or slots.get("aggregation") == "device"):
-            return ParseResult("soil_device_query", "soil_detail_answer", slots)
-        if slots.get("trend"):
-            return ParseResult("soil_region_query", "soil_detail_answer", slots)
         if slots.get("sn"):
             return ParseResult("soil_device_query", "soil_detail_answer", slots)
         if slots.get("city") or slots.get("county") or slots.get("follow_up"):

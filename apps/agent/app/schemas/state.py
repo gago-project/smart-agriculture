@@ -65,7 +65,6 @@ class SlotBundle(BundleModel):
     follow_up: bool = False
     top_n: int | None = None
     batch_devices: str | None = None
-    trend: str | None = None
     aggregation: str | None = None
     metric: str | None = None
     audience: str | None = None

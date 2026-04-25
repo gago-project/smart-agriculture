@@ -57,7 +57,6 @@ class ExecutionGateService:
 
         top_n = int(slots.get("top_n") or 0)
         aggregation = slots.get("aggregation")
-        trend = slots.get("trend")
         batch_devices = slots.get("batch_devices")
 
         if intent == "soil_severity_ranking" and top_n > self.MAX_TOP_N:
@@ -99,30 +98,17 @@ class ExecutionGateService:
                 "clarify_message": "异常查询时间范围过大，请缩小到近 180 天内后再查。",
             }
 
-        if intent == "soil_device_query" and trend and batch_devices == "all":
+        if intent == "soil_device_query" and batch_devices == "all":
             return {
                 **result,
                 "decision": "block",
                 "allow_execute": False,
                 "policy_decision": "block",
-                "reason": "batch_device_trend_blocked",
-                "violations": [{"field": "batch_devices", "reason": "all_devices_trend_not_allowed"}],
-                "message": "暂不支持批量设备趋势查询。",
+                "reason": "batch_device_query_blocked",
+                "violations": [{"field": "batch_devices", "reason": "all_devices_query_not_allowed"}],
+                "message": "暂不支持批量设备查询。",
                 "blocked": True,
-                "block_message": "暂不支持批量设备趋势查询，请指定单个设备后再试。",
-            }
-
-        if trend and aggregation == "province":
-            return {
-                **result,
-                "decision": "clarify",
-                "allow_execute": False,
-                "policy_decision": "clarify",
-                "reason": "province_trend_requires_scope",
-                "violations": [{"field": "aggregation", "reason": "province_trend_requires_narrower_scope"}],
-                "message": "趋势查询范围过大，请缩小后重试。",
-                "must_clarify": True,
-                "clarify_message": "趋势查询范围过大，请补充地区或设备后再查。",
+                "block_message": "暂不支持批量设备查询，请指定单个设备后再试。",
             }
         return result
 

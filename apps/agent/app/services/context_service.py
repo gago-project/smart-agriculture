@@ -51,7 +51,7 @@ class ContextService:
                 if value and not merged.get(key):
                     merged[key] = value
                     context_used[key] = value
-            for key in ("metric", "top_n", "render_mode", "audience", "aggregation", "trend"):
+            for key in ("metric", "top_n", "render_mode", "audience", "aggregation"):
                 value = query_frame.get(key)
                 if value is not None and merged.get(key) is None:
                     merged[key] = value
@@ -154,7 +154,6 @@ class ContextService:
                 "render_mode": merged_slots.get("render_mode"),
                 "audience": merged_slots.get("audience"),
                 "aggregation": merged_slots.get("aggregation"),
-                "trend": merged_slots.get("trend"),
             },
             "resolved_window": {
                 "start_time": business_time.get("start_time") or merged_slots.get("resolved_start_time"),

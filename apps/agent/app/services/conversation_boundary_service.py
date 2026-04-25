@@ -6,7 +6,7 @@ from typing import Any
 
 
 ENTITY_FIELDS = ("city", "county", "sn")
-FRAME_FIELDS = ("metric", "top_n", "render_mode", "audience", "aggregation", "trend")
+FRAME_FIELDS = ("metric", "top_n", "render_mode", "audience", "aggregation")
 
 
 class ConversationBoundaryService:
