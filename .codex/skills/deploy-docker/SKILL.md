@@ -136,10 +136,10 @@ source scripts/dev/load-root-env.sh
 # Docker 模式：agent 固定在 8000
 BASE_WEB_LOCAL="http://localhost:3000"
 BASE_AGENT_LOCAL="http://localhost:8000"
-HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
-
+# 烟雾测试专用账号 gago-1，凭据来自 .env（HEALTH_PASSWORD 已由上方 load-root-env.sh 加载）
+HEALTH_USERNAME=${HEALTH_USERNAME:-gago-1}
 if [ -z "${HEALTH_PASSWORD:-}" ]; then
-  echo "❌ 缺少 HEALTH_PASSWORD，请检查 .env 或 Keychain"; exit 1
+  echo "❌ HEALTH_PASSWORD 未加载，请确认 .env 中已配置"; exit 1
 fi
 
 smoke_test() {

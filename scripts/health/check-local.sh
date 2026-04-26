@@ -2,11 +2,11 @@
 set -euo pipefail
 
 BASE_WEB=${BASE_WEB:-http://localhost:3000}
-HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
+HEALTH_USERNAME=${HEALTH_USERNAME:-gago-1}
 HEALTH_PASSWORD=${HEALTH_PASSWORD:-}
 
 if [ -z "$HEALTH_PASSWORD" ]; then
-  echo "请通过 HEALTH_PASSWORD 提供 ${HEALTH_USERNAME} 的数据库登录密码，脚本不再内置默认密码。"
+  echo "❌ 缺少 HEALTH_PASSWORD。请确认 .env 中已配置 HEALTH_PASSWORD，或通过环境变量传入。"
   exit 1
 fi
 
