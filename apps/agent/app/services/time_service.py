@@ -105,6 +105,38 @@ class TimeResolveService:
                     "end_time": self._format_datetime(self._end_of_day(latest_dt)),
                 }
             )
+        elif resolved_time_range == "last_calendar_month" and latest_dt:
+            first_of_this_month = latest_dt.replace(day=1)
+            last_day_of_prev = first_of_this_month - timedelta(days=1)
+            first_day_of_prev = last_day_of_prev.replace(day=1)
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    "start_time": self._format_datetime(self._start_of_day(first_day_of_prev)),
+                    "end_time": self._format_datetime(self._end_of_day(last_day_of_prev)),
+                }
+            )
+        elif resolved_time_range == "current_calendar_month" and latest_dt:
+            first_day = latest_dt.replace(day=1)
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    "start_time": self._format_datetime(self._start_of_day(first_day)),
+                    "end_time": self._format_datetime(self._end_of_day(latest_dt)),
+                }
+            )
+        elif resolved_time_range == "current_week" and latest_dt:
+            current_monday = latest_dt.date() - timedelta(days=latest_dt.weekday())
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    "start_time": self._format_datetime(datetime.combine(current_monday, time.min)),
+                    "end_time": self._format_datetime(self._end_of_day(latest_dt)),
+                }
+            )
         elif resolved_time_range in {"last_2_years", "last_3_years", "last_5_years"} and latest_dt:
             years = {"last_2_years": 730, "last_3_years": 1095, "last_5_years": 1825}[resolved_time_range]
             payload.update(

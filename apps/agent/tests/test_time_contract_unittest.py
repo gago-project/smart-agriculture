@@ -373,5 +373,39 @@ class TimeContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
 
+    def test_last_calendar_month_should_resolve_to_march_2026(self) -> None:
+        """Verify last_calendar_month from April 2026 gives all of March 2026."""
+        result = self.time_service.resolve(
+            slots={"time_range": "last_calendar_month"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2026-03-01 00:00:00")
+        self.assertEqual(result["end_time"], "2026-03-31 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "last_calendar_month")
+        self.assertEqual(result["resolution_mode"], "relative_window")
+
+    def test_current_calendar_month_should_resolve_to_april_2026(self) -> None:
+        """Verify current_calendar_month from Apr 13 gives Apr 1 to Apr 13."""
+        result = self.time_service.resolve(
+            slots={"time_range": "current_calendar_month"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2026-04-01 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-13 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "current_calendar_month")
+        self.assertEqual(result["resolution_mode"], "relative_window")
+
+    def test_current_week_should_resolve_to_monday_only(self) -> None:
+        """Verify current_week from Monday Apr 13 gives Apr 13 only (Mon=day 1)."""
+        result = self.time_service.resolve(
+            slots={"time_range": "current_week"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2026-04-13 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-13 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "current_week")
+        self.assertEqual(result["resolution_mode"], "relative_window")
+
+
 if __name__ == "__main__":
     unittest.main()
