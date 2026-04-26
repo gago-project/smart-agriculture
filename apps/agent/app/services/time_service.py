@@ -15,6 +15,8 @@ from typing import Any
 from app.repositories.soil_repository import SoilRepository
 
 LAST_N_DAYS_RANGE_RE = re.compile(r"^last_(\d+)_days$")
+ANCHOR_BEFORE_RE = re.compile(r"^anchor_before_(\d+)_days$")
+ANCHOR_AFTER_RE = re.compile(r"^anchor_after_(\d+)_days$")
 
 
 class TimeResolveService:
@@ -110,6 +112,27 @@ class TimeResolveService:
                     **self._day_window(latest_dt, days=years),
                 }
             )
+        elif ANCHOR_BEFORE_RE.match(resolved_time_range):
+            anchor_before_match = ANCHOR_BEFORE_RE.match(resolved_time_range)
+            n = int(anchor_before_match.group(1))
+            anchor_dt = self._parse_date(slots.get("target_date"))
+            if anchor_dt:
+                payload.update({
+                    "resolution_mode": "anchor_window",
+                    "time_basis": "anchor_date",
+                    **self._day_window(anchor_dt, days=n),
+                })
+        elif ANCHOR_AFTER_RE.match(resolved_time_range):
+            anchor_after_match = ANCHOR_AFTER_RE.match(resolved_time_range)
+            n = int(anchor_after_match.group(1))
+            anchor_dt = self._parse_date(slots.get("target_date"))
+            if anchor_dt:
+                payload.update({
+                    "resolution_mode": "anchor_window",
+                    "time_basis": "anchor_date",
+                    "start_time": self._format_datetime(self._start_of_day(anchor_dt)),
+                    "end_time": self._format_datetime(self._end_of_day(anchor_dt + timedelta(days=n - 1))),
+                })
         elif dynamic_days and latest_dt:
             payload.update(
                 {
@@ -170,6 +193,16 @@ class TimeResolveService:
     def _end_of_day(value: datetime) -> datetime:
         """Return 23:59:59 for the date of `value`."""
         return datetime.combine(value.date(), time.max.replace(microsecond=0))
+
+    @staticmethod
+    def _parse_date(value: str | None) -> datetime | None:
+        """Parse a bare YYYY-MM-DD anchor date into a datetime at midnight."""
+        if not value:
+            return None
+        try:
+            return datetime.strptime(value, "%Y-%m-%d")
+        except ValueError:
+            return None
 
     @staticmethod
     def _parse_datetime(value: str | None) -> datetime | None:

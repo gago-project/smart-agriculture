@@ -217,6 +217,49 @@ class TimeContractTest(unittest.TestCase):
 
         asyncio.run(run_case())
 
+    def test_anchor_before_50_days_should_resolve_to_correct_window(self) -> None:
+        """Verify anchor_before_50_days ending on 2025-12-01 gives correct boundaries.
+
+        Dec 1 inclusive, counting back 50 calendar days:
+        Oct 13 (day 1) ... Dec 1 (day 50) — 19 Oct days + 30 Nov days + 1 Dec day = 50.
+        """
+        result = self.time_service.resolve(
+            slots={"time_range": "anchor_before_50_days", "target_date": "2025-12-01"},
+        )
+        self.assertEqual(result["start_time"], "2025-10-13 00:00:00")
+        self.assertEqual(result["end_time"], "2025-12-01 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "anchor_before_50_days")
+        self.assertEqual(result["resolution_mode"], "anchor_window")
+        self.assertEqual(result["time_basis"], "anchor_date")
+
+    def test_anchor_after_30_days_should_resolve_to_correct_window(self) -> None:
+        """Verify anchor_after_30_days starting on 2025-12-01 gives correct boundaries.
+
+        Dec 1 inclusive, counting forward 30 calendar days:
+        Dec 1 (day 1) ... Dec 30 (day 30).
+        """
+        result = self.time_service.resolve(
+            slots={"time_range": "anchor_after_30_days", "target_date": "2025-12-01"},
+        )
+        self.assertEqual(result["start_time"], "2025-12-01 00:00:00")
+        self.assertEqual(result["end_time"], "2025-12-30 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "anchor_after_30_days")
+        self.assertEqual(result["resolution_mode"], "anchor_window")
+        self.assertEqual(result["time_basis"], "anchor_date")
+
+    def test_anchor_window_does_not_need_latest_business_time_fetch(self) -> None:
+        """Verify anchor ranges skip the latest_business_time DB query."""
+        import asyncio
+
+        async def run_case() -> None:
+            result = await self.query_service.fetch_latest_business_time_if_needed(
+                slots={"time_range": "anchor_before_50_days", "target_date": "2025-12-01"},
+                intent="soil_severity_ranking",
+            )
+            self.assertIsNone(result)
+
+        asyncio.run(run_case())
+
 
 if __name__ == "__main__":
     unittest.main()

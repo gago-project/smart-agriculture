@@ -24,7 +24,8 @@ class SoilQueryService:
     async def fetch_latest_business_time_if_needed(self, *, slots: dict[str, Any], intent: str) -> str | None:
         """Fetch latest business time only for relative/latest time windows."""
         del intent
-        if slots.get("time_range") == "exact_date":
+        time_range = str(slots.get("time_range") or "")
+        if time_range == "exact_date" or time_range.startswith("anchor_"):
             return None
         return await self.repository.latest_business_time_async()
 
