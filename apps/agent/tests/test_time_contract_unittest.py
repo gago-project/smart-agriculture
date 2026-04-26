@@ -407,5 +407,40 @@ class TimeContractTest(unittest.TestCase):
         self.assertEqual(result["resolution_mode"], "relative_window")
 
 
+    def test_calendar_month_march_should_parse_to_label_and_target_month(self) -> None:
+        """Verify '3月份墒情' produces time_range=calendar_month and target_month='3'."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("3月份墒情", "cal-month-3")
+            self.assertEqual(result.slots.get("time_range"), "calendar_month")
+            self.assertEqual(result.slots.get("target_month"), "3")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_calendar_month_march_should_resolve_to_march_2026(self) -> None:
+        """Verify calendar_month target_month=3 from April 2026 gives all of March 2026."""
+        result = self.time_service.resolve(
+            slots={"time_range": "calendar_month", "target_month": "3"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2026-03-01 00:00:00")
+        self.assertEqual(result["end_time"], "2026-03-31 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "calendar_month")
+        self.assertEqual(result["resolution_mode"], "relative_window")
+
+    def test_calendar_month_may_should_resolve_to_may_2025(self) -> None:
+        """Verify calendar_month target_month=5 from April 2026 infers year 2025."""
+        result = self.time_service.resolve(
+            slots={"time_range": "calendar_month", "target_month": "5"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2025-05-01 00:00:00")
+        self.assertEqual(result["end_time"], "2025-05-31 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "calendar_month")
+
+
 if __name__ == "__main__":
     unittest.main()

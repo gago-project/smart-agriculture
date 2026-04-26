@@ -27,6 +27,7 @@ RELATIVE_ANCHOR_DAYS_RE = re.compile(r"(\d{1,4})\s*天前\s*的\s*前\s*(\d{1,4}
 N_DAYS_AGO_RE = re.compile(r"(\d{1,4})\s*天前")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
 N_WEEKS_RE = re.compile(r"(?:过去|近)\s*(\d{1,3})\s*周")
+CALENDAR_MONTH_RE = re.compile(r"(?<!\d)(?<!年)(\d{1,2})\s*月份?(?!\d)")
 DEPRECATED_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
 SUPPORTED_SLOT_KEYS = {
     "aggregation",
@@ -43,6 +44,7 @@ SUPPORTED_SLOT_KEYS = {
     "sn",
     "start_time",
     "target_date",
+    "target_month",
     "time_explicit",
     "time_range",
     "top_n",
@@ -108,6 +110,10 @@ class IntentSlotService:
             slots["time_range"] = time_range
             slots["time_explicit"] = True
             slots["raw_time_expr"] = raw_time_expr
+            if time_range == "calendar_month":
+                cal_m = CALENDAR_MONTH_RE.search(semantic_text)
+                if cal_m:
+                    slots["target_month"] = cal_m.group(1)
         compact = text.replace(" ", "")
         compact_no_punctuation = compact.rstrip("？?。.!！")
         follow_up_detected = (
@@ -261,6 +267,11 @@ class IntentSlotService:
             return "last_5_years", "过去5年" if "过去5年" in text else "近5年"
         if "近三年" in text or "过去三年" in text:
             return "last_3_years", "近三年" if "近三年" in text else "过去三年"
+        cal_month_match = CALENDAR_MONTH_RE.search(text)
+        if cal_month_match:
+            month_str = cal_month_match.group(1)
+            if 1 <= int(month_str) <= 12:
+                return "calendar_month", cal_month_match.group(0)
         return None, None
 
     def _is_summary_question(self, text: str) -> bool:
@@ -298,7 +309,7 @@ class IntentSlotService:
 
     def _has_explicit_time_expression(self, text: str) -> bool:
         """Return whether text contains a user-facing time expression."""
-        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text) or N_DAYS_AGO_RE.search(text) or N_WEEKS_RE.search(text):
+        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text) or N_DAYS_AGO_RE.search(text) or N_WEEKS_RE.search(text) or CALENDAR_MONTH_RE.search(text):
             return True
         return any(
             token in text

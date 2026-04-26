@@ -9,6 +9,7 @@ from __future__ import annotations
 
 
 import re
+import calendar as _calendar
 from datetime import datetime, time, timedelta
 from typing import Any
 
@@ -137,6 +138,21 @@ class TimeResolveService:
                     "end_time": self._format_datetime(self._end_of_day(latest_dt)),
                 }
             )
+        elif resolved_time_range == "calendar_month" and slots.get("target_month") and latest_dt:
+            month = int(slots["target_month"])
+            if 1 <= month <= 12:
+                year = latest_dt.year if month <= latest_dt.month else latest_dt.year - 1
+                last_day_num = _calendar.monthrange(year, month)[1]
+                first_day = datetime(year, month, 1)
+                last_day = datetime(year, month, last_day_num)
+                payload.update(
+                    {
+                        "resolution_mode": "relative_window",
+                        "time_basis": "latest_business_time",
+                        "start_time": self._format_datetime(self._start_of_day(first_day)),
+                        "end_time": self._format_datetime(self._end_of_day(last_day)),
+                    }
+                )
         elif resolved_time_range in {"last_2_years", "last_3_years", "last_5_years"} and latest_dt:
             years = {"last_2_years": 730, "last_3_years": 1095, "last_5_years": 1825}[resolved_time_range]
             payload.update(
