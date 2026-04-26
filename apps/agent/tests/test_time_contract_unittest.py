@@ -177,6 +177,17 @@ class TimeContractTest(unittest.TestCase):
 
         asyncio.run(run_case())
 
+    def test_relative_anchor_phrase_should_not_produce_top_n(self) -> None:
+        """Verify '7天前的前7天' does not produce a top_n slot."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("7天前的前7天的情况", "fix-relative-top-n")
+            self.assertNotIn("top_n", result.slots)
+
+        asyncio.run(run_case())
+
     def test_anchor_before_should_parse_to_correct_time_range_and_target_date(self) -> None:
         """Verify '2025-12-01之前50天' sets time_range and target_date correctly."""
         import asyncio

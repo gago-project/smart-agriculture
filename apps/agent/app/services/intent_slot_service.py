@@ -20,7 +20,7 @@ from app.services.region_service import RegionAliasResolver
 
 
 DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
-TOP_N_RE = re.compile(r"(?<!之)前\s*(\d+)")
+TOP_N_RE = re.compile(r"(?<!之)前\s*(\d+)(?!\s*天)")
 DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})(?!\d)")
 ANCHOR_DAYS_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})\s*(之前|之后)\s*(\d{1,4})\s*天")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
