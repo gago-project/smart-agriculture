@@ -1,4 +1,4 @@
 interface:
-  display_name: "Smart Agriculture Release"
-  short_description: "Update and verify the Smart Agriculture release"
-  default_prompt: "Use this skill when updating the Smart Agriculture repo, restarting localhost services, or verifying ai.luyaxiang.com."
+  display_name: "Smart Agriculture Release (Process Mode)"
+  short_description: "Update code and restart local node + uvicorn services — never Docker"
+  default_prompt: "Use this skill when updating the Smart Agriculture repo and restarting localhost services in PROCESS MODE (node + uvicorn, never Docker). Use this for: git pull, rebuild web, restart agent/web processes, verify ai.luyaxiang.com. Do NOT use this skill if the user wants Docker mode."

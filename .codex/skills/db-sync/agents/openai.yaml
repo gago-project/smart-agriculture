@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smart Agriculture DB Sync"
+  short_description: "Sync Docker MySQL schema/data with local development state"
+  default_prompt: "Use this skill when Docker MySQL is out of sync with local development — after schema changes, seed data updates, adding soil or user data, or switching between process mode and Docker mode."
