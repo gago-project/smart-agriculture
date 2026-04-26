@@ -20,7 +20,7 @@ from app.services.region_service import RegionAliasResolver
 
 
 DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
-TOP_N_RE = re.compile(r"前\s*(\d+)")
+TOP_N_RE = re.compile(r"(?<!之)前\s*(\d+)")
 DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
 DEPRECATED_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")

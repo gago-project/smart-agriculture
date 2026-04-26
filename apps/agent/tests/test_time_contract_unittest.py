@@ -155,6 +155,28 @@ class TimeContractTest(unittest.TestCase):
 
         asyncio.run(run_case())
 
+    def test_anchor_before_phrase_should_not_produce_top_n(self) -> None:
+        """Verify '之前50天' is not misread as top_n=50."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("2025-12-01之前50天的哪些设备最严重", "fix-top-n")
+            self.assertNotEqual(result.slots.get("top_n"), 50)
+
+        asyncio.run(run_case())
+
+    def test_explicit_top_n_still_works_after_fix(self) -> None:
+        """Verify 前5 still produces top_n=5 after the lookbehind fix."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("过去一个月前5个最严重的设备", "fix-top-n-ok")
+            self.assertEqual(result.slots.get("top_n"), 5)
+
+        asyncio.run(run_case())
+
 
 if __name__ == "__main__":
     unittest.main()
