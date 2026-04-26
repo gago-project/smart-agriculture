@@ -21,7 +21,8 @@ from app.services.region_service import RegionAliasResolver
 
 DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
 TOP_N_RE = re.compile(r"(?<!之)前\s*(\d+)")
-DATE_RE = re.compile(r"\b(20\d{2}-\d{2}-\d{2})\b")
+DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})(?!\d)")
+ANCHOR_DAYS_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})\s*(之前|之后)\s*(\d{1,4})\s*天")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
 DEPRECATED_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
 SUPPORTED_SLOT_KEYS = {
@@ -193,6 +194,16 @@ class IntentSlotService:
 
     def _parse_time_range(self, text: str) -> tuple[str | None, str | None]:
         """Map user time phrases to the finite time-window vocabulary."""
+        # Anchored window must be checked before plain date so "2025-12-01之前50天"
+        # is not swallowed by the exact_date branch.
+        anchor_match = ANCHOR_DAYS_RE.search(text)
+        if anchor_match:
+            anchor_date = anchor_match.group(1)
+            direction = anchor_match.group(2)   # "之前" or "之后"
+            n_days = int(anchor_match.group(3))
+            direction_key = "before" if direction == "之前" else "after"
+            raw_expr = f"{anchor_date}{direction}{n_days}天"
+            return f"anchor_{direction_key}_{n_days}_days", raw_expr
         if DATE_RE.search(text):
             return "exact_date", DATE_RE.search(text).group(1)
         if "前天" in text:

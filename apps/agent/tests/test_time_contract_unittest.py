@@ -178,5 +178,44 @@ class TimeContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
 
+    def test_anchor_before_should_parse_to_correct_time_range_and_target_date(self) -> None:
+        """Verify '2025-12-01之前50天' sets time_range and target_date correctly."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("2025-12-01之前50天的哪些设备最严重", "anchor-before")
+            self.assertEqual(result.slots.get("time_range"), "anchor_before_50_days")
+            self.assertEqual(result.slots.get("target_date"), "2025-12-01")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_anchor_after_should_parse_to_correct_time_range_and_target_date(self) -> None:
+        """Verify '2025-12-01之后30天' sets time_range and target_date correctly."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("2025-12-01之后30天整体墒情怎么样", "anchor-after")
+            self.assertEqual(result.slots.get("time_range"), "anchor_after_30_days")
+            self.assertEqual(result.slots.get("target_date"), "2025-12-01")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_plain_iso_date_still_resolves_as_exact_date(self) -> None:
+        """Verify bare YYYY-MM-DD with no direction still gives exact_date."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("2025-12-01如东县墒情", "exact-date")
+            self.assertEqual(result.slots.get("time_range"), "exact_date")
+            self.assertEqual(result.slots.get("target_date"), "2025-12-01")
+
+        asyncio.run(run_case())
+
+
 if __name__ == "__main__":
     unittest.main()
