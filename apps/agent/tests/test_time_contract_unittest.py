@@ -297,5 +297,32 @@ class TimeContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
 
+    def test_n_days_ago_3_should_resolve_to_single_day(self) -> None:
+        """Verify n_days_ago_3 resolves to the full day 3 days before latest_business_time."""
+        result = self.time_service.resolve(
+            slots={"time_range": "n_days_ago_3"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2026-04-10 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-10 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "n_days_ago_3")
+        self.assertEqual(result["resolution_mode"], "relative_window")
+
+    def test_relative_before_7_at_7_ago_should_resolve_to_correct_window(self) -> None:
+        """Verify relative_before_7_at_7_ago gives the 7-day window ending 7 days ago.
+
+        Latest=Apr 13. Anchor=Apr 6 (7 days ago). 7-day window ending Apr 6:
+        Mar 31 (day 1) ... Apr 6 (day 7).
+        """
+        result = self.time_service.resolve(
+            slots={"time_range": "relative_before_7_at_7_ago"},
+            latest_business_time="2026-04-13 23:59:17",
+        )
+        self.assertEqual(result["start_time"], "2026-03-31 00:00:00")
+        self.assertEqual(result["end_time"], "2026-04-06 23:59:59")
+        self.assertEqual(result["resolved_time_range"], "relative_before_7_at_7_ago")
+        self.assertEqual(result["resolution_mode"], "relative_window")
+
+
 if __name__ == "__main__":
     unittest.main()

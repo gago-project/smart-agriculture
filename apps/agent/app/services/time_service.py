@@ -17,6 +17,8 @@ from app.repositories.soil_repository import SoilRepository
 LAST_N_DAYS_RANGE_RE = re.compile(r"^last_(\d+)_days$")
 ANCHOR_BEFORE_RE = re.compile(r"^anchor_before_(\d+)_days$")
 ANCHOR_AFTER_RE = re.compile(r"^anchor_after_(\d+)_days$")
+N_DAYS_AGO_LABEL_RE = re.compile(r"^n_days_ago_(\d+)$")
+RELATIVE_BEFORE_AT_AGO_RE = re.compile(r"^relative_before_(\d+)_at_(\d+)_ago$")
 
 
 class TimeResolveService:
@@ -129,6 +131,26 @@ class TimeResolveService:
                 "start_time": self._format_datetime(self._start_of_day(anchor_dt)),
                 "end_time": self._format_datetime(self._end_of_day(anchor_dt + timedelta(days=n - 1))),
             })
+        elif (m := N_DAYS_AGO_LABEL_RE.match(resolved_time_range)) and latest_dt:
+            n = int(m.group(1))
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    **self._offset_day_window(latest_dt, day_offset=n),
+                }
+            )
+        elif (m := RELATIVE_BEFORE_AT_AGO_RE.match(resolved_time_range)) and latest_dt:
+            before_days = int(m.group(1))
+            n_ago = int(m.group(2))
+            anchor = latest_dt - timedelta(days=n_ago)
+            payload.update(
+                {
+                    "resolution_mode": "relative_window",
+                    "time_basis": "latest_business_time",
+                    **self._day_window(anchor, days=before_days),
+                }
+            )
         elif dynamic_days and latest_dt:
             payload.update(
                 {
