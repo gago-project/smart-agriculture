@@ -28,7 +28,6 @@ ROUTES = {
     "execution_gate": {
         "clarify_end": "clarify_end",
         "block_end": "block_end",
-        "shrink_and_continue": "soil_data_query",
         "continue": "soil_data_query",
     },
     "soil_data_query": {"continue": "soil_rule_engine", "fallback": "fallback_guard"},

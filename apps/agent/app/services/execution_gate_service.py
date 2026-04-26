@@ -1,15 +1,15 @@
 """Execution policy gate for expensive or unsafe data requests.
 
 The gate runs after time/region resolution and before SQL execution.  Its job
-is to either pass, ask for clarification, block, or shrink a request.  This is
-where we keep hard product limits so downstream query code can stay simple and
-does not need to second-guess user scope.
+is to either pass, ask for clarification, or block a request.  This is where
+we keep hard product limits so downstream query code can stay simple and does
+not need to second-guess user scope.
 """
 
 from __future__ import annotations
 
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Any
 
 
@@ -33,9 +33,6 @@ class ExecutionGateService:
             "message": "",
             "must_clarify": False,
             "blocked": False,
-            "shrink_applied": False,
-            "effective_business_time": None,
-            "effective_slots": None,
             "clarify_message": None,
             "block_message": None,
         }
@@ -111,25 +108,6 @@ class ExecutionGateService:
                 "block_message": "暂不支持批量设备查询，请指定单个设备后再试。",
             }
         return result
-
-    def _shrink_business_time(
-        self,
-        *,
-        business_time: dict[str, Any],
-        fallback_time_range: str,
-        max_days: int,
-    ) -> dict[str, Any]:
-        """Create an effective time window capped to `max_days`."""
-        effective_business_time = dict(business_time)
-        latest_time = business_time.get("end_time") or business_time.get("latest_business_time")
-        latest_dt = self._parse_datetime(latest_time)
-        effective_business_time["resolved_time_range"] = fallback_time_range
-        effective_business_time["resolution_mode"] = "relative_window"
-        effective_business_time["time_basis"] = business_time.get("time_basis") or "latest_business_time"
-        if latest_dt:
-            effective_business_time["start_time"] = (latest_dt - timedelta(days=max_days - 1)).strftime("%Y-%m-%d %H:%M:%S")
-            effective_business_time["end_time"] = latest_dt.strftime("%Y-%m-%d %H:%M:%S")
-        return effective_business_time
 
     def _resolved_day_span(self, business_time: dict[str, Any]) -> int:
         """Return inclusive natural-day span from resolved start/end times."""

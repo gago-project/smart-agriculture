@@ -102,9 +102,6 @@ class ExecutionGateBundle(BundleModel):
     message: str | None = None
     must_clarify: bool = False
     blocked: bool = False
-    shrink_applied: bool = False
-    effective_business_time: BusinessTimeBundle | None = None
-    effective_slots: SlotBundle | None = None
     clarify_message: str | None = None
     block_message: str | None = None
 

@@ -58,7 +58,6 @@ class FlowContractTest(unittest.TestCase):
             {
                 "clarify_end": "clarify_end",
                 "block_end": "block_end",
-                "shrink_and_continue": "soil_data_query",
                 "continue": "soil_data_query",
             },
         )
