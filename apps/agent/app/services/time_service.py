@@ -49,7 +49,7 @@ class TimeResolveService:
                 "end_time": inherited_window.get("end_time"),
             }
         latest_business_time = latest_business_time or self.repository.latest_business_time()
-        resolved_time_range = slots.get("time_range", "last_7_days")
+        resolved_time_range = slots.get("time_range") or "last_7_days"
         latest_dt = self._parse_datetime(latest_business_time)
         payload = {
             "latest_business_time": latest_business_time,

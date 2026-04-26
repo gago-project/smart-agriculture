@@ -166,6 +166,8 @@ class IntentSlotService:
         if any(token in text for token in ["排名", "最严重", "Top", "top", "前"]) and "预警" not in text:
             slots.setdefault("aggregation", "county")
             return ParseResult("soil_severity_ranking", "soil_ranking_answer", slots)
+        if slots.get("batch_devices") == "all":
+            return ParseResult("soil_device_query", "soil_detail_answer", slots)
         if slots.get("sn"):
             return ParseResult("soil_device_query", "soil_detail_answer", slots)
         if slots.get("city") or slots.get("county") or slots.get("follow_up"):
