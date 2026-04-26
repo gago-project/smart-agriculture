@@ -162,7 +162,7 @@ class TimeContractTest(unittest.TestCase):
         async def run_case() -> None:
             service = IntentSlotService(repository=self.repository, qwen_client=None)
             result = await service.parse("2025-12-01之前50天的哪些设备最严重", "fix-top-n")
-            self.assertNotEqual(result.slots.get("top_n"), 50)
+            self.assertNotIn("top_n", result.slots)
 
         asyncio.run(run_case())
 
