@@ -30,13 +30,17 @@ Follow this rule when the task involves forcing Docker mode, switching from proc
 3. Pull latest code.
    - Check for local changes before `git pull`
 
-4. Start Docker stack.
+4. **DB Sync（启动前必须执行）** — 同步 schema + 种子数据到 Docker MySQL，确保新容器拿到最新结构。
+   完整命令见 `.cursor/rules/db-sync.mdc` 中的场景一 + 场景二（+ 场景三若 auth json 存在）。
+   不执行 `--soil` 和 `--flush-redis`。
+
+5. Start Docker stack.
    ```bash
    docker compose --env-file .env -f infra/docker/docker-compose.yml up -d --build agent web
    ```
    - Verify: `docker compose --env-file .env -f infra/docker/docker-compose.yml ps`
 
-5. Verify localhost, then domain.
+6. Verify localhost, then domain.
    - `curl http://localhost:3000/api/health`
    - `curl http://localhost:8000/health`
    - login + `POST /api/agent/chat` smoke

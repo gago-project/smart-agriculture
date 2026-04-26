@@ -1,0 +1,51 @@
+---
+description: >
+  Use when Docker MySQL or Redis is out of sync with local development — after
+  schema changes, seed data updates, adding key table rows (soil / users), or
+  mode switches (process ↔ Docker) causing stale state.
+globs: []
+alwaysApply: false
+---
+
+# Smart Agriculture — Docker 数据库同步规则
+
+Follow this rule when the task involves syncing MySQL schema/data or Redis state. Read the full skill at `.claude/skills/db-sync/SKILL.md` — it contains all runnable commands inline.
+
+## 架构关键点
+
+MySQL 和 Redis **始终在 Docker 容器中运行**：
+
+```
+MySQL  → smart-agriculture-mysql  → 127.0.0.1:3306  (volume: mysql-data/)
+Redis  → smart-agriculture-redis  → 127.0.0.1:6379  (volume: redis-data/)
+```
+
+Docker MySQL 卷中已有数据时，容器重启**不会**重新执行 init 脚本。
+
+## 场景→命令 速查
+
+| 触发情况 | 执行 skill 中的场景 |
+|----------|-------------------|
+| 改了 `001_init_tables.sql` | 场景一（Schema 同步） |
+| 改了 `002_insert_data.sql` | 场景二（种子数据同步） |
+| 本地新增了墒情/用户数据，想备份 | 场景四（导出行数据快照） |
+| Docker 重建后需要恢复数据 | 场景一 + 二 + 三 + 五 |
+| 切换部署模式后 agent 对话上下文混乱 | 场景七（清 Redis 缓存） |
+| 需要加用户 | 场景三（Auth 用户同步） |
+| 需要完整重置（不含土壤基线） | 场景一~三 + 七 + 八 |
+
+## 关键文件
+
+| 文件 | 说明 |
+|------|------|
+| `infra/mysql/init/001_init_tables.sql` | 幂等 Schema（CREATE IF NOT EXISTS + ensure_column/index） |
+| `infra/mysql/init/002_insert_data.sql` | 幂等种子（规则/模板，ON DUPLICATE KEY UPDATE） |
+| `infra/mysql/init/003_insert_soil_data.sql` | 土壤基线（42MB，慢，按需） |
+| `infra/mysql/local/auth_users.local.json` | 本地 auth 用户（gitignored） |
+| `infra/mysql/local/data-snapshot.local.sql` | 行数据快照（gitignored，export/import） |
+
+## 永远不要做
+
+- 不要 `docker-compose down -v`（删卷会丢失所有行数据，恢复很慢）
+- 不要直接修改容器内 MySQL（不持久）
+- 001/002 是幂等的，随时可重跑；003 幂等但很慢
