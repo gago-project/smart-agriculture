@@ -324,5 +324,54 @@ class TimeContractTest(unittest.TestCase):
         self.assertEqual(result["resolution_mode"], "relative_window")
 
 
+    def test_last_calendar_month_should_parse_to_label(self) -> None:
+        """Verify '上个月的墒情' produces time_range=last_calendar_month."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("上个月的墒情", "last-cal-month")
+            self.assertEqual(result.slots.get("time_range"), "last_calendar_month")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_current_calendar_month_should_parse_to_label(self) -> None:
+        """Verify '本月的情况' produces time_range=current_calendar_month."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("本月的情况", "cur-cal-month")
+            self.assertEqual(result.slots.get("time_range"), "current_calendar_month")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_current_week_should_parse_to_label(self) -> None:
+        """Verify '本周异常' produces time_range=current_week."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("本周异常", "cur-week")
+            self.assertEqual(result.slots.get("time_range"), "current_week")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_n_weeks_should_fold_to_days_label(self) -> None:
+        """Verify '过去3周' folds to time_range=last_21_days."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("过去3周的墒情", "n-weeks")
+            self.assertEqual(result.slots.get("time_range"), "last_21_days")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+
 if __name__ == "__main__":
     unittest.main()

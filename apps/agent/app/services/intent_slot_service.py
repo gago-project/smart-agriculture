@@ -26,6 +26,7 @@ ANCHOR_DAYS_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})\s*(之前|之后)\s*(\d{1,4}
 RELATIVE_ANCHOR_DAYS_RE = re.compile(r"(\d{1,4})\s*天前\s*的\s*前\s*(\d{1,4})\s*天")
 N_DAYS_AGO_RE = re.compile(r"(\d{1,4})\s*天前")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
+N_WEEKS_RE = re.compile(r"(?:过去|近)\s*(\d{1,3})\s*周")
 DEPRECATED_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
 SUPPORTED_SLOT_KEYS = {
     "aggregation",
@@ -233,9 +234,19 @@ class IntentSlotService:
         if any(token in text for token in ["过去一个月", "近一个月", "最近一个月"]):
             raw_expr = next(token for token in ["过去一个月", "近一个月", "最近一个月"] if token in text)
             return "last_30_days", raw_expr
+        if "上个月" in text or "上一个月" in text:
+            return "last_calendar_month", "上个月" if "上个月" in text else "上一个月"
+        if "本月" in text:
+            return "current_calendar_month", "本月"
+        if "本周" in text:
+            return "current_week", "本周"
         day_match = LAST_N_DAYS_RE.search(text)
         if day_match:
             return f"last_{max(int(day_match.group(1)), 1)}_days", day_match.group(0)
+        week_match = N_WEEKS_RE.search(text)
+        if week_match:
+            n_weeks = int(week_match.group(1))
+            return f"last_{n_weeks * 7}_days", week_match.group(0)
         if "最近7天" in text or "近7天" in text:
             return "last_7_days", "最近7天" if "最近7天" in text else "近7天"
         if "上周" in text:
@@ -287,7 +298,7 @@ class IntentSlotService:
 
     def _has_explicit_time_expression(self, text: str) -> bool:
         """Return whether text contains a user-facing time expression."""
-        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text) or N_DAYS_AGO_RE.search(text):
+        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text) or N_DAYS_AGO_RE.search(text) or N_WEEKS_RE.search(text):
             return True
         return any(
             token in text
@@ -301,6 +312,10 @@ class IntentSlotService:
                 "过去一个月",
                 "近一个月",
                 "最近一个月",
+                "上个月",
+                "上一个月",
+                "本月",
+                "本周",
                 "最近7天",
                 "近7天",
                 "上周",
