@@ -2,7 +2,7 @@
 set -euo pipefail
 
 BASE_WEB=${BASE_WEB:-http://localhost:3000}
-HEALTH_USERNAME=${HEALTH_USERNAME:-gago-1}
+HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
 HEALTH_PASSWORD=${HEALTH_PASSWORD:-}
 
 if [ -z "$HEALTH_PASSWORD" ]; then

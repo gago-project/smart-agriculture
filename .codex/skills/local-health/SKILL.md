@@ -26,7 +26,7 @@ source scripts/dev/load-root-env.sh
 BASE_WEB=${BASE_WEB:-http://localhost:3000}
 
 # 烟雾测试专用账号，凭据已在 .env 中（由 load-root-env.sh 加载）
-HEALTH_USERNAME=${HEALTH_USERNAME:-gago-1}
+HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
 HEALTH_PASSWORD=${HEALTH_PASSWORD:-}
 if [ -z "$HEALTH_PASSWORD" ]; then
   echo "❌ HEALTH_PASSWORD 未加载，请确认 .env 中已配置 HEALTH_PASSWORD=..."
