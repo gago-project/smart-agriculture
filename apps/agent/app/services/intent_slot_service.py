@@ -204,8 +204,9 @@ class IntentSlotService:
             direction_key = "before" if direction == "之前" else "after"
             raw_expr = f"{anchor_date}{direction}{n_days}天"
             return f"anchor_{direction_key}_{n_days}_days", raw_expr
-        if DATE_RE.search(text):
-            return "exact_date", DATE_RE.search(text).group(1)
+        date_match = DATE_RE.search(text)
+        if date_match:
+            return "exact_date", date_match.group(1)
         if "前天" in text:
             return "day_before_yesterday", "前天"
         if "昨天" in text:

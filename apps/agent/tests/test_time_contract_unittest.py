@@ -213,6 +213,7 @@ class TimeContractTest(unittest.TestCase):
             result = await service.parse("2025-12-01如东县墒情", "exact-date")
             self.assertEqual(result.slots.get("time_range"), "exact_date")
             self.assertEqual(result.slots.get("target_date"), "2025-12-01")
+            self.assertTrue(result.slots.get("time_explicit"))
 
         asyncio.run(run_case())
 
