@@ -1,0 +1,48 @@
+---
+description: Use when updating the Smart Agriculture repo, restarting localhost services, or verifying ai.luyaxiang.com on the maintainer machine.
+globs: []
+alwaysApply: false
+---
+
+# Smart Agriculture Release Workflow
+
+Follow this rule when the task involves release, deploy, restart, localhost verification, or `ai.luyaxiang.com`.
+
+## Current Topology
+
+- Correct domain: `ai.luyaxiang.com`
+- Frontdoor path: `cloudflared -> nginx 127.0.0.1:5173 -> Next web 127.0.0.1:3000 -> Python Agent 127.0.0.1:18010`
+- Repo root: `/Users/mac/Desktop/gago-cloud/code/smart-agriculture`
+
+Do not assume Docker is the active runtime just because the repo has Compose files.
+
+## Required Workflow
+
+1. Inspect the real runtime first.
+   - Check `git status`
+   - Check listening ports for `3000`, `5173`, and `.runtime/local-agent-port`
+   - Check matching `node`, `uvicorn`, `docker`, `nginx`, and `cloudflared` processes
+2. Update code safely.
+   - Pull or switch to the requested commit only after checking local changes
+   - Reinstall dependencies only when they changed
+   - Rebuild web with `npm run build:web` before restart
+3. Restart only the services that actually serve this project.
+   - Process mode:
+     - restart agent with `bash scripts/dev/start-local-agent.sh`
+     - restart web with `bash scripts/dev/start-local-web.sh`
+   - Docker mode:
+     - use `docker compose --env-file .env -f infra/docker/docker-compose.yml up -d --build agent web`
+4. Verify localhost before the domain.
+   - `curl http://localhost:3000/api/health`
+   - `curl http://localhost:${LOCAL_AGENT_PORT}/health`
+   - login + `/api/agent/chat` smoke
+5. Verify the domain.
+   - `curl https://ai.luyaxiang.com/api/health`
+   - login + `POST https://ai.luyaxiang.com/api/agent/chat` smoke
+
+## Never Do These
+
+- Do not treat `ai.yaxianglu.com` as the target domain unless the user explicitly says the domain changed.
+- Do not stop at `/api/health`; full verification requires login + chat smoke.
+- Do not restart `nginx` or `cloudflared` when only `3000` or `18010` is stale.
+- Do not trust `.runtime/local-agent-port` for Docker mode without checking whether the active agent is actually on `8000`.

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smart Agriculture Release"
+  short_description: "Update and verify the Smart Agriculture release"
+  default_prompt: "Use this skill when updating the Smart Agriculture repo, restarting localhost services, or verifying ai.luyaxiang.com."
