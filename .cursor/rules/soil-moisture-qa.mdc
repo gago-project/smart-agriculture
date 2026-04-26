@@ -1,0 +1,36 @@
+---
+description: >
+  Use when running QA, regression testing, or preparing business review for
+  the soil-moisture Agent. Single source of truth for test cases is
+  testdata/agent/soil-moisture/case-library.md.
+globs: []
+alwaysApply: false
+---
+
+# Smart Agriculture — 墒情 Agent QA 规则
+
+Follow this rule when the task involves testing, regression, or business review of the soil-moisture Agent. Read the full skill at `.claude/skills/soil-moisture-qa/SKILL.md`.
+
+## 资产速查
+
+| 资产 | 路径 |
+|------|------|
+| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` |
+| Agent 能力方案 | `apps/agent/plans/1/1.plan.md` |
+| Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` |
+
+## 三层测试
+
+| 层次 | 时机 | 规模 |
+|------|------|------|
+| 冒烟 | 每次改动后 | 5 类各 1 条 |
+| 验收 | 里程碑/合并前 | 全部 130 Case |
+| 专项 | 高风险改动后 | 按专项选 |
+
+## 必须补 Case 的情况
+
+新增 intent/answer_type、改地区解析、改 ExecutionGate 规则、修复可复现 Bug → 必须在 `case-library.md` 补样例。
+
+## 13 条关键断言
+
+详见 `.claude/skills/soil-moisture-qa/SKILL.md` — 非业务不触发 SQL、现在/当前取库内最新时间、ExecutionGate 超限不继续查库、数字不漂移等。

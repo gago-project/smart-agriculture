@@ -1,0 +1,39 @@
+---
+description: >
+  Use when verifying the local Smart Agriculture stack after deploy, restart,
+  or mode switch. Runs three steps: web health → agent health → login + chat smoke.
+globs: []
+alwaysApply: false
+---
+
+# Smart Agriculture — 联调验活规则
+
+Follow this rule when the task involves health checking or post-deploy verification. Read the full skill at `.claude/skills/local-health/SKILL.md` for all runnable commands.
+
+## 核心原则
+
+- **步骤三（chat smoke）是真正的发布门禁**，不能只检查 health endpoint。
+- agent 端口不固定：进程模式读 `.runtime/local-agent-port`，Docker 模式用 `8000`。
+- `HEALTH_PASSWORD` 必须从 `.env` 或 Keychain 读取，不能硬编码。
+
+## 快捷执行
+
+```bash
+# 进程模式（自动检测端口）
+HEALTH_PASSWORD="xxx" bash scripts/health/check-local.sh
+
+# Docker 模式
+HEALTH_PASSWORD="xxx" BASE_AGENT="http://localhost:8000" bash scripts/health/check-local.sh
+
+# 线上域名
+HEALTH_PASSWORD="xxx" BASE_WEB="https://ai.luyaxiang.com" BASE_AGENT="https://ai.luyaxiang.com" bash scripts/health/check-local.sh
+```
+
+## 失败处理
+
+| 现象 | 处理 |
+|------|------|
+| 连接拒绝 | 检查 `docker ps` 或 `lsof` 端口 |
+| 502 | 检查 web 容器/进程是否在跑 |
+| 登录失败 | 检查 `HEALTH_PASSWORD`，运行 db-sync `--auth` |
+| chat smoke 空回答 | 检查 `QWEN_API_KEY` |

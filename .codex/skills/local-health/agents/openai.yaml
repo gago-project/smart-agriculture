@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smart Agriculture Health Check"
+  short_description: "Verify web + agent health and run login + chat smoke test"
+  default_prompt: "Use this skill to verify the Smart Agriculture stack is healthy after deploy, restart, or mode switch. Runs web health, agent health, and a real chat smoke test."

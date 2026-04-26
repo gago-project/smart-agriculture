@@ -1,0 +1,4 @@
+interface:
+  display_name: "Soil Moisture Agent QA"
+  short_description: "Run QA regression or business review for the soil-moisture Agent"
+  default_prompt: "Use this skill when running smoke tests, acceptance tests, specialist regression, or preparing for business review sessions for the soil-moisture Agent. References testdata/agent/soil-moisture/case-library.md as the single source of truth for test cases."
