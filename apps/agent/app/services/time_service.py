@@ -112,27 +112,23 @@ class TimeResolveService:
                     **self._day_window(latest_dt, days=years),
                 }
             )
-        elif ANCHOR_BEFORE_RE.match(resolved_time_range):
-            anchor_before_match = ANCHOR_BEFORE_RE.match(resolved_time_range)
+        elif (anchor_before_match := ANCHOR_BEFORE_RE.match(resolved_time_range)) and slots.get("target_date"):
             n = int(anchor_before_match.group(1))
             anchor_dt = self._parse_date(slots.get("target_date"))
-            if anchor_dt:
-                payload.update({
-                    "resolution_mode": "anchor_window",
-                    "time_basis": "anchor_date",
-                    **self._day_window(anchor_dt, days=n),
-                })
-        elif ANCHOR_AFTER_RE.match(resolved_time_range):
-            anchor_after_match = ANCHOR_AFTER_RE.match(resolved_time_range)
+            payload.update({
+                "resolution_mode": "anchor_window",
+                "time_basis": "anchor_date",
+                **self._day_window(anchor_dt, days=n),
+            })
+        elif (anchor_after_match := ANCHOR_AFTER_RE.match(resolved_time_range)) and slots.get("target_date"):
             n = int(anchor_after_match.group(1))
             anchor_dt = self._parse_date(slots.get("target_date"))
-            if anchor_dt:
-                payload.update({
-                    "resolution_mode": "anchor_window",
-                    "time_basis": "anchor_date",
-                    "start_time": self._format_datetime(self._start_of_day(anchor_dt)),
-                    "end_time": self._format_datetime(self._end_of_day(anchor_dt + timedelta(days=n - 1))),
-                })
+            payload.update({
+                "resolution_mode": "anchor_window",
+                "time_basis": "anchor_date",
+                "start_time": self._format_datetime(self._start_of_day(anchor_dt)),
+                "end_time": self._format_datetime(self._end_of_day(anchor_dt + timedelta(days=n - 1))),
+            })
         elif dynamic_days and latest_dt:
             payload.update(
                 {

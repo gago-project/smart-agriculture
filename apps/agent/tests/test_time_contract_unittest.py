@@ -177,7 +177,6 @@ class TimeContractTest(unittest.TestCase):
 
         asyncio.run(run_case())
 
-
     def test_anchor_before_should_parse_to_correct_time_range_and_target_date(self) -> None:
         """Verify '2025-12-01之前50天' sets time_range and target_date correctly."""
         import asyncio
