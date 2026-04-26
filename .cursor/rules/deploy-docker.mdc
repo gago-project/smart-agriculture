@@ -1,0 +1,51 @@
+---
+description: Use when force-deploying Smart Agriculture in Docker mode. Stops any running process-mode services (node:3000, uvicorn:18010) first, then starts the Docker stack.
+globs: []
+alwaysApply: false
+---
+
+# Smart Agriculture Docker Deploy Workflow
+
+Follow this rule when the task involves forcing Docker mode, switching from process mode to Docker, or deploying with `docker compose`.
+
+## Current Topology (Docker Mode)
+
+- Domain: `ai.luyaxiang.com`
+- Frontdoor: `cloudflared -> nginx 127.0.0.1:5173 -> Docker web 127.0.0.1:3000 -> Docker agent 127.0.0.1:8000`
+- Agent port in Docker mode is **8000**, not 18010.
+- Repo root: `/Users/mac/Desktop/gago-cloud/code/smart-agriculture`
+
+## Required Workflow
+
+1. Inspect the current state.
+   - `git status`
+   - Check ports `3000`, `5173`, `18010` with `lsof`
+   - `docker ps`
+
+2. Stop process-mode services owned by this repo.
+   - Kill `next-server` / `.next/standalone/server.js` on port `3000`
+   - Kill `uvicorn app.main:app` on port `18010`
+   - Never kill `cloudflared`, `nginx`, or unrelated processes.
+
+3. Pull latest code.
+   - Check for local changes before `git pull`
+
+4. Start Docker stack.
+   ```bash
+   docker compose --env-file .env -f infra/docker/docker-compose.yml up -d --build agent web
+   ```
+   - Verify: `docker compose --env-file .env -f infra/docker/docker-compose.yml ps`
+
+5. Verify localhost, then domain.
+   - `curl http://localhost:3000/api/health`
+   - `curl http://localhost:8000/health`
+   - login + `POST /api/agent/chat` smoke
+   - `curl https://ai.luyaxiang.com/api/health`
+   - login + `POST https://ai.luyaxiang.com/api/agent/chat` smoke
+
+## Never Do These
+
+- Do not use port `18010` for the agent health check in Docker mode — use `8000`.
+- Do not restart `nginx` or `cloudflared`.
+- Do not stop at `/api/health`; full verification requires login + chat smoke.
+- Do not run `npm install` or `pip install` manually — Docker build handles dependencies.

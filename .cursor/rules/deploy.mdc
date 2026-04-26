@@ -1,0 +1,53 @@
+---
+description: Use when updating and deploying Smart Agriculture in process mode on the maintainer machine. Always uses process mode (node + uvicorn) — never Docker.
+globs: []
+alwaysApply: false
+---
+
+# Smart Agriculture Process Mode Deploy Workflow
+
+Follow this rule when the task involves deploying, restarting localhost services, or verifying `ai.luyaxiang.com` using process mode.
+
+## Current Topology (Process Mode)
+
+- Domain: `ai.luyaxiang.com`
+- Frontdoor: `cloudflared -> nginx 127.0.0.1:5173 -> Next web 127.0.0.1:3000 -> Python Agent 127.0.0.1:18010`
+- Agent port: `.runtime/local-agent-port`, default `18010`
+- Repo root: `/Users/mac/Desktop/gago-cloud/code/smart-agriculture`
+
+## Required Workflow
+
+1. Inspect the current state.
+   - `git status`
+   - Check ports `3000`, `5173`, `18010` with `lsof`
+   - `docker ps`
+
+2. Stop Docker containers if running for this project.
+   ```bash
+   docker compose --env-file .env -f infra/docker/docker-compose.yml stop agent web
+   ```
+   Never stop `cloudflared`, `nginx`, or unrelated containers.
+
+3. Update code safely.
+   - Check for local changes before `git pull`
+   - Reinstall dependencies only when they changed
+   - Rebuild web: `npm run build:web`
+
+4. Restart process-mode services.
+   - Agent: kill existing `uvicorn` owned by this repo → `bash scripts/dev/start-local-agent.sh`
+   - Web: kill existing `next-server` on `3000` owned by this repo → `bash scripts/dev/start-local-web.sh`
+   - Never kill `nginx` or `cloudflared`.
+
+5. Verify localhost, then domain.
+   - `curl http://localhost:3000/api/health`
+   - `curl http://localhost:${LOCAL_AGENT_PORT}/health`
+   - login + `POST /api/agent/chat` smoke
+   - `curl https://ai.luyaxiang.com/api/health`
+   - login + `POST https://ai.luyaxiang.com/api/agent/chat` smoke
+
+## Never Do These
+
+- Do not use Docker to start services — use `deploy-docker` rule instead.
+- Do not restart `nginx` or `cloudflared`.
+- Do not stop at `/api/health`; full verification requires login + chat smoke.
+- Do not treat `ai.yaxianglu.com` as the target domain.

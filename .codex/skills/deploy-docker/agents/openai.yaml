@@ -1,0 +1,4 @@
+interface:
+  display_name: "Smart Agriculture Docker Deploy"
+  short_description: "Force-deploy Smart Agriculture using Docker mode"
+  default_prompt: "Use this skill when you want to stop process-mode services and deploy Smart Agriculture using Docker."
