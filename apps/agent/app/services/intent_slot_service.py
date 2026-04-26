@@ -23,6 +23,8 @@ DEVICE_RE = re.compile(r"SNS\d{8}", re.IGNORECASE)
 TOP_N_RE = re.compile(r"(?<!之)前\s*(\d+)(?!\s*天)")
 DATE_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})(?!\d)")
 ANCHOR_DAYS_RE = re.compile(r"(20\d{2}-\d{2}-\d{2})\s*(之前|之后)\s*(\d{1,4})\s*天")
+RELATIVE_ANCHOR_DAYS_RE = re.compile(r"(\d{1,4})\s*天前\s*的\s*前\s*(\d{1,4})\s*天")
+N_DAYS_AGO_RE = re.compile(r"(\d{1,4})\s*天前")
 LAST_N_DAYS_RE = re.compile(r"(?:最近|近|过去)\s*(\d{1,4})\s*天")
 DEPRECATED_FILLER_TOKENS = ("这一批", "这批", "本批", "这次")
 SUPPORTED_SLOT_KEYS = {
@@ -194,6 +196,16 @@ class IntentSlotService:
 
     def _parse_time_range(self, text: str) -> tuple[str | None, str | None]:
         """Map user time phrases to the finite time-window vocabulary."""
+        # Relative-anchor patterns must be checked before ANCHOR_DAYS_RE and plain DATE_RE.
+        relative_anchor_match = RELATIVE_ANCHOR_DAYS_RE.search(text)
+        if relative_anchor_match:
+            n_ago = int(relative_anchor_match.group(1))
+            before_days = int(relative_anchor_match.group(2))
+            return f"relative_before_{before_days}_at_{n_ago}_ago", relative_anchor_match.group(0)
+        n_days_ago_match = N_DAYS_AGO_RE.search(text)
+        if n_days_ago_match:
+            n = int(n_days_ago_match.group(1))
+            return f"n_days_ago_{n}", n_days_ago_match.group(0)
         # Anchored window must be checked before plain date so "2025-12-01之前50天"
         # is not swallowed by the exact_date branch.
         anchor_match = ANCHOR_DAYS_RE.search(text)
@@ -273,7 +285,7 @@ class IntentSlotService:
 
     def _has_explicit_time_expression(self, text: str) -> bool:
         """Return whether text contains a user-facing time expression."""
-        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text):
+        if DATE_RE.search(text) or LAST_N_DAYS_RE.search(text) or N_DAYS_AGO_RE.search(text):
             return True
         return any(
             token in text

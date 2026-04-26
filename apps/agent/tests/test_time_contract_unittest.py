@@ -271,5 +271,31 @@ class TimeContractTest(unittest.TestCase):
         asyncio.run(run_case())
 
 
+    def test_n_days_ago_should_parse_to_label(self) -> None:
+        """Verify '3天前的情况' sets time_range=n_days_ago_3 with time_explicit."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("3天前的情况", "n-days-ago")
+            self.assertEqual(result.slots.get("time_range"), "n_days_ago_3")
+            self.assertTrue(result.slots.get("time_explicit"))
+
+        asyncio.run(run_case())
+
+    def test_relative_anchor_before_should_parse_to_label(self) -> None:
+        """Verify '7天前的前7天' sets time_range=relative_before_7_at_7_ago with time_explicit."""
+        import asyncio
+
+        async def run_case() -> None:
+            service = IntentSlotService(repository=self.repository, qwen_client=None)
+            result = await service.parse("7天前的前7天的情况", "relative-anchor")
+            self.assertEqual(result.slots.get("time_range"), "relative_before_7_at_7_ago")
+            self.assertTrue(result.slots.get("time_explicit"))
+            self.assertNotIn("top_n", result.slots)
+
+        asyncio.run(run_case())
+
+
 if __name__ == "__main__":
     unittest.main()
