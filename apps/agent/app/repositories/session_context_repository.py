@@ -1,99 +1,96 @@
-"""Redis-backed conversation context repository.
+"""Redis-backed conversation message history.
 
-The stored value is intentionally small: `latest_business_turns` keeps at most
-five verified business contexts.  This supports safe follow-up questions while
-avoiding persistence of full answers, SQL results, or sensitive debug payloads.
+Stores actual user/assistant message pairs (with tool calls and results)
+so the LLM agent receives full conversation context each turn.
+Previous slot-based storage is replaced; the LLM resolves multi-turn
+context natively from message history.
 """
-
 from __future__ import annotations
 
-
 import json
-from datetime import datetime
 from typing import Any
 
 
+_MAX_MESSAGES = 20
+
+
 class InMemoryRedisClient:
-    """Tiny async Redis-like client used when Redis is unavailable in tests."""
+    """Async Redis-like in-memory client for tests."""
 
     def __init__(self) -> None:
-        """Initialize an in-memory key/value store."""
         self.store: dict[str, str] = {}
 
     async def get(self, key: str) -> str | None:
-        """Return a value by key."""
         return self.store.get(key)
 
     async def set(self, key: str, value: str, ex: int | None = None) -> None:
-        """Store a value; TTL is ignored for the in-memory test client."""
         del ex
         self.store[key] = value
 
     async def delete(self, key: str) -> None:
-        """Delete a key if present."""
         self.store.pop(key, None)
 
 
 class SessionContextRepository:
-    """Persist and load recent business contexts for one chat session."""
+    """Persist and load conversation message history for one chat session."""
 
-    def __init__(self, redis_client=None, ttl_seconds: int = 3600) -> None:
-        """Accept a real Redis client or fall back to the in-memory client."""
+    def __init__(self, redis_client=None, ttl_seconds: int = 7200) -> None:
         self.redis_client = redis_client or InMemoryRedisClient()
         self.ttl_seconds = ttl_seconds
 
-    async def load_recent_context(self, session_id: str) -> list[dict[str, Any]]:
-        """Load the most recent five business turns for a session."""
+    async def load_history(self, session_id: str) -> list[dict[str, Any]]:
+        """Return all stored messages for a session in chronological order."""
         try:
             raw = await self.redis_client.get(self._key(session_id))
         except Exception:
             return []
         if not raw:
             return []
-        snapshot = json.loads(raw)
-        return list(snapshot.get("latest_business_turns", []))[-5:]
+        return json.loads(raw).get("messages", [])
 
-    async def save_turn_context(self, session_id: str, turn_id: int, turn_context: dict[str, Any]) -> None:
-        """Save one verified business turn with turn-id ordering protection."""
+    async def save_message_turn(
+        self,
+        session_id: str,
+        turn_id: int,
+        *,
+        user_message: str,
+        assistant_message: str,
+        tool_calls: list[dict[str, Any]],
+        tool_results: list[dict[str, Any]],
+    ) -> None:
+        """Append one user+assistant turn (with optional tool calls) to history."""
         key = self._key(session_id)
         try:
             raw = await self.redis_client.get(key)
         except Exception:
             return
-        snapshot = json.loads(raw) if raw else {"latest_business_turns": []}
-        turns = list(snapshot.get("latest_business_turns", []))
-        latest_turn_id = max([item.get("turn_id", 0) for item in turns], default=0)
-        if turn_id < latest_turn_id:
-            # Late writes from an older turn must not overwrite newer context.
-            return
-        filtered = {
-            "domain": turn_context.get("domain"),
-            "entity_context": turn_context.get("entity_context") or {},
-            "query_frame": turn_context.get("query_frame") or {},
-            "resolved_window": turn_context.get("resolved_window") or {},
-            "base_query_family": turn_context.get("base_query_family"),
-            "region": turn_context.get("region") or {},
-            "time_window": turn_context.get("time_window"),
-            "entity_reference": turn_context.get("entity_reference"),
-            "last_intent": turn_context.get("last_intent"),
-            "turn_id": turn_id,
-            "created_at": datetime.now().isoformat(timespec="seconds"),
-        }
-        turns = [item for item in turns if item.get("turn_id") != turn_id]
-        turns.append(filtered)
-        turns = sorted(turns, key=lambda item: item.get("turn_id", 0))[-5:]
+        messages: list[dict[str, Any]] = json.loads(raw).get("messages", []) if raw else []
+
+        messages.append({"role": "user", "content": user_message})
+
+        assistant_entry: dict[str, Any] = {"role": "assistant", "content": assistant_message}
+        if tool_calls:
+            assistant_entry["tool_calls"] = tool_calls
+        if tool_results:
+            assistant_entry["tool_results"] = tool_results
+        messages.append(assistant_entry)
+
+        messages = messages[-_MAX_MESSAGES:]
         try:
-            await self.redis_client.set(key, json.dumps({"latest_business_turns": turns}, ensure_ascii=False), ex=self.ttl_seconds)
+            await self.redis_client.set(
+                key,
+                json.dumps({"messages": messages}, ensure_ascii=False),
+                ex=self.ttl_seconds,
+            )
         except Exception:
             return
 
     async def clear_context(self, session_id: str) -> None:
-        """Clear all remembered context for a session."""
+        """Clear all message history for a session."""
         try:
             await self.redis_client.delete(self._key(session_id))
         except Exception:
             return
 
     def _key(self, session_id: str) -> str:
-        """Build the Redis key namespace for chat-session context."""
-        return f"session_ctx:{session_id}"
+        return f"session_msg:{session_id}"
