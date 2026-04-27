@@ -12,13 +12,13 @@
 
 ## Case 分布
 
-| 一级 `answer_type` | 数量 | CaseID |
-|---|---:|---|
-| `guidance_answer` | 8 | `SM-CONV-001 ~ SM-CONV-008` |
-| `soil_summary_answer` | 6 | `SM-SUM-001 ~ SM-SUM-006` |
-| `soil_ranking_answer` | 4 | `SM-RANK-001 ~ SM-RANK-004` |
-| `soil_detail_answer` | 8 | `SM-DETAIL-001 ~ SM-DETAIL-008` |
-| `fallback_answer` | 4 | `SM-FB-001 ~ SM-FB-004` |
+| 一级 `answer_type` | 说明 | 数量 | CaseID |
+|---|---|---:|---|
+| `guidance_answer` | 引导 / 澄清 / 非业务回复 | 8 | `SM-CONV-001 ~ SM-CONV-008` |
+| `soil_summary_answer` | 墒情概览（全局或区域汇总） | 6 | `SM-SUM-001 ~ SM-SUM-006` |
+| `soil_ranking_answer` | 排名对比（区域风险排行） | 4 | `SM-RANK-001 ~ SM-RANK-004` |
+| `soil_detail_answer` | 地区 / 设备详情及异常分析 | 8 | `SM-DETAIL-001 ~ SM-DETAIL-008` |
+| `fallback_answer` | 无数据 / 找不到对象 / 兜底 | 4 | `SM-FB-001 ~ SM-FB-004` |
 
 ## Guidance Cases（8）
 
