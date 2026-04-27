@@ -103,3 +103,27 @@ class QwenClientFunctionCallingTest(unittest.TestCase):
         self.assertIsNotNone(result)
         self.assertEqual(result["type"], "text")
         self.assertIn("延安", result["content"])
+
+
+from app.llm.prompts.system_prompt import build_system_prompt
+
+
+class SystemPromptTest(unittest.TestCase):
+    def test_includes_latest_business_time(self):
+        prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
+        self.assertIn("2025-04-20 08:00:00", prompt)
+
+    def test_includes_safety_constraints(self):
+        prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
+        self.assertIn("不允许", prompt)
+        self.assertIn("facts", prompt.lower())
+
+    def test_includes_time_calculation_instructions(self):
+        prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
+        self.assertIn("start_time", prompt)
+        self.assertIn("end_time", prompt)
+
+    def test_returns_nonempty_string(self):
+        prompt = build_system_prompt(latest_business_time=None)
+        self.assertIsInstance(prompt, str)
+        self.assertGreater(len(prompt), 100)
