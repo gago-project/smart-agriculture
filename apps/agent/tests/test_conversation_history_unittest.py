@@ -52,12 +52,25 @@ class ConversationHistoryTest(unittest.TestCase):
             session_id="s4", turn_id=1,
             user_message="查延安排名",
             assistant_message="延安志丹县最严重",
-            tool_calls=[{"name": "get_soil_ranking", "args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59", "aggregation": "county"}}],
-            tool_results=[{"records": []}],
+            tool_calls=[{
+                "id": "call_1",
+                "type": "function",
+                "function": {
+                    "name": "query_soil_ranking",
+                    "arguments": "{\"start_time\": \"2025-04-14 00:00:00\", \"end_time\": \"2025-04-20 23:59:59\", \"aggregation\": \"county\"}",
+                },
+            }],
+            tool_results=[{"items": [{"rank": 1, "name": "志丹县"}]}],
         ))
         history = asyncio.run(self.repo.load_history("s4"))
-        assistant_msg = next(m for m in history if m["role"] == "assistant")
+        self.assertEqual(len(history), 4)
+        assistant_msg = history[1]
+        tool_msg = history[2]
         self.assertIn("tool_calls", assistant_msg)
+        self.assertEqual(assistant_msg["tool_calls"][0]["type"], "function")
+        self.assertEqual(assistant_msg["tool_calls"][0]["function"]["name"], "query_soil_ranking")
+        self.assertEqual(tool_msg["role"], "tool")
+        self.assertEqual(tool_msg["tool_call_id"], "call_1")
 
     def test_clear_removes_all_history(self):
         asyncio.run(self.repo.save_message_turn(

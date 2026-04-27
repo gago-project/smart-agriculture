@@ -23,6 +23,7 @@ class DataFactCheckNode(BaseNode):
             answer_bundle=state.answer_bundle,
             query_result=state.query_result,
             tool_trace=state.tool_trace,
+            answer_facts=state.answer_facts,
         )
         if result["need_retry"]:
             if state.retry_count >= 2:

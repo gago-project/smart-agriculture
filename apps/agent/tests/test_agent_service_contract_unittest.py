@@ -159,6 +159,41 @@ class AgentServiceContractTest(unittest.TestCase):
         self.assertEqual(result["tool_trace"], [{"tool_name": "query_soil_summary", "result_summary": "total=50"}])
         self.assertEqual(result["answer_facts"], {"total_records": 50})
 
+    def test_should_query_uses_query_result_entries_not_only_records(self) -> None:
+        """Business responses with structured query_result.entries must still be treated as queried."""
+        final_state = FlowState(
+            request_id="r1",
+            trace_id="t1",
+            session_id="s1",
+            turn_id=1,
+            user_input="最近墒情怎么样",
+            intent="soil_recent_summary",
+            answer_type="soil_summary_answer",
+            output_mode="normal",
+            answer_bundle=AnswerBundle(final_answer="ok"),
+            query_result={
+                "entries": [
+                    {
+                        "tool_name": "query_soil_summary",
+                        "tool_args": {},
+                        "result": {"total_records": 12},
+                    }
+                ]
+            },
+            final_status="verified_end",
+        )
+        service = SoilAgentService(
+            repository=None,
+            context_store=StubSessionContextRepository(),
+            query_log_repository=StubQueryLogRepository(),
+        )
+        service.orchestrator = StubOrchestrator(final_state)
+
+        result = asyncio.run(service.achat("最近墒情怎么样", session_id="s1", turn_id=1))
+
+        self.assertEqual(result["query_result"]["entries"][0]["tool_name"], "query_soil_summary")
+        self.assertEqual(result["should_query"], True)
+
     def test_query_log_error_does_not_raise_to_caller(self) -> None:
         """A log write failure must be captured in state.errors, not propagated."""
         final_state = FlowState(

@@ -22,7 +22,7 @@
 
 - 数据库表设计入口：`infra/mysql/docs/README.md`
 - 地区别名解析设计：`infra/mysql/docs/region-alias-resolution.md`
-- 测试与 Case 入口：`testdata/agent/soil-moisture/README.md`
+- 测试与 Case 入口：`testdata/agent/soil-moisture/README.md`（当前为单一正式验收库，30 条 Case，每次全量执行）
 - QA / 验收 skill 入口：`.claude/skills/soil-moisture-qa/SKILL.md`（以及 `.codex` / `.agents` / `.cursor` 同步副本）
 
 ---

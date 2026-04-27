@@ -113,3 +113,32 @@ class AgentLoopServiceTest(unittest.TestCase):
         ))
         user_msgs = [m for m in result.messages if m["role"] == "user"]
         self.assertGreaterEqual(len(user_msgs), 2)
+
+    def test_completed_turn_persists_standard_tool_transcript(self):
+        svc = self._make_service([
+            {
+                "type": "tool_call",
+                "tool_name": "query_soil_summary",
+                "tool_args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"},
+                "call_id": "call_1",
+            },
+            {"type": "text", "content": "延安市最近7天整体偏干。"},
+        ])
+
+        asyncio.run(svc.run(
+            user_input="查延安市最近7天墒情",
+            session_id="persist_history",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        history = asyncio.run(self.history_store.load_history("persist_history"))
+        self.assertEqual(history[0]["role"], "user")
+        self.assertEqual(history[1]["role"], "assistant")
+        self.assertEqual(history[1]["tool_calls"][0]["type"], "function")
+        self.assertEqual(history[1]["tool_calls"][0]["id"], "call_1")
+        self.assertEqual(history[1]["tool_calls"][0]["function"]["name"], "query_soil_summary")
+        self.assertEqual(history[2]["role"], "tool")
+        self.assertEqual(history[2]["tool_call_id"], "call_1")
+        self.assertEqual(history[3]["role"], "assistant")
+        self.assertEqual(history[3]["content"], "延安市最近7天整体偏干。")

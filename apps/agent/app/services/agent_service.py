@@ -145,10 +145,11 @@ class SoilAgentService:
             "guidance_reason": final_state.guidance_reason,
             "fallback_reason": final_state.fallback_reason,
             "final_answer": final_state.answer_bundle.get("final_answer", ""),
-            "should_query": bool(final_state.query_result.records),
+            "should_query": self._should_query(final_state.query_result),
             "conversation_closed": final_state.conversation_closed,
             "status": "ok",
             "query_result": self._dump_bundle(final_state.query_result),
+            "query_log_entries": final_state.query_log_entries,
             "tool_trace": final_state.tool_trace,
             "answer_facts": final_state.answer_facts,
             "node_trace": final_state.node_trace,
@@ -166,6 +167,14 @@ class SoilAgentService:
         if all(value in ({}, [], "", None) for value in payload.values()):
             return {}
         return payload
+
+    def _should_query(self, query_result) -> bool:
+        """Return True when any structured query evidence is present."""
+        entries = getattr(query_result, "entries", None) or []
+        if entries:
+            return True
+        records = getattr(query_result, "records", None) or []
+        return bool(records)
 
     def _enrich_query_log_entries(self, final_state) -> None:
         """Attach turn-level question/answer context to each SQL audit row."""
