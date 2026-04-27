@@ -1,5 +1,8 @@
 import unittest
+import asyncio
+from unittest.mock import AsyncMock, patch, MagicMock
 from app.llm.tools import SOIL_TOOLS
+from app.llm.qwen_client import QwenClient
 
 class ToolSchemaTest(unittest.TestCase):
     def test_tool_count(self):
@@ -36,3 +39,67 @@ class ToolSchemaTest(unittest.TestCase):
             with self.subTest(tool=tool["function"]["name"]):
                 self.assertIn("start_time", required)
                 self.assertIn("end_time", required)
+
+
+class QwenClientFunctionCallingTest(unittest.TestCase):
+    def setUp(self):
+        self.client = QwenClient(api_key="test-key")
+
+    def test_call_with_tools_returns_none_when_no_key(self):
+        client = QwenClient(api_key="")
+        result = asyncio.run(client.call_with_tools(messages=[], tools=SOIL_TOOLS))
+        self.assertIsNone(result)
+
+    def test_call_with_tools_parses_tool_call_response(self):
+        mock_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": [{
+                        "id": "call_abc",
+                        "type": "function",
+                        "function": {
+                            "name": "get_soil_overview",
+                            "arguments": '{"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"}'
+                        }
+                    }]
+                }
+            }]
+        }
+        with patch("httpx.AsyncClient") as mock_http:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_resp.raise_for_status = MagicMock()
+            mock_http.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
+            result = asyncio.run(self.client.call_with_tools(
+                messages=[{"role": "user", "content": "全省概况"}],
+                tools=SOIL_TOOLS,
+            ))
+        self.assertIsNotNone(result)
+        self.assertEqual(result["type"], "tool_call")
+        self.assertEqual(result["tool_name"], "get_soil_overview")
+        self.assertIn("start_time", result["tool_args"])
+
+    def test_call_with_tools_parses_text_response(self):
+        mock_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "延安市最近7天整体墒情偏干。",
+                    "tool_calls": None,
+                }
+            }]
+        }
+        with patch("httpx.AsyncClient") as mock_http:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_resp.raise_for_status = MagicMock()
+            mock_http.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
+            result = asyncio.run(self.client.call_with_tools(
+                messages=[{"role": "user", "content": "概况"}],
+                tools=SOIL_TOOLS,
+            ))
+        self.assertIsNotNone(result)
+        self.assertEqual(result["type"], "text")
+        self.assertIn("延安", result["content"])

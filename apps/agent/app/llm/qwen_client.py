@@ -81,6 +81,61 @@ class QwenClient:
         answer = response.get("final_answer")
         return answer if isinstance(answer, str) and answer.strip() else None
 
+    async def call_with_tools(
+        self,
+        *,
+        messages: list[dict],
+        tools: list[dict],
+    ) -> dict | None:
+        """Call Qwen with function calling tools.
+
+        Returns one of:
+        - {"type": "tool_call", "tool_name": str, "tool_args": dict, "call_id": str}
+        - {"type": "text", "content": str}
+        - None  (LLM unavailable or error)
+        """
+        if not self.available():
+            return None
+        try:
+            import httpx
+            import json as _json
+        except Exception:
+            return None
+
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "tools": tools,
+            "tool_choice": "auto",
+            "temperature": 0.1,
+        }
+        try:
+            async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+                response = await client.post(
+                    self.base_url,
+                    headers={"Authorization": f"Bearer {self.api_key}"},
+                    json=payload,
+                )
+                response.raise_for_status()
+                message = response.json()["choices"][0]["message"]
+
+            tool_calls = message.get("tool_calls")
+            if tool_calls:
+                first = tool_calls[0]
+                raw_args = first["function"]["arguments"]
+                tool_args = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                return {
+                    "type": "tool_call",
+                    "tool_name": first["function"]["name"],
+                    "tool_args": tool_args,
+                    "call_id": first.get("id", ""),
+                }
+
+            content = message.get("content") or ""
+            return {"type": "text", "content": content}
+        except Exception:
+            return None
+
     async def _request_json(self, *, messages: list[dict[str, str]]) -> dict[str, Any] | None:
         """Execute a JSON-mode request and return parsed JSON or `None`."""
         if not self.available():
