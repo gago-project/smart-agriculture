@@ -3,9 +3,9 @@
 ## Runtime Services
 
 - `web`: Next.js main platform. It serves pages, Admin entry, Chat UI, Soniox token API, and BFF routes.
-- `agent`: Python FastAPI service. It follows the restricted Flow design in `${GAGO_CLOUD_ROOT}/plans/4~8`.
+- `agent`: Python FastAPI service. LLM + Function Calling single-agent. See `apps/agent/plans/1/` for design docs.
 - `mysql`: Isolated `smart_agriculture` schema. It stores soil measurements, import batch, rules, templates, query logs, and admin logs.
-- `redis`: Runtime context/cache service. It must not store full `FlowState`.
+- `redis`: Runtime context/cache service. Stores conversation message history (max 20 messages per session). Must not store full `FlowState`.
 
 ## Service Boundaries
 
@@ -27,6 +27,7 @@
 ## Validation Basis
 
 - Answer type coverage follows `apps/agent/plans/1/2.answer-types-business.md`.
+- Agent tool calling follows `apps/agent/app/llm/tools/soil_tools.py`.
 - MVP acceptance follows `docs/testing/agent/soil-moisture/acceptance-test-matrix.md`.
 - Flow safety follows `apps/agent/plans/1/8.flow-risk-contract.md`.
 
