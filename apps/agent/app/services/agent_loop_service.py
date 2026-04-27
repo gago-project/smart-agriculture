@@ -91,6 +91,8 @@ class AgentLoopService:
 
         tool_calls_made: list[dict[str, Any]] = []
         tool_results: list[dict[str, Any]] = []
+        history_tool_calls: list[dict[str, Any]] = []
+        history_tool_results: list[dict[str, Any]] = []
 
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.qwen_client.call_with_tools(
@@ -116,8 +118,8 @@ class AgentLoopService:
                         session_id, turn_id,
                         user_message=user_input,
                         assistant_message=_FALLBACK_TOOL_MISSING,
-                        tool_calls=tool_calls_made,
-                        tool_results=tool_results,
+                        tool_calls=history_tool_calls,
+                        tool_results=history_tool_results,
                     )
                     return AgentLoopResult(
                         final_answer=_FALLBACK_TOOL_MISSING,
@@ -132,8 +134,8 @@ class AgentLoopService:
                     session_id, turn_id,
                     user_message=user_input,
                     assistant_message=final_answer,
-                    tool_calls=tool_calls_made,
-                    tool_results=tool_results,
+                    tool_calls=history_tool_calls,
+                    tool_results=history_tool_results,
                 )
                 return AgentLoopResult(
                     final_answer=final_answer,
@@ -150,26 +152,28 @@ class AgentLoopService:
             call_id = response.get("call_id", "")
 
             # Append standard assistant tool-call message
+            assistant_tool_call = self._standard_tool_call(
+                tool_name=tool_name,
+                tool_args=tool_args,
+                call_id=call_id,
+            )
             messages.append({
                 "role": "assistant",
                 "content": None,
-                "tool_calls": [{
-                    "id": call_id,
-                    "type": "function",
-                    "function": {
-                        "name": tool_name,
-                        "arguments": json.dumps(tool_args, ensure_ascii=False),
-                    },
-                }],
+                "tool_calls": [assistant_tool_call],
             })
+            history_tool_calls.append(assistant_tool_call)
 
             try:
                 result = await self.tool_executor.execute(tool_name=tool_name, tool_args=tool_args)
                 tool_calls_made.append({"tool_name": tool_name, "tool_args": tool_args, "call_id": call_id})
                 tool_results.append(result)
+                history_tool_results.append(result)
                 tool_content = json.dumps(result, ensure_ascii=False, default=str)
             except ToolValidationError as exc:
-                tool_content = json.dumps({"error": str(exc)}, ensure_ascii=False)
+                error_result = {"error": str(exc)}
+                history_tool_results.append(error_result)
+                tool_content = json.dumps(error_result, ensure_ascii=False)
 
             # Append standard tool result message
             messages.append({
@@ -183,8 +187,8 @@ class AgentLoopService:
             session_id, turn_id,
             user_message=user_input,
             assistant_message=_FALLBACK_MAX_ITER,
-            tool_calls=tool_calls_made,
-            tool_results=tool_results,
+            tool_calls=history_tool_calls,
+            tool_results=history_tool_results,
         )
         return AgentLoopResult(
             final_answer=_FALLBACK_MAX_ITER,
@@ -194,6 +198,18 @@ class AgentLoopService:
             is_fallback=True,
             fallback_reason="tool_blocked",
         )
+
+    @staticmethod
+    def _standard_tool_call(*, tool_name: str, tool_args: dict[str, Any], call_id: str) -> dict[str, Any]:
+        """Return the canonical assistant.tool_calls entry stored in history."""
+        return {
+            "id": call_id,
+            "type": "function",
+            "function": {
+                "name": tool_name,
+                "arguments": json.dumps(tool_args, ensure_ascii=False),
+            },
+        }
 
 
 __all__ = ["AgentLoopService", "AgentLoopResult"]

@@ -74,16 +74,15 @@ class AgentLoopNode(BaseNode):
             if output_mode:
                 patch["output_mode"] = output_mode
 
-        # query_result: collect records from tool results (summary/detail may not have 'records')
-        records: list = []
-        for tool_result in result.tool_results:
-            if "records" in tool_result:
-                records.extend(tool_result["records"])
-            elif "alert_records" in tool_result:
-                records.extend(tool_result["alert_records"])
-            elif "items" in tool_result:
-                records.extend(tool_result["items"])
-        patch["query_result"] = {"records": records}
+        # query_result: full structured result from every tool call, keyed by position
+        query_results: list[dict] = []
+        for tc, tr in zip(result.tool_calls_made, result.tool_results):
+            query_results.append({
+                "tool_name": tc["tool_name"],
+                "tool_args": tc.get("tool_args", {}),
+                "result": tr,
+            })
+        patch["query_result"] = {"entries": query_results}
 
         # tool_trace for evidence chain
         patch["tool_trace"] = [

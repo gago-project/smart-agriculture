@@ -1,49 +1,77 @@
 # 墒情 Agent 测试数据目录
 
-本目录用于存放 `soil-moisture` Agent 的长期测试样例源数据，和 `outputs/` 中的一次性测试结果区分开。
+本目录存放 `soil-moisture` Agent 的**唯一正式验收库**与对应维护说明。
 
-当前唯一正式 Case 主库：
-
-- `testdata/agent/soil-moisture/case-library.md`
-
-当前正式规模为 `130` 个 Case，其中新增多轮话题边界专项 Case 直接并入同一主库。分类覆盖按业务价值加权，不做均分；业务高频场景保留更多样例，非业务和能力边界只保留代表性样例。
-
-## 目录定位
-
-- `testdata/agent/soil-moisture/`：长期维护、可复用、可继续扩展的测试样例源。
-- soil-moisture QA skill / rule：测试规则、验收口径、评审说明与执行提示。
-- `outputs/`：某次执行导出的 Excel、CSV、截图、临时复测产物。
-
-## 适合放在这里的内容
-
-- 结构化 Case 样例库
-- 回归样例标签说明
-- 评审用标准输入集
-- 专项问题清单与稳定复现样例
-
-## 暂不在这里落的内容
-
-- 一次性复测导出的 Excel
-- 临时截图和手工记录
-- 仅用于某次群内同步的临时表格
-
-## 后续建议
-
-当前正式 Case 的新增、删减、修订，应优先直接更新 `case-library.md`。
-
-当前正式验收入口建议统一为：
+## 当前正式入口
 
 - `testdata/agent/soil-moisture/case-library.md`
+
+## 当前正式规模
+
+- 正式 Case 总数：`30`
+- 测试方式：**每次全量跑完 30 条**
+- 测试定位：**单元测试导向**
+- 当前回答样例：**保留完整长文本**
+- 数据真实性：**每条业务 Case 都必须带数据库校验断言，并标记 `是否符合事实`**
+
+## 分布结构
+
+| 一级 `answer_type` | 数量 | CaseID |
+|---|---:|---|
+| `guidance_answer` | 8 | `SM-CONV-001 ~ SM-CONV-008` |
+| `soil_summary_answer` | 6 | `SM-SUM-001 ~ SM-SUM-006` |
+| `soil_ranking_answer` | 4 | `SM-RANK-001 ~ SM-RANK-004` |
+| `soil_detail_answer` | 8 | `SM-DETAIL-001 ~ SM-DETAIL-008` |
+| `fallback_answer` | 4 | `SM-FB-001 ~ SM-FB-004` |
+
+## 维护原则
+
+- 旧三层测试模型已废弃
+- 不再维护第二套正式 Case 主库
+- 不再保留旧 `130` 条正式库
+- 不再保留旧 `CaseID` 体系
+- 正式 Case 的新增、删减、修订只改 `case-library.md`
+
+## Case 设计要求
+
+每条正式 Case 至少保留以下字段：
+
+- `CaseID`
+- `用户问题`
+- `当前回答`
+- `上下文`
+- `预期 input_type`
+- `是否域内业务问题`
+- `是否必须命中 Tool`
+- `预期 Tool`
+- `预期 answer_type`
+- `预期 output_mode`
+- `预期 guidance_reason`
+- `预期 fallback_reason`
+- `是否写查询日志`
+- `关键断言`
+- `结构化证据断言`
+- `数据库校验断言`
+- `是否符合事实`
+- `备注`
+
+## 数据真实性要求
+
+- `guidance_answer` 等非业务 Case 不要求查库，但不得包含事实性业务断言
+- 每条业务 Case 都必须能落到：
+  - `问题 -> Agent 回答 -> 回查数据库 -> 事实比对`
+- 对正式通过样例：
+  - 业务 Case：`是否符合事实=是`
+  - 非业务 guidance Case：若不含事实性业务断言，也记为 `是`
+
+## 相关 QA 入口
+
 - `.claude/skills/soil-moisture-qa/SKILL.md`
 - `.codex/skills/soil-moisture-qa/SKILL.md`
 - `.agents/skills/soil-moisture-qa/SKILL.md`
 - `.cursor/rules/soil-moisture-qa.mdc`
 
-等未来确实需要结构化导出格式时，再考虑在本目录继续补：
+## 其他说明
 
-- `case-library.csv` 或 `case-library.xlsx`
-- `case-library.jsonl`
-- `labels.md`
-- `fixtures/`
-
-当前先以 Markdown 主库为准，不提前固化第二种源格式。
+- `outputs/` 仍只放一次性测试结果，不作为长期规则源
+- 如未来确实需要结构化导出，再考虑新增 `json/csv/xlsx` 副本；当前仍以 Markdown 主库为准

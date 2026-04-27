@@ -54,6 +54,7 @@ class BundleModel(BaseModel):
 class QueryResultBundle(BundleModel):
     """Normalized query result returned by tool executors."""
 
+    entries: list[dict[str, Any]] = Field(default_factory=list)
     records: list[dict[str, Any]] = Field(default_factory=list)
     aggregation: str | None = None
     top_n: int | None = None

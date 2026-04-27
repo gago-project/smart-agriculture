@@ -26,6 +26,7 @@ class ChatResponse(BaseModel):
     conversation_closed: bool = False
     status: str = "ok"
     query_result: dict[str, Any] = Field(default_factory=dict)
+    query_log_entries: list[dict[str, Any]] = Field(default_factory=list)
     tool_trace: list[dict[str, Any]] = Field(default_factory=list)
     answer_facts: dict[str, Any] = Field(default_factory=dict)
     node_trace: list[str] = Field(default_factory=list)

@@ -58,7 +58,11 @@ class SessionContextRepository:
         tool_calls: list[dict[str, Any]],
         tool_results: list[dict[str, Any]],
     ) -> None:
-        """Append one user+assistant turn (with optional tool calls) to history."""
+        """Append one user+assistant turn using the standard OpenAI transcript format.
+
+        The stored chain is:
+          user → assistant(tool_calls) → tool(result) ... → assistant(final_text)
+        """
         key = self._key(session_id)
         try:
             raw = await self.redis_client.get(key)
@@ -68,12 +72,20 @@ class SessionContextRepository:
 
         messages.append({"role": "user", "content": user_message})
 
-        assistant_entry: dict[str, Any] = {"role": "assistant", "content": assistant_message}
         if tool_calls:
-            assistant_entry["tool_calls"] = tool_calls
-        if tool_results:
-            assistant_entry["tool_results"] = tool_results
-        messages.append(assistant_entry)
+            # First assistant message: carries tool_calls, no final text yet
+            messages.append({"role": "assistant", "content": None, "tool_calls": tool_calls})
+            # One tool result message per call
+            for tc, tr in zip(tool_calls, tool_results):
+                call_id = tc.get("id", "")
+                messages.append({
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": json.dumps(tr, ensure_ascii=False),
+                })
+
+        # Final assistant message with the visible answer text
+        messages.append({"role": "assistant", "content": assistant_message})
 
         messages = messages[-_MAX_MESSAGES:]
         try:

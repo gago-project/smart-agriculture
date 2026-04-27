@@ -4,12 +4,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireRequestUser } from '../../../../lib/server/auth.mjs';
 import { buildAnalysisContext } from '../../../../lib/server/agentChatEvidence.mjs';
 
-function mapMode(answerType: string) {
-  if (answerType === 'closing_answer') return 'analysis';
-  if (answerType.includes('closing')) return 'analysis';
-  if (answerType.includes('advice')) return 'advice';
-  if (answerType.includes('clarification')) return 'analysis';
-  if (answerType.includes('safe') || answerType.includes('boundary') || answerType.includes('fallback')) return 'analysis';
+function mapMode(answerType: string, outputMode: string) {
+  if (outputMode === 'advice_mode') return 'advice';
+  if (outputMode === 'warning_mode') return 'data_query';
+  if (answerType === 'guidance_answer') return 'analysis';
+  if (answerType === 'fallback_answer') return 'analysis';
   return 'data_query';
 }
 
@@ -45,18 +44,21 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: data?.detail || data?.error || 'agent request failed' }, { status: response.status });
     }
 
-    const mode = mapMode(String(data.answer_type || ''));
-    const mergedSlots = data.merged_slots && typeof data.merged_slots === 'object' ? data.merged_slots : {};
-    const contextMeta = data.context_used && typeof data.context_used === 'object' ? data.context_used : {};
-    const inheritanceMode = String(contextMeta.inheritance_mode || '');
-    const usedContext =
-      ['carry_frame', 'convert_frame'].includes(inheritanceMode)
-      || (Array.isArray(contextMeta.inherited_fields) && contextMeta.inherited_fields.length > 0);
+    const answerType = String(data.answer_type || '');
+    const outputMode = String(data.output_mode || '');
+    const guidanceReason = String(data.guidance_reason || '');
+    const fallbackReason = String(data.fallback_reason || '');
+    const toolTrace = Array.isArray(data.tool_trace) ? data.tool_trace : [];
+    const answerFacts = data.answer_facts && typeof data.answer_facts === 'object' ? data.answer_facts : {};
+    const queryResult = data.query_result && typeof data.query_result === 'object' ? data.query_result : {};
+
+    const mode = mapMode(answerType, outputMode);
     const analysisContext = buildAnalysisContext({
       intent: data.intent,
-      mergedSlots,
-      contextUsed: contextMeta,
+      toolTrace,
+      answerFacts,
     });
+
     return NextResponse.json({
       answer: data.final_answer || '',
       mode,
@@ -64,17 +66,19 @@ export async function POST(request: NextRequest) {
         session_id: data.session_id,
         turn_id: data.turn_id,
         intent: data.intent,
-        answer_type: data.answer_type,
+        answer_type: answerType,
+        output_mode: outputMode,
+        guidance_reason: guidanceReason,
+        fallback_reason: fallbackReason,
         input_type: data.input_type,
         should_query: data.should_query,
         conversation_closed: Boolean(data.conversation_closed),
-        context_used: contextMeta,
       },
       evidence: {
         response_meta: {
           confidence: data.should_query ? 'medium' : 'high',
-          source_types: data.should_query ? ['database', 'rule'] : ['guardrail'],
-          fallback_reason: data.should_query ? '' : 'safe_or_boundary',
+          source_types: toolTrace.length > 0 ? ['database'] : ['guardrail'],
+          fallback_reason: fallbackReason,
         },
         request_understanding: {
           original_question: question,
@@ -83,30 +87,33 @@ export async function POST(request: NextRequest) {
           domain: 'soil',
           task_type: data.intent,
           understanding_engine: 'restricted-flow',
-          used_context: usedContext,
+          used_context: false,
           ignored_phrases: data.input_type === 'meaningless_input' ? [question] : [],
           window: { window_type: 'all', window_value: null },
           future_window: null,
         },
         analysis_context: analysisContext,
+        tool_trace: toolTrace,
+        answer_facts: answerFacts,
+        query_result: queryResult,
         historical_query: {
-          rule: data.answer_type,
+          rule: answerType,
           sql: 'smart_agriculture.fact_soil_moisture',
           since: '',
         },
         execution_plan: [
           'request_understanding',
-          data.should_query ? 'query_repository' : 'safe_guardrail',
+          toolTrace.length > 0 ? 'query_repository' : 'safe_guardrail',
           'answer_generation',
         ],
       },
       processing: {
         intent_recognition: '受限 Flow',
-        data_query: data.should_query ? 'Python Agent / SoilRepository' : 'Boundary Guard',
-        answer_generation: data.answer_type || 'fallback_answer',
-        ai_involvement: data.should_query ? '中' : '低',
+        data_query: toolTrace.length > 0 ? 'Python Agent / SoilRepository' : 'Boundary Guard',
+        answer_generation: answerType || 'fallback_answer',
+        ai_involvement: toolTrace.length > 0 ? '中' : '低',
         orchestration: 'Next BFF -> Python Agent',
-        memory: usedContext ? `使用多轮上下文：${inheritanceMode || 'context'}` : '无',
+        memory: '无',
       },
     });
   } catch (error) {

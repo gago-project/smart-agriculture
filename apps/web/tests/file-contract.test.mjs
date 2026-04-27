@@ -50,11 +50,16 @@ test('agent chat route proxies to configured AGENT_BASE_URL', () => {
   const source = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
   assert.match(source, /AGENT_BASE_URL/);
   assert.match(source, /\/chat/);
-  assert.match(source, /closing_answer/);
+  assert.match(source, /output_mode/);
+  assert.match(source, /guidance_reason/);
+  assert.match(source, /fallback_reason/);
+  assert.match(source, /tool_trace/);
+  assert.match(source, /answer_facts/);
   assert.match(source, /conversation_closed/);
-  assert.match(source, /inheritanceMode/);
   assert.match(source, /buildAnalysisContext/);
-  assert.match(source, /mergedSlots/);
+  assert.doesNotMatch(source, /mergedSlots/);
+  assert.doesNotMatch(source, /inheritanceMode/);
+  assert.doesNotMatch(source, /closing_answer/);
   assert.doesNotMatch(source, /region_level:\s*'county'/);
   assert.doesNotMatch(source, /used_context:\s*history\.length > 0/);
   assert.doesNotMatch(source, /memory:\s*history\.length > 0/);
@@ -221,21 +226,15 @@ test('region alias and acceptance docs live in dedicated non-plan directories', 
     new URL('../../agent/plans/1/1.plan.md', import.meta.url),
     'utf8',
   );
-  const matrixSource = readFileSync(
-    new URL('../../../docs/testing/agent/soil-moisture/acceptance-test-matrix.md', import.meta.url),
-    'utf8',
-  );
   const planSource = readFileSync(
     new URL('../../../infra/mysql/docs/region-alias-resolution.md', import.meta.url),
     'utf8',
   );
 
   assert.match(readmeSource, /infra\/mysql\/docs\/README\.md/);
-  assert.match(readmeSource, /docs\/testing\/agent\/soil-moisture\/README\.md/);
+  assert.match(readmeSource, /testdata\/agent\/soil-moisture\/README\.md/);
   assert.match(mainPlanSource, /region_alias/);
   assert.match(mainPlanSource, /infra\/mysql\/docs\/region-alias-resolution\.md/);
-  assert.match(mainPlanSource, /docs\/testing\/agent\/soil-moisture\/acceptance-test-matrix\.md/);
-  assert.match(matrixSource, /testdata\/agent\/soil-moisture\/case-library\.md/);
   assert.match(planSource, /地区别名解析与 `region_alias` 使用设计/);
   assert.match(planSource, /南京[\s\S]*南京市/);
   assert.match(planSource, /静态种子/);
@@ -254,18 +253,6 @@ test('system design doc reflects current region alias implementation', () => {
 });
 
 test('soil moisture testing docs use testdata case library as the single formal case source', () => {
-  const testingReadmeSource = readFileSync(
-    new URL('../../../docs/testing/agent/soil-moisture/README.md', import.meta.url),
-    'utf8',
-  );
-  const acceptanceSource = readFileSync(
-    new URL('../../../docs/testing/agent/soil-moisture/acceptance-test-matrix.md', import.meta.url),
-    'utf8',
-  );
-  const regressionSource = readFileSync(
-    new URL('../../../docs/testing/agent/soil-moisture/regression-case-guide.md', import.meta.url),
-    'utf8',
-  );
   const testdataReadmeSource = readFileSync(
     new URL('../../../testdata/agent/soil-moisture/README.md', import.meta.url),
     'utf8',
@@ -274,22 +261,47 @@ test('soil moisture testing docs use testdata case library as the single formal 
     new URL('../../../testdata/agent/soil-moisture/case-library.md', import.meta.url),
     'utf8',
   );
+  const claudeSkillSource = readFileSync(
+    new URL('../../../.claude/skills/soil-moisture-qa/SKILL.md', import.meta.url),
+    'utf8',
+  );
+  const cursorRuleSource = readFileSync(
+    new URL('../../../.cursor/rules/soil-moisture-qa.mdc', import.meta.url),
+    'utf8',
+  );
 
-  assert.match(testingReadmeSource, /testdata\/agent\/soil-moisture\/case-library\.md/);
-  assert.match(acceptanceSource, /testdata\/agent\/soil-moisture\/case-library\.md/);
-  assert.match(regressionSource, /testdata\/agent\/soil-moisture\/case-library\.md/);
   assert.match(testdataReadmeSource, /case-library\.md/);
-  assert.match(caseLibrarySource, /130 个正式 Case/);
-  assert.match(caseLibrarySource, /按业务价值和真实使用频率加权/);
-  assert.match(caseLibrarySource, /### SH-01/);
-  assert.match(caseLibrarySource, /### DT-18/);
-  assert.match(caseLibrarySource, /### WA-16/);
-  assert.match(caseLibrarySource, /### BO-05/);
-  assert.equal([...caseLibrarySource.matchAll(/^### /gm)].length, 130);
-  assert.equal([...caseLibrarySource.matchAll(/^### SH-/gm)].length, 6);
-  assert.equal([...caseLibrarySource.matchAll(/^### DT-/gm)].length, 18);
-  assert.equal([...caseLibrarySource.matchAll(/^### BO-/gm)].length, 5);
-  assert.doesNotMatch(acceptanceSource, /44 个典型 Case/);
+  assert.match(testdataReadmeSource, /30/);
+  assert.doesNotMatch(testdataReadmeSource, /当前正式规模为 `130` 个 Case/);
+  assert.match(caseLibrarySource, /30 条正式验收 Case/);
+  assert.match(caseLibrarySource, /是否符合事实/);
+  assert.match(caseLibrarySource, /数据库校验断言/);
+  assert.match(caseLibrarySource, /### SM-CONV-001/);
+  assert.match(caseLibrarySource, /### SM-CONV-008/);
+  assert.match(caseLibrarySource, /### SM-SUM-006/);
+  assert.match(caseLibrarySource, /### SM-RANK-004/);
+  assert.match(caseLibrarySource, /### SM-DETAIL-008/);
+  assert.match(caseLibrarySource, /### SM-FB-004/);
+  assert.equal([...caseLibrarySource.matchAll(/^### /gm)].length, 30);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-CONV-/gm)].length, 8);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-SUM-/gm)].length, 6);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-RANK-/gm)].length, 4);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-DETAIL-/gm)].length, 8);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-FB-/gm)].length, 4);
+  const blocks = caseLibrarySource.split(/^### /gm).slice(1).map((block) => `### ${block}`);
+  for (const block of blocks) {
+    assert.match(block, /当前回答/);
+    const isBusiness = /是否域内业务问题[：:]\s*是/.test(block);
+    if (isBusiness) {
+      assert.match(block, /数据库校验断言/);
+      assert.match(block, /是否符合事实[：:]\s*是/);
+    }
+  }
+  assert.match(claudeSkillSource, /30/);
+  assert.match(claudeSkillSource, /每次都全量跑完 30 条/);
+  assert.match(claudeSkillSource, /旧三层测试模型已废弃/);
+  assert.match(cursorRuleSource, /正式 Case 总数固定为 `30`/);
+  assert.match(cursorRuleSource, /旧三层测试模型已废弃/);
 });
 
 test('agent summary route must surface upstream errors instead of fake fallback data', () => {

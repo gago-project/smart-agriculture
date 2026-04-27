@@ -25,6 +25,18 @@ class FallbackGuardNode(BaseNode):
                 f"基于已查询到的数据（{context}），当前处理中断，"
                 "请重新提问或缩小查询范围。"
             )
+        elif state.query_result.entries:
+            first_result = state.query_result.entries[0].get("result", {})
+            entity = (
+                first_result.get("entity_name")
+                or first_result.get("entity_type")
+                or first_result.get("diagnosis")
+                or state.query_result.entries[0].get("tool_name", "")
+            )
+            safe_answer = (
+                f"当前处理中断{'（' + entity + '）' if entity else ''}，"
+                "请重新提问或缩小查询范围。"
+            )
         elif state.answer_facts:
             entity = (
                 state.answer_facts.get("entity_name")
