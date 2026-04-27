@@ -26,15 +26,15 @@
 
 ## Validation Basis
 
-- Answer type coverage follows `apps/agent/plans/1/2.answer-types-business.md`.
+- Answer contract and migration direction follow `apps/agent/plans/1/2.answer-types-business.md` and `apps/agent/plans/1/9.llm-fc-design-audit.md`.
 - Agent tool calling follows `apps/agent/app/llm/tools/soil_tools.py`.
-- MVP acceptance follows `docs/testing/agent/soil-moisture/acceptance-test-matrix.md`.
+- MVP acceptance follows `testdata/agent/soil-moisture/case-library.md` plus the soil-moisture QA skill/rule assets.
 - Flow safety follows `apps/agent/plans/1/8.flow-risk-contract.md`.
 
 ## Documentation Boundaries
 
 - `apps/agent/plans/`: Agent capability design, implementation plans, flow diagrams, and risk contracts only.
 - `infra/mysql/docs/`: MySQL table design and database-side companion designs.
-- `docs/testing/agent/soil-moisture/`: Testing rules, acceptance guidance, regression guidance, and review guidance.
-- `testdata/agent/soil-moisture/case-library.md`: Single formal soil moisture Agent case library. Future case additions, removals, and edits must be made here.
+- `testdata/agent/soil-moisture/`: Single formal soil moisture Agent case library entry and long-term test-source directory.
+- `.claude/.codex/.agents/.cursor` soil-moisture QA assets: testing rules, acceptance guidance, regression guidance, and review guidance.
 - `outputs/`: One-off generated artifacts such as retest workbooks, CSV files, screenshots, and temporary review exports; not a long-term source of truth.

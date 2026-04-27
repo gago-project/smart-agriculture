@@ -11,7 +11,7 @@
 ## 目录定位
 
 - `testdata/agent/soil-moisture/`：长期维护、可复用、可继续扩展的测试样例源。
-- `docs/testing/agent/soil-moisture/`：测试规则、验收口径、评审说明。
+- soil-moisture QA skill / rule：测试规则、验收口径、评审说明与执行提示。
 - `outputs/`：某次执行导出的 Excel、CSV、截图、临时复测产物。
 
 ## 适合放在这里的内容
@@ -30,6 +30,14 @@
 ## 后续建议
 
 当前正式 Case 的新增、删减、修订，应优先直接更新 `case-library.md`。
+
+当前正式验收入口建议统一为：
+
+- `testdata/agent/soil-moisture/case-library.md`
+- `.claude/skills/soil-moisture-qa/SKILL.md`
+- `.codex/skills/soil-moisture-qa/SKILL.md`
+- `.agents/skills/soil-moisture-qa/SKILL.md`
+- `.cursor/rules/soil-moisture-qa.mdc`
 
 等未来确实需要结构化导出格式时，再考虑在本目录继续补：
 
