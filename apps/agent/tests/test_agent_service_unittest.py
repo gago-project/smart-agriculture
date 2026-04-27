@@ -1,67 +1,63 @@
 """Unit tests for agent service."""
 
 import unittest
+from unittest.mock import AsyncMock, MagicMock
 
+from app.llm.qwen_client import QwenClient
 from app.services.agent_service import SoilAgentService
-from support_repositories import SeedSoilRepository
+from tests.support_repositories import SeedSoilRepository
 
 
-class FailingQueryLogRepository:
-    """Repository helper for failing query log."""
-    async def insert_many(self, entries):
-        """Handle insert many on the failing query log repository."""
-        raise RuntimeError("query log write failed")
+class AgentServiceInputGuardTest(unittest.TestCase):
+    """InputGuard-level behavior: no LLM required."""
 
-
-class AgentServiceTest(unittest.TestCase):
-    """Test cases for agent service."""
     def setUp(self):
-        """Prepare the shared fixtures for each test case."""
-        self.service = SoilAgentService(repository=SeedSoilRepository())
+        self.service = SoilAgentService(
+            repository=SeedSoilRepository(),
+            qwen_client=QwenClient(api_key=""),
+        )
 
-    def test_meaningless_input_returns_safe_hint_without_query(self):
-        """Verify meaningless input returns safe hint without query."""
+    def test_meaningless_input_returns_guidance_answer_with_safe_hint(self):
         result = self.service.chat("h d k j h sa d k l j", session_id="s1", turn_id=1)
 
-        self.assertEqual(result["answer_type"], "safe_hint_answer")
+        self.assertEqual(result["answer_type"], "guidance_answer")
+        self.assertEqual(result["guidance_reason"], "safe_hint")
         self.assertFalse(result["should_query"])
         self.assertIn("墒情", result["final_answer"])
 
-    def test_summary_question_returns_soil_summary(self):
-        """Verify summary question returns soil summary."""
-        result = self.service.chat("最近墒情怎么样", session_id="s1", turn_id=1)
+    def test_closing_returns_guidance_answer_and_closes_conversation(self):
+        result = self.service.chat("谢谢", session_id="close1", turn_id=1)
 
-        self.assertEqual(result["answer_type"], "soil_summary_answer")
-        self.assertEqual(result["intent"], "soil_recent_summary")
-        self.assertIn("整体", result["final_answer"])
+        self.assertEqual(result["answer_type"], "guidance_answer")
+        self.assertEqual(result["guidance_reason"], "closing")
+        self.assertTrue(result["conversation_closed"])
+
+    def test_out_of_scope_returns_guidance_answer_boundary(self):
+        result = self.service.chat("查一下明天天气", session_id="oos1", turn_id=1)
+
+        self.assertEqual(result["answer_type"], "guidance_answer")
+        self.assertEqual(result["guidance_reason"], "boundary")
+        self.assertFalse(result["should_query"])
 
     def test_query_log_write_failure_does_not_break_answer(self):
-        """Verify query log write failure does not break answer."""
+        class FailingQueryLogRepository:
+            async def insert_many(self, entries):
+                raise RuntimeError("query log write failed")
+
         service = SoilAgentService(
             repository=SeedSoilRepository(),
+            qwen_client=QwenClient(api_key=""),
             query_log_repository=FailingQueryLogRepository(),
         )
-
         result = service.chat("最近墒情怎么样", session_id="log-fail", turn_id=1)
 
         self.assertEqual(result["status"], "ok")
-        self.assertEqual(result["answer_type"], "soil_summary_answer")
-        self.assertIn("墒情概况", result["final_answer"])
-
-    def test_warning_question_uses_template_answer(self):
-        """Verify warning question uses template answer."""
-        result = self.service.chat("SNS00204333 需要发预警吗", session_id="s1", turn_id=1)
-
-        self.assertEqual(result["answer_type"], "soil_warning_answer")
-        self.assertEqual(result["intent"], "soil_warning_generation")
-        self.assertIn("预警", result["final_answer"])
+        self.assertIsInstance(result["final_answer"], str)
+        self.assertGreater(len(result["final_answer"]), 0)
 
 
 class AgentServiceNewFlowSmokeTest(unittest.TestCase):
     def setUp(self):
-        from unittest.mock import AsyncMock, MagicMock
-        from app.llm.qwen_client import QwenClient
-
         qwen = MagicMock(spec=QwenClient)
         qwen.available.return_value = True
         qwen.call_with_tools = AsyncMock(return_value={

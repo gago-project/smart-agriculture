@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-from app.schemas.enums import AnswerType, InputType, IntentType
+from app.schemas.enums import AnswerType, FallbackReason, GuidanceReason, InputType, IntentType, OutputMode
 
 
 class ChatResponse(BaseModel):
@@ -18,18 +18,15 @@ class ChatResponse(BaseModel):
     input_type: InputType | None = None
     intent: IntentType | None = None
     answer_type: AnswerType | None = None
+    output_mode: OutputMode | None = None
+    guidance_reason: GuidanceReason | None = None
+    fallback_reason: FallbackReason | None = None
     final_answer: str = ""
     should_query: bool = False
     conversation_closed: bool = False
     status: str = "ok"
-    merged_slots: dict[str, Any] = Field(default_factory=dict)
-    context_used: dict[str, Any] = Field(default_factory=dict)
-    business_time: dict[str, Any] = Field(default_factory=dict)
-    execution_gate_result: dict[str, Any] = Field(default_factory=dict)
-    query_plan: dict[str, Any] = Field(default_factory=dict)
     query_result: dict[str, Any] = Field(default_factory=dict)
-    rule_result: dict[str, Any] = Field(default_factory=dict)
-    template_result: dict[str, Any] = Field(default_factory=dict)
-    advice_result: dict[str, Any] = Field(default_factory=dict)
+    tool_trace: list[dict[str, Any]] = Field(default_factory=list)
+    answer_facts: dict[str, Any] = Field(default_factory=dict)
     node_trace: list[str] = Field(default_factory=list)
     final_status: str | None = None

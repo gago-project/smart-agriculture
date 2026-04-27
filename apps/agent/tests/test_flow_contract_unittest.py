@@ -142,7 +142,6 @@ class FlowContractTest(unittest.TestCase):
                     "continue",
                     {
                         "answer_type": "soil_detail_answer",
-                        "merged_slots": {"sn": "SNS00204333"},
                         "query_result": {
                             "records": [
                                 {
@@ -157,7 +156,7 @@ class FlowContractTest(unittest.TestCase):
                         },
                     },
                     name="input_guard",
-                    allowed_patch_fields=("answer_type", "merged_slots", "query_result"),
+                    allowed_patch_fields=("answer_type", "query_result"),
                 ),
                 "response_generate": ExplodingNode(),
                 "fallback_guard": FallbackGuardNode(),

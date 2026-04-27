@@ -16,7 +16,11 @@ class AnswerVerifyNode(BaseNode):
 
     async def run(self, state: FlowState) -> NodeResult:
         """Execute the node and return the next flow action."""
-        result = self.service.verify(answer_type=state.answer_type or "", answer_bundle=state.answer_bundle)
+        result = self.service.verify(
+            answer_type=state.answer_type or "",
+            answer_bundle=state.answer_bundle,
+            guidance_reason=str(state.guidance_reason or ""),
+        )
         if result["failed"]:
             return self.ensure_result(NodeResult(next_action="fallback", state_patch={"answer_type": "fallback_answer", "answer_bundle": {"final_answer": result["fallback_answer"]}}))
         return self.ensure_result(NodeResult(next_action="verified_end"))

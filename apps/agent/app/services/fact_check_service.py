@@ -1,15 +1,15 @@
 """Post-generation fact checks before final answer verification.
 
-This service catches obvious mismatches between generated text and structured
-facts.  It is deliberately small today, but it is the right extension point for
-future checks such as count consistency, device identity consistency, and
-template field completeness.
+Checks:
+1. Answer must not be empty.
+2. Business answers (soil_*_answer) must have tool evidence in query_result or tool_trace.
 """
 
 from __future__ import annotations
 
-
 from typing import Any
+
+_BUSINESS_ANSWER_TYPES = {"soil_summary_answer", "soil_ranking_answer", "soil_detail_answer"}
 
 
 class FactCheckService:
@@ -19,10 +19,9 @@ class FactCheckService:
         self,
         *,
         answer_type: str,
-        answer_bundle: dict[str, Any],
-        query_result: dict[str, Any],
-        rule_result: dict[str, Any],
-        template_result: dict[str, Any],
+        answer_bundle: Any,
+        query_result: Any,
+        tool_trace: list | None = None,
     ) -> dict[str, Any]:
         """Return whether the answer should retry, fallback, or proceed."""
         final_answer = str(answer_bundle.get("final_answer") or "").strip()
@@ -32,14 +31,18 @@ class FactCheckService:
                 "need_retry": False,
                 "fallback_answer": "当前回答未生成成功，已安全降级，请换一种问法重试。",
             }
-        if answer_type == "soil_warning_answer" and template_result.get("render_mode") == "strict":
-            records = rule_result.get("evaluated_records") or query_result.get("records") or []
-            if records and records[0].get("sn") not in final_answer:
+
+        # Business answers require evidence from at least one tool call
+        if answer_type in _BUSINESS_ANSWER_TYPES:
+            has_records = bool(query_result.get("records") if hasattr(query_result, "get") else [])
+            has_trace = bool(tool_trace)
+            if not has_records and not has_trace:
                 return {
-                    "failed": False,
-                    "need_retry": True,
-                    "fallback_answer": "当前模板校验未通过，已安全降级。",
+                    "failed": True,
+                    "need_retry": False,
+                    "fallback_answer": "当前业务回答缺少真实数据支撑，已安全降级，请重新提问。",
                 }
+
         return {"failed": False, "need_retry": False, "fallback_answer": ""}
 
 

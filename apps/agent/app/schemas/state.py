@@ -1,9 +1,8 @@
 """Pydantic state models that define the Agent Flow contract.
 
 These bundles are the typed schema for everything the nodes pass to each other:
-slots, business time, execution gate decisions, query plans/results, rule
-results, rendered templates, advice text, final answer, traces, and errors.
-The shape mirrors the plans so tests can compare implementation and design.
+query results, final answer, traces, and errors.
+The shape mirrors the LLM + Function Calling 5-node architecture.
 """
 
 from __future__ import annotations
@@ -13,7 +12,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from app.schemas.enums import AnswerType, InputType, IntentType
+from app.schemas.enums import AnswerType, FallbackReason, GuidanceReason, InputType, IntentType, OutputMode
 
 class BundleModel(BaseModel):
     """Base bundle with dict-like helpers used by Flow patch merging."""
@@ -52,79 +51,8 @@ class BundleModel(BaseModel):
         return getattr(self, key, None) is not None
 
 
-class SlotBundle(BundleModel):
-    """Parsed and merged user slots used for query planning."""
-
-    city: str | None = None
-    county: str | None = None
-    sn: str | None = None
-    target_date: str | None = None
-    time_range: str | None = None
-    time_explicit: bool = False
-    raw_time_expr: str | None = None
-    follow_up: bool = False
-    top_n: int | None = None
-    batch_devices: str | None = None
-    aggregation: str | None = None
-    metric: str | None = None
-    audience: str | None = None
-    render_mode: str | None = None
-    need_template: bool = False
-    region_exists: bool | None = None
-    device_exists: bool | None = None
-    inherited_start_time: str | None = None
-    inherited_end_time: str | None = None
-    inherited_time_explicit: bool | None = None
-    resolved_start_time: str | None = None
-    resolved_end_time: str | None = None
-
-
-class BusinessTimeBundle(BundleModel):
-    """Resolved business-time window based on imported data timestamps."""
-
-    latest_business_time: str | None = None
-    resolved_time_range: str | None = None
-    resolution_mode: str | None = None
-    time_basis: str | None = None
-    start_time: str | None = None
-    end_time: str | None = None
-
-
-class ExecutionGateBundle(BundleModel):
-    """Decision payload produced before data query execution."""
-
-    tool_name: str | None = None
-    decision: str | None = None
-    allow_execute: bool = True
-    reason: str | None = None
-    policy_decision: str | None = None
-    violations: list[dict[str, Any]] = Field(default_factory=list)
-    message: str | None = None
-    must_clarify: bool = False
-    blocked: bool = False
-    clarify_message: str | None = None
-    block_message: str | None = None
-
-
-class QueryPlanBundle(BundleModel):
-    """Fixed SQL-template plan plus filters, time range, and audit metadata."""
-
-    query_type: str | None = None
-    sql_template: str | None = None
-    fallback_scenario: str | None = None
-    filters: dict[str, Any] = Field(default_factory=dict)
-    group_by: list[str] | None = None
-    metrics: list[str] | None = None
-    order_by: list[str] | None = None
-    limit_size: int | None = None
-    time_range: dict[str, Any] = Field(default_factory=dict)
-    slots: dict[str, Any] = Field(default_factory=dict)
-    business_time: dict[str, Any] = Field(default_factory=dict)
-    audit: dict[str, Any] = Field(default_factory=dict)
-
-
 class QueryResultBundle(BundleModel):
-    """Normalized query result returned by `SoilQueryService`."""
+    """Normalized query result returned by tool executors."""
 
     records: list[dict[str, Any]] = Field(default_factory=list)
     aggregation: str | None = None
@@ -133,27 +61,6 @@ class QueryResultBundle(BundleModel):
     device_record_count: int | None = None
     region_record_count: int | None = None
     latest_create_time: str | None = None
-
-
-class RuleResultBundle(BundleModel):
-    """Rule-engine result and route hint for template/advice generation."""
-
-    route_action: str | None = None
-    evaluated_records: list[dict[str, Any]] = Field(default_factory=list)
-
-
-class TemplateResultBundle(BundleModel):
-    """Rendered warning-template text and follow-up route hint."""
-
-    route_action: str | None = None
-    rendered_text: str = ""
-    render_mode: str | None = None
-
-
-class AdviceResultBundle(BundleModel):
-    """Conservative management-advice text."""
-
-    advice_text: str = ""
 
 
 class AnswerBundle(BundleModel):
@@ -178,26 +85,19 @@ class FlowState(BaseModel):
     input_type: InputType | None = None
     intent: IntentType | None = None
     answer_type: AnswerType | None = None
+    output_mode: OutputMode | None = None
+    guidance_reason: GuidanceReason | None = None
+    fallback_reason: FallbackReason | None = None
     route_target: str | None = None
 
-    raw_slots: SlotBundle = Field(default_factory=SlotBundle)
-    merged_slots: SlotBundle = Field(default_factory=SlotBundle)
-    context_used: dict[str, Any] = Field(default_factory=dict)
-    boundary_context: dict[str, Any] = Field(default_factory=dict)
     conversation_closed: bool = False
 
-    business_time: BusinessTimeBundle = Field(default_factory=BusinessTimeBundle)
-    execution_gate_result: ExecutionGateBundle = Field(default_factory=ExecutionGateBundle)
-
-    query_plan: QueryPlanBundle = Field(default_factory=QueryPlanBundle)
     query_result: QueryResultBundle = Field(default_factory=QueryResultBundle)
-    rule_result: RuleResultBundle = Field(default_factory=RuleResultBundle)
-    template_result: TemplateResultBundle = Field(default_factory=TemplateResultBundle)
-    advice_result: AdviceResultBundle = Field(default_factory=AdviceResultBundle)
     answer_bundle: AnswerBundle = Field(default_factory=AnswerBundle)
 
     query_log_entries: list[dict[str, Any]] = Field(default_factory=list)
-    context_to_save: dict[str, Any] | None = None
+    tool_trace: list[dict[str, Any]] = Field(default_factory=list)
+    answer_facts: dict[str, Any] = Field(default_factory=dict)
 
     node_trace: list[str] = Field(default_factory=list)
     errors: list[dict[str, Any]] = Field(default_factory=list)

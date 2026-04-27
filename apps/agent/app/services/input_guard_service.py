@@ -33,9 +33,10 @@ class InputGuardResult:
     allow_business_flow: bool
     input_type: str
     terminal_action: str
-    suggested_answer_type: str
+    suggested_answer_type: str  # always "guidance_answer" for non-business, "" for business
     suggested_answer: str
     intent: str | None = None
+    guidance_reason: str | None = None  # clarification / safe_hint / boundary / closing
 
 
 class InputGuardService:
@@ -78,8 +79,9 @@ class InputGuardService:
                 allow_business_flow=False,
                 input_type="meaningless_input",
                 terminal_action="safe_end",
-                suggested_answer_type="safe_hint_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="我是墒情智能助手，可以帮你查询墒情概览、地区/设备详情、异常分析和预警模板。你可以问：最近墒情怎么样？如东县最近怎么样？SNS00204333 需要发预警吗？",
+                guidance_reason="safe_hint",
             )
         # 简单问候：不查库，友好说明能力范围。
         if normalized in {"你好", "在吗", "hello", "hi"}:
@@ -87,8 +89,9 @@ class InputGuardService:
                 allow_business_flow=False,
                 input_type="greeting",
                 terminal_action="safe_end",
-                suggested_answer_type="safe_hint_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="你好，我可以帮助查询土壤墒情、分析异常、生成预警模板，并提供保守的管理建议。",
+                guidance_reason="safe_hint",
             )
         # 能力/身份询问：用固定话术概括支持范围。
         if "能做什么" in normalized or "你是谁" in normalized:
@@ -96,16 +99,18 @@ class InputGuardService:
                 allow_business_flow=False,
                 input_type="capability_question",
                 terminal_action="safe_end",
-                suggested_answer_type="safe_hint_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="我当前支持墒情概览、地区/设备详情、异常分析、预警判断和模板输出。你可以直接给地区、设备或时间范围来问。",
+                guidance_reason="safe_hint",
             )
         if self._is_pure_closing(normalized):
             return InputGuardResult(
                 allow_business_flow=False,
                 input_type="conversation_closing",
                 terminal_action="closing_end",
-                suggested_answer_type="closing_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="好的，这个话题先结束。有需要时你再继续问我即可。",
+                guidance_reason="closing",
             )
         # 明确越界关键词：边界终止，声明只处理墒情域。
         if any(keyword in normalized for keyword in ["天气", "写首诗", "股票"]):
@@ -113,9 +118,10 @@ class InputGuardService:
                 allow_business_flow=False,
                 input_type="out_of_domain",
                 terminal_action="boundary_end",
-                suggested_answer_type="boundary_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="我当前只支持土壤墒情相关的数据查询、异常分析、预警判断和管理建议，暂不处理天气、诗歌或股票类问题。",
                 intent="out_of_scope",
+                guidance_reason="boundary",
             )
         # 过短模糊：澄清终止，提示补充查询要素。
         if compact in self.ambiguous_texts:
@@ -123,9 +129,10 @@ class InputGuardService:
                 allow_business_flow=False,
                 input_type="ambiguous_low_confidence",
                 terminal_action="clarify_end",
-                suggested_answer_type="clarification_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="你想查看哪类墒情信息？可以补充地区、设备或时间，例如：如东县最近墒情怎么样、SNS00204333 最近有没有异常、过去一个月哪里最严重。",
                 intent="clarification_needed",
+                guidance_reason="clarification",
             )
         # 全拉丁且无中文：乱敲/试探，安全提示。
         if self.meaningless_re.match(normalized) and not _contains_chinese(normalized):
@@ -133,8 +140,9 @@ class InputGuardService:
                 allow_business_flow=False,
                 input_type="meaningless_input",
                 terminal_action="safe_end",
-                suggested_answer_type="safe_hint_answer",
+                suggested_answer_type="guidance_answer",
                 suggested_answer="我这边更擅长处理墒情业务问题。你可以直接问地区、设备、时间范围、异常或预警相关内容。",
+                guidance_reason="safe_hint",
             )
         # 其余视为可进业务：区分口语短问与更明确的业务直述。
         input_type = "business_colloquial" if self._is_colloquial_business(normalized, compact) else "business_direct"

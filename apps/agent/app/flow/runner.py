@@ -81,7 +81,7 @@ class RouteRegistry:
 def merge_state_patch(state: FlowState, patch: dict[str, Any], *, allowed_fields: tuple[str, ...] | None = None) -> FlowState:
     """Apply a node patch to `FlowState` with field-level safety checks.
 
-    Bundle fields such as `query_plan` and `query_result` are merged rather
+    Bundle fields such as `query_result` and `answer_bundle` are merged rather
     than replaced so each node can add the subset it owns.  Plain lists are
     extended, which is used by logs/traces.  Unknown or forbidden fields raise
     immediately because silent state mutation would make the agent hard to

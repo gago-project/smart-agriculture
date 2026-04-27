@@ -1,3 +1,13 @@
+"""Four canonical soil-moisture Function Calling tool schemas.
+
+Tool contract (plan/1/1.plan.md):
+  query_soil_summary   – aggregated overview; anomaly/warning/advice modes via output_mode
+  query_soil_ranking   – sorted TopN by aggregation dimension
+  query_soil_detail    – single region or device detail with evidence fields
+  diagnose_empty_result – distinguish entity-not-found vs no-data-in-window
+
+Every query tool requires start_time + end_time (YYYY-MM-DD HH:MM:SS).
+"""
 from __future__ import annotations
 
 _TIME_PROPS = {
@@ -12,23 +22,37 @@ _TIME_PROPS = {
 }
 
 _REGION_PROPS = {
-    "city": {"type": "string", "description": "市名称，如 '延安市'，可选"},
-    "county": {"type": "string", "description": "县区名称，如 '志丹县'，可选"},
+    "city": {"type": "string", "description": "市名称，如 '南通市'，可选"},
+    "county": {"type": "string", "description": "县区名称，如 '如东县'，可选"},
     "sn": {"type": "string", "description": "设备编号，如 'SNS00204333'，可选"},
+}
+
+_OUTPUT_MODE_PROP = {
+    "output_mode": {
+        "type": "string",
+        "enum": ["normal", "anomaly_focus", "warning_mode", "advice_mode"],
+        "description": (
+            "输出关注模式：normal=标准概览，anomaly_focus=突出异常与需关注点，"
+            "warning_mode=预警数据视角，advice_mode=管理建议背景"
+        ),
+    }
 }
 
 SOIL_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_soil_overview",
+            "name": "query_soil_summary",
             "description": (
-                "查询土壤墒情整体概况：记录数、平均含水量、需关注点位数。"
-                "适合用户问整体情况、墒情如何、最近怎么样等概述性问题。"
+                "查询土壤墒情整体概况，返回聚合统计结果：记录总数、平均含水量、"
+                "各状态分布、需关注地区 TopN。"
+                "适合用户问整体情况、近期概况、有没有问题等概述性问题。"
+                "也用于异常分析（output_mode=anomaly_focus）、预警视角（warning_mode）、"
+                "建议视角（advice_mode）。"
             ),
             "parameters": {
                 "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_PROPS},
+                "properties": {**_REGION_PROPS, **_TIME_PROPS, **_OUTPUT_MODE_PROP},
                 "required": ["start_time", "end_time"],
             },
         },
@@ -36,10 +60,11 @@ SOIL_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_soil_ranking",
+            "name": "query_soil_ranking",
             "description": (
-                "按墒情严重程度排名，返回前 N 个最干旱或最需关注的地区或设备。"
+                "按墒情严重程度排名，返回已聚合、已排序、已裁剪的 TopN 列表。"
                 "适合用户问前几名、最严重、排名等问题。"
+                "返回的是结构化排名结果，不是原始记录。"
             ),
             "parameters": {
                 "type": "object",
@@ -63,59 +88,15 @@ SOIL_TOOLS = [
     {
         "type": "function",
         "function": {
-            "name": "get_soil_detail",
+            "name": "query_soil_detail",
             "description": (
-                "查询特定地区或设备的土壤墒情详情，返回各层含水量和温度数据。"
-                "适合用户问具体某个地区或设备的详细数据。"
+                "查询特定地区或设备的土壤墒情详情，返回最新记录、各层含水量、"
+                "状态判断和异常证据字段。"
+                "适合用户问具体某地区或设备的详细数据、预警情况、趋势描述。"
             ),
             "parameters": {
                 "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_PROPS},
-                "required": ["start_time", "end_time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_soil_anomaly",
-            "description": (
-                "查询异常墒情记录：重旱、涝渍或需要关注的设备和区域。"
-                "适合用户问有没有异常、哪里需要关注、是否有重旱等问题。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_PROPS},
-                "required": ["start_time", "end_time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_warning_data",
-            "description": (
-                "获取最新墒情预警所需数据，用于生成预警报告。"
-                "适合用户要求生成预警、按模板出预警等场景。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_PROPS},
-                "required": ["start_time", "end_time"],
-            },
-        },
-    },
-    {
-        "type": "function",
-        "function": {
-            "name": "get_advice_context",
-            "description": (
-                "获取用于生成管理建议的墒情数据，包括各层含水量和历史趋势。"
-                "适合用户问怎么办、有什么建议、应该怎么处理等问题。"
-            ),
-            "parameters": {
-                "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_PROPS},
+                "properties": {**_REGION_PROPS, **_TIME_PROPS, **_OUTPUT_MODE_PROP},
                 "required": ["start_time", "end_time"],
             },
         },
@@ -125,8 +106,10 @@ SOIL_TOOLS = [
         "function": {
             "name": "diagnose_empty_result",
             "description": (
-                "当查询无数据时，诊断原因：地区是否存在、设备是否有数据、时间段是否有记录。"
-                "在其他工具返回空结果后调用此工具排查原因。"
+                "当其他工具返回空结果时，诊断原因：地区是否存在、设备是否存在、"
+                "时间窗内是否有数据。"
+                "必须在其他工具返回空数据后才调用此工具，用于区分"
+                "'对象不存在'与'时间窗内无数据'两种情况。"
             ),
             "parameters": {
                 "type": "object",
@@ -136,7 +119,11 @@ SOIL_TOOLS = [
                     "scenario": {
                         "type": "string",
                         "enum": ["region_exists", "device_exists", "period_exists"],
-                        "description": "诊断场景",
+                        "description": (
+                            "诊断场景：region_exists=检查地区是否存在，"
+                            "device_exists=检查设备是否存在，"
+                            "period_exists=检查指定时间窗内是否有数据"
+                        ),
                     },
                 },
                 "required": ["start_time", "end_time", "scenario"],

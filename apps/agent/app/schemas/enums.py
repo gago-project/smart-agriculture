@@ -23,24 +23,45 @@ class IntentType(StrEnum):
     SOIL_SEVERITY_RANKING = "soil_severity_ranking"
     SOIL_REGION_QUERY = "soil_region_query"
     SOIL_DEVICE_QUERY = "soil_device_query"
-    SOIL_ANOMALY_QUERY = "soil_anomaly_query"
-    SOIL_WARNING_GENERATION = "soil_warning_generation"
-    SOIL_METRIC_EXPLANATION = "soil_metric_explanation"
-    SOIL_MANAGEMENT_ADVICE = "soil_management_advice"
+    SOIL_DIAGNOSE = "soil_diagnose"
     CLARIFICATION_NEEDED = "clarification_needed"
     OUT_OF_SCOPE = "out_of_scope"
 
 
 class AnswerType(StrEnum):
-    """Supported answer types returned by the soil agent."""
-    CLOSING = "closing_answer"
-    SAFE_HINT = "safe_hint_answer"
-    CLARIFICATION = "clarification_answer"
-    BOUNDARY = "boundary_answer"
-    FALLBACK = "fallback_answer"
+    """Five canonical answer types for the LLM + FC agent.
+
+    guidance_answer absorbs: safe_hint, clarification, boundary, closing.
+    output_mode carries the sub-type within summary/ranking/detail answers.
+    """
     SUMMARY = "soil_summary_answer"
     RANKING = "soil_ranking_answer"
     DETAIL = "soil_detail_answer"
-    ANOMALY = "soil_anomaly_answer"
-    WARNING = "soil_warning_answer"
-    ADVICE = "soil_advice_answer"
+    GUIDANCE = "guidance_answer"
+    FALLBACK = "fallback_answer"
+
+
+class OutputMode(StrEnum):
+    """Sub-type of a business answer, expressed as output presentation focus."""
+    NORMAL = "normal"
+    ANOMALY_FOCUS = "anomaly_focus"
+    WARNING_MODE = "warning_mode"
+    ADVICE_MODE = "advice_mode"
+
+
+class GuidanceReason(StrEnum):
+    """Why a guidance_answer was issued instead of a business answer."""
+    CLARIFICATION = "clarification"
+    SAFE_HINT = "safe_hint"
+    BOUNDARY = "boundary"
+    CLOSING = "closing"
+
+
+class FallbackReason(StrEnum):
+    """Why a fallback_answer was issued."""
+    NO_DATA = "no_data"
+    ENTITY_NOT_FOUND = "entity_not_found"
+    TOOL_MISSING = "tool_missing"
+    TOOL_BLOCKED = "tool_blocked"
+    FACT_CHECK_FAILED = "fact_check_failed"
+    UNKNOWN = "unknown"

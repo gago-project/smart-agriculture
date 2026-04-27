@@ -30,7 +30,7 @@ class AgentLoopServiceTest(unittest.TestCase):
 
     def test_single_tool_call_then_text_returns_final_answer(self):
         svc = self._make_service([
-            {"type": "tool_call", "tool_name": "get_soil_overview",
+            {"type": "tool_call", "tool_name": "query_soil_summary",
              "tool_args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"},
              "call_id": "c1"},
             {"type": "text", "content": "延安市整体墒情偏干，平均含水量 55%。"},
@@ -44,7 +44,7 @@ class AgentLoopServiceTest(unittest.TestCase):
         self.assertIsInstance(result.final_answer, str)
         self.assertIn("55", result.final_answer)
         self.assertEqual(len(result.tool_calls_made), 1)
-        self.assertEqual(result.tool_calls_made[0]["tool_name"], "get_soil_overview")
+        self.assertEqual(result.tool_calls_made[0]["tool_name"], "query_soil_summary")
 
     def test_no_llm_key_returns_fallback_message(self):
         svc = AgentLoopService(
@@ -63,7 +63,7 @@ class AgentLoopServiceTest(unittest.TestCase):
 
     def test_max_iterations_guard_stops_runaway_loop(self):
         infinite_calls = [
-            {"type": "tool_call", "tool_name": "get_soil_overview",
+            {"type": "tool_call", "tool_name": "query_soil_summary",
              "tool_args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"},
              "call_id": f"c{i}"}
             for i in range(20)
@@ -80,7 +80,7 @@ class AgentLoopServiceTest(unittest.TestCase):
 
     def test_tool_validation_error_is_included_in_messages_to_llm(self):
         svc = self._make_service([
-            {"type": "tool_call", "tool_name": "get_soil_ranking",
+            {"type": "tool_call", "tool_name": "query_soil_ranking",
              "tool_args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59",
                            "aggregation": "county", "top_n": 100},
              "call_id": "c1"},

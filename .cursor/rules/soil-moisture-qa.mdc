@@ -9,6 +9,8 @@ alwaysApply: false
 
 # Smart Agriculture — 墒情 Agent QA 规则
 
+> 架构版本：LLM + Function Calling 5 节点（2026-04-27 迁移）。IntentSlot / ExecutionGate / RuleEngine / Template 管线已删除。
+
 Follow this rule when the task involves testing, regression, or business review of the soil-moisture Agent. Read the full skill at `.claude/skills/soil-moisture-qa/SKILL.md`.
 
 ## 资产速查
@@ -17,7 +19,31 @@ Follow this rule when the task involves testing, regression, or business review 
 |------|------|
 | **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` |
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` |
-| Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` |
+| 回答类型与业务边界 | `apps/agent/plans/1/2.answer-types-business.md` |
+
+## 架构约束速查
+
+**4 Tools：** `query_soil_summary` / `query_soil_ranking` / `query_soil_detail` / `diagnose_empty_result`
+
+**5 answer_types：** `soil_summary_answer` / `soil_ranking_answer` / `soil_detail_answer` / `guidance_answer` / `fallback_answer`
+
+**P0 红线：** 业务问题未调用 Tool 直接回答 → 强制截停为 `fallback_answer`（fallback_reason=tool_missing）
+
+## CaseID 体系
+
+| CaseID 前缀 | 覆盖范围 |
+|------------|---------|
+| SM-CONV-001~006 | 非业务/安全提示 |
+| SM-CONV-007~014 | 澄清引导 |
+| SM-SUM-001~015 | 墒情概览 |
+| SM-RANK-001~015 | 排名对比 |
+| SM-DETAIL-001~018 | 地区/设备详情 |
+| SM-DETAIL-019~034 | 异常分析 |
+| SM-DETAIL-035~050 | 预警模板输出 |
+| SM-CONV-015~025 | 指标解释/指导建议 |
+| SM-EMPTY-001~005 | 无数据/找不到 |
+| SM-FB-001~005 | 兜底 |
+| SM-CONV-026~030 | 能力边界 |
 
 ## 三层测试
 
@@ -29,8 +55,17 @@ Follow this rule when the task involves testing, regression, or business review 
 
 ## 必须补 Case 的情况
 
-新增 intent/answer_type、改地区解析、改 ExecutionGate 规则、修复可复现 Bug → 必须在 `case-library.md` 补样例。
+新增 intent/answer_type、新增 Tool、改地区解析、修复可复现 Bug → 必须在 `case-library.md` 补样例。
 
-## 13 条关键断言
+## 13 条关键断言（摘要）
 
-详见 `.claude/skills/soil-moisture-qa/SKILL.md` — 非业务不触发 SQL、现在/当前取库内最新时间、ExecutionGate 超限不继续查库、数字不漂移等。
+详见 `.claude/skills/soil-moisture-qa/SKILL.md`：
+1. 非业务不触发 Tool
+2. `guidance_answer` 不写查询日志
+3. 现在/当前取库内最新时间
+4. P0：业务无 Tool → fallback_answer
+5. ranking items 真正排序（rank=1 最严重）
+6. diagnose 区分 entity_not_found vs no_data_in_window
+7. tool_trace / answer_facts / query_result 三证据字段必须存在
+8. top_n > 20 或时间窗 > 365 天 → ToolValidationError
+9. 数字不漂移（DataFactCheck）

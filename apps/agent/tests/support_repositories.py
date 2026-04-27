@@ -8,7 +8,6 @@ from pathlib import Path
 from typing import Any
 
 from app.repositories.soil_repository import DEFAULT_WARNING_TEMPLATE_TEXT, SoilRepository, _evaluate_record_status
-from app.services.region_service import build_generated_region_alias_rows
 
 
 FACT_INSERT_RE = re.compile(
@@ -138,8 +137,8 @@ class SeedSoilRepository(SoilRepository):
         return DEFAULT_WARNING_TEMPLATE_TEXT
 
     def region_alias_rows(self) -> list[dict[str, Any]]:
-        """Return region alias rows."""
-        return [*build_generated_region_alias_rows(self.records), *self.extra_region_aliases]
+        """Return region alias rows (only manually-injected extras; auto-generation removed)."""
+        return list(self.extra_region_aliases)
 
     async def region_alias_rows_async(self) -> list[dict[str, Any]]:
         """Return region alias rows async."""

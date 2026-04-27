@@ -1,5 +1,7 @@
 # 墒情 Agent Case Library（130 个正式 Case）
 
+> **架构版本**：LLM + Function Calling 5 节点（2026-04-27 迁移）。CaseID 体系已从 SH/CL/SU/RK/DT/AN/WA/AD/FB/BO 迁移至 SM-CONV/SM-SUM/SM-RANK/SM-DETAIL/SM-EMPTY/SM-FB。
+
 本文件是当前 `soil-moisture` Agent 的唯一正式 Case 主库。后续对正式 Case 的新增、删减、修订，都只改这里。
 
 ## 维护边界
@@ -15,20 +17,20 @@
 
 | 一级分类 | Case 数 | CaseID |
 |---|---:|---|
-| A. 非业务 / 安全提示 | 6 | SH-01, SH-02, SH-03, SH-04, SH-05, SH-06 |
-| B. 澄清引导 | 8 | CL-01, CL-02, CL-03, CL-04, CL-05, CL-06, CL-07, CL-08 |
-| C. 墒情概览 | 15 | SU-01, SU-02, SU-03, SU-04, SU-05, SU-06, SU-07, SU-08, SU-09, SU-10, SU-11, SU-12, SU-13, SU-14, SU-15 |
-| D. 排名对比 | 15 | RK-01, RK-02, RK-03, RK-04, RK-05, RK-06, RK-07, RK-08, RK-09, RK-10, RK-11, RK-12, RK-13, RK-14, RK-15 |
-| E. 地区 / 设备详情 | 18 | DT-01, DT-02, DT-03, DT-04, DT-05, DT-06, DT-07, DT-08, DT-09, DT-10, DT-11, DT-12, DT-13, DT-14, DT-15, DT-16, DT-17, DT-18 |
-| F. 异常分析 | 16 | AN-01, AN-02, AN-03, AN-04, AN-05, AN-06, AN-07, AN-08, AN-09, AN-10, AN-11, AN-12, AN-13, AN-14, AN-15, AN-16 |
-| G. 预警模板输出 | 16 | WA-01, WA-02, WA-03, WA-04, WA-05, WA-06, WA-07, WA-08, WA-09, WA-10, WA-11, WA-12, WA-13, WA-14, WA-15, WA-16 |
-| H. 指标解释 / 指导建议 | 11 | AD-01, AD-02, AD-03, AD-04, AD-05, AD-06, AD-07, AD-08, AD-09, AD-10, AD-11 |
-| I. 无数据 / 找不到 / 兜底 | 10 | FB-01, FB-02, FB-03, FB-04, FB-05, FB-06, FB-07, FB-08, FB-09, FB-10 |
-| J. 能力边界 | 5 | BO-01, BO-02, BO-03, BO-04, BO-05 |
+| A. 非业务 / 安全提示 | 6 | SM-CONV-001 ~ SM-CONV-006 |
+| B. 澄清引导 | 8 | SM-CONV-007 ~ SM-CONV-014 |
+| C. 墒情概览 | 15 | SM-SUM-001 ~ SM-SUM-015 |
+| D. 排名对比 | 15 | SM-RANK-001 ~ SM-RANK-015 |
+| E. 地区 / 设备详情 | 18 | SM-DETAIL-001 ~ SM-DETAIL-018 |
+| F. 异常分析 | 16 | SM-DETAIL-019 ~ SM-DETAIL-034 |
+| G. 预警模板输出 | 16 | SM-DETAIL-035 ~ SM-DETAIL-050 |
+| H. 指标解释 / 指导建议 | 11 | SM-CONV-015 ~ SM-CONV-025 |
+| I. 无数据 / 找不到 / 兜底 | 10 | SM-EMPTY-001 ~ SM-EMPTY-005, SM-FB-001 ~ SM-FB-005 |
+| J. 能力边界 | 5 | SM-CONV-026 ~ SM-CONV-030 |
 
 ## A. 非业务 / 安全提示
 
-### SH-01
+### SM-CONV-001
 
 - `一级分类`：A. 非业务 / 安全提示
 - `二级分类`：非业务/问候
@@ -38,16 +40,14 @@
 - `上下文`：无
 - `预期 input_type`：`greeting`
 - `预期 intent`：无
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`safe_hint_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=safe_hint）
 - `是否写查询日志`：否
 - `关键断言`：不查库；回复能力范围与示例问题
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SH-02
+### SM-CONV-002
 
 - `一级分类`：A. 非业务 / 安全提示
 - `二级分类`：非业务/能力
@@ -57,16 +57,14 @@
 - `上下文`：无
 - `预期 input_type`：`capability_question`
 - `预期 intent`：无
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`safe_hint_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=safe_hint）
 - `是否写查询日志`：否
 - `关键断言`：不查库；列出墒情查询、异常分析、模板输出能力
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SH-03
+### SM-CONV-003
 
 - `一级分类`：A. 非业务 / 安全提示
 - `二级分类`：非业务/乱问
@@ -76,16 +74,14 @@
 - `上下文`：无
 - `预期 input_type`：`meaningless_input`
 - `预期 intent`：无
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`safe_hint_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=safe_hint）
 - `是否写查询日志`：否
 - `关键断言`：不查库；不答非所问
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SH-04
+### SM-CONV-004
 
 - `一级分类`：A. 非业务 / 安全提示
 - `二级分类`：非业务/身份
@@ -95,16 +91,14 @@
 - `上下文`：无
 - `预期 input_type`：`capability_question`
 - `预期 intent`：无
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`safe_hint_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=safe_hint）
 - `是否写查询日志`：否
 - `关键断言`：不查库；身份说明必须回到墒情能力范围
 - `备注`：补充非业务身份类问法，避免模型自由闲聊。
 
-### SH-05
+### SM-CONV-005
 
 - `一级分类`：A. 非业务 / 安全提示
 - `二级分类`：非业务/闲聊
@@ -114,16 +108,14 @@
 - `上下文`：无
 - `预期 input_type`：`meaningless_input`
 - `预期 intent`：无
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`safe_hint_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=safe_hint）
 - `是否写查询日志`：否
 - `关键断言`：不查库；不展开闲聊；回到业务示例
 - `备注`：补充轻度闲聊输入。
 
-### SH-06
+### SM-CONV-006
 
 - `一级分类`：A. 非业务 / 安全提示
 - `二级分类`：非业务/在吗
@@ -133,11 +125,9 @@
 - `上下文`：无
 - `预期 input_type`：`greeting`
 - `预期 intent`：无
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`safe_hint_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=safe_hint）
 - `是否写查询日志`：否
 - `关键断言`：不查库；不展开闲聊
 - `备注`：补充常见问候类短句。
@@ -145,7 +135,7 @@
 
 ## B. 澄清引导
 
-### CL-01
+### SM-CONV-007
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/短句
@@ -155,16 +145,14 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：不查库；给出 4~5 个可选问题方向
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### CL-02
+### SM-CONV-008
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/泛查
@@ -174,16 +162,14 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：不默认继承任何隐含意图
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### CL-03
+### SM-CONV-009
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/无上下文追问
@@ -193,16 +179,14 @@
 - `上下文`：无有效业务上下文
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：因缺上下文，不能硬继承
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### CL-04
+### SM-CONV-010
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/只有地区
@@ -212,16 +196,14 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：`city=南京市`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：只有地区没有查询动作时，不默认查库；应澄清查询方向
 - `备注`：补充“有槽位但意图不足”的问法。
 
-### CL-05
+### SM-CONV-011
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/泛指数据
@@ -231,16 +213,14 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：不得把“数据”默认解释为全省最新概览
 - `备注`：补充泛指数据类输入。
 
-### CL-06
+### SM-CONV-012
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/地区+泛查
@@ -250,16 +230,14 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：`city=南京市`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：地区识别可成功，但不能直接查库
 - `备注`：补充带地区但意图不足的问法。
 
-### CL-07
+### SM-CONV-013
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/时间不足
@@ -269,16 +247,14 @@
 - `上下文`：无
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：`time=最近`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：只有时间槽位时也不能默认查全局概览
 - `备注`：补充只有时间没有对象的输入。
 
-### CL-08
+### SM-CONV-014
 
 - `一级分类`：B. 澄清引导
 - `二级分类`：澄清/结论追问
@@ -288,11 +264,9 @@
 - `上下文`：无有效业务上下文
 - `预期 input_type`：`ambiguous_low_confidence`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：缺对象时不能直接给严重性结论
 - `备注`：补充结论型追问。
@@ -300,7 +274,7 @@
 
 ## C. 墒情概览
 
-### SU-01
+### SM-SUM-001
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：墒情概览
@@ -310,16 +284,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time=最近7天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：内部以库内最新业务时间为基准，不用系统当前时间；对外默认不展示样本数、最新业务时间、数据来源
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SU-02
+### SM-SUM-002
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：近7天概览
@@ -329,16 +301,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time_range=last_7_days`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：按明确时间窗查询，不使用导入批次语义
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SU-03
+### SM-SUM-003
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：城市概览
@@ -348,16 +318,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city=南通市; time=近7天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：回答应突出地区概况与关注点，不暴露样本数、最新业务时间、数据来源等内部统计口径
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SU-04
+### SM-SUM-004
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：最新概览
@@ -367,16 +335,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time=最新业务时间`
-- `预期 query_type / SQL`：`SQL-07 场景4 -> SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：先查库内最新业务时间，再汇总；不能硬查当天；对外不必直接展示该内部基准时间
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### SU-05
+### SM-SUM-005
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：城市简称概览
@@ -386,16 +352,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city=南京市; time=30天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：`南京` 必须补全为 `南京市`；概览意图不应被改成详情意图
 - `备注`：补充地区别名与概览组合。
 
-### SU-06
+### SM-SUM-006
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：县区概览
@@ -405,16 +369,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`county=如东县; city=南通市; time=本周`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：县级概览需补齐父级市；不能只落裸 `county`
 - `备注`：补充县区概览。
 
-### SU-07
+### SM-SUM-007
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：最新城市概览
@@ -424,16 +386,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city=镇江市; time=最新业务时间`
-- `预期 query_type / SQL`：`SQL-07 场景4 -> SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：“最新”必须使用库内最新业务时间，不使用系统当前日期
 - `备注`：补充城市最新概览。
 
-### SU-08
+### SM-SUM-008
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：全局概览
@@ -443,16 +403,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time=7天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：全局概览允许，但不能退化成全表明细扫描
 - `备注`：补充全局概览问法。
 
-### SU-09
+### SM-SUM-009
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：本周城市概览
@@ -462,16 +420,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city=南通市; time=本周`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：城市本周概览应落对时间范围和地区
 - `备注`：补充城市本周概览。
 
-### SU-10
+### SM-SUM-010
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：本周总览
@@ -481,16 +437,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time=本周`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：不能把“这周”解析成系统当前周，要按业务时间周解析
 - `备注`：补充周维度概览。
 
-### SU-11
+### SM-SUM-011
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：城市近7天详情
@@ -500,16 +454,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=南京市; time_range=last_7_days`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：城市查询必须按明确时间窗查询，不使用导入批次语义
 - `备注`：由原批次语义 Case 改成城市+时间窗详情。
 
-### SU-12
+### SM-SUM-012
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：月度总览
@@ -519,16 +471,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time=30天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：月度概览应使用30天窗口，不扩展成排名
 - `备注`：补充月度总览。
 
-### SU-13
+### SM-SUM-013
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：县区概览补充
@@ -538,16 +488,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`county=如东县; city=南通市; time=7天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：县区概览需要补齐父级市
 - `备注`：补充县区概览样本。
 
-### SU-14
+### SM-SUM-014
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：两周城市概览
@@ -557,16 +505,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city=镇江市; time=14天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：两周概览应使用14天窗口
 - `备注`：补充两周城市概览。
 
-### SU-15
+### SM-SUM-015
 
 - `一级分类`：C. 墒情概览
 - `二级分类`：近30天总览
@@ -576,11 +522,9 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`time_range=last_30_days`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：概览必须按明确时间窗查询，不使用导入批次语义
 - `备注`：补充近30天总览。
@@ -588,7 +532,7 @@
 
 ## D. 排名对比
 
-### RK-01
+### SM-RANK-001
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/县区
@@ -598,16 +542,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=30天; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：默认按县区排名；对外只给综合风险顺序，不直接暴露 `risk_score` 等内部字段名
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### RK-02
+### SM-RANK-002
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/设备Top10
@@ -617,16 +559,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`top_n=10; aggregation=device`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：返回设备 Top10，不超过 10 条；不输出“异常分”等内部实现词汇
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### RK-03
+### SM-RANK-003
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/市级
@@ -636,16 +576,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`aggregation=city`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：应走市级聚合，不应默认仍按县区返回；对外不暴露内部排序实现细节
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### RK-04
+### SM-RANK-004
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/TopN超限
@@ -655,16 +593,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`top_n=100`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`clarify`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：命中 `max_top_n=20`；提示是否改查前 20
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### RK-05
+### SM-RANK-005
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/大范围阻断
@@ -674,16 +610,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=3年; aggregation=device`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`block`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：命中时间窗超限 + 大范围扫描限制，不得继续查库
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### RK-06
+### SM-RANK-006
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/城市内县区
@@ -693,16 +627,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city=南通市; time=30天; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：带城市约束时，只在该城市范围内排名
 - `备注`：补充区域内排名。
 
-### RK-07
+### SM-RANK-007
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/设备Top5
@@ -712,16 +644,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=7天; top_n=5; aggregation=device`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：`top_n=5` 必须生效；不得超过 5 条
 - `备注`：补充设备 TopN 小样本。
 
-### RK-08
+### SM-RANK-008
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/最高风险县区
@@ -731,16 +661,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=最近; top_n=1; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：没有指定层级但出现“县”时，应按县区聚合
 - `备注`：补充最高风险单对象排名。
 
-### RK-09
+### SM-RANK-009
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/县区Top3
@@ -750,16 +678,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=30天; top_n=3; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：Top3必须准确落到县区聚合
 - `备注`：补充县区Top3排名。
 
-### RK-10
+### SM-RANK-010
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/设备近两周
@@ -769,16 +695,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=14天; aggregation=device`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：时间窗为14天；默认返回受控条数
 - `备注`：补充两周设备排名。
 
-### RK-11
+### SM-RANK-011
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/市内区县
@@ -788,16 +712,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city=镇江市; top_n=1; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：带城市约束时只能在该市内部排序
 - `备注`：补充市内区县排名。
 
-### RK-12
+### SM-RANK-012
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/县区Top10
@@ -807,16 +729,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`time=30天; top_n=10; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：Top10在门禁允许范围内，不应误触发澄清
 - `备注`：补充允许范围内的较大TopN。
 
-### RK-13
+### SM-RANK-013
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/城市范围
@@ -826,16 +746,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city=南京市; time=30天; aggregation=county`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：地区范围与时间窗都应命中
 - `备注`：补充城市范围排名。
 
-### RK-14
+### SM-RANK-014
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/城市设备Top5
@@ -845,16 +763,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`city=南通市; time=7天; top_n=5; aggregation=device`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：城市范围+设备聚合必须同时生效
 - `备注`：补充城市设备TopN。
 
-### RK-15
+### SM-RANK-015
 
 - `一级分类`：D. 排名对比
 - `二级分类`：排名/县区设备Top3
@@ -864,11 +780,9 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_severity_ranking`
-- `预期 slots`：`county=如东县; city=南通市; top_n=3; aggregation=device`
-- `预期 query_type / SQL`：`severity_ranking / SQL-02`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_ranking_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：县区约束下设备排名不能扩大到全市
 - `备注`：补充区县设备排名。
@@ -876,7 +790,7 @@
 
 ## E. 地区 / 设备详情
 
-### DT-01
+### SM-DETAIL-001
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：地区详情
@@ -886,16 +800,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=如东县; time=最近`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：包含最新记录、20cm 水分、状态判断；不要求对外展示来源文件
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### DT-02
+### SM-DETAIL-002
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：设备详情
@@ -905,16 +817,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNS00204333; time=最近`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：能正确给出该设备的最新事实与状态判断，不把规则判断写成自由发挥
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### DT-03
+### SM-DETAIL-003
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：多轮继承地区
@@ -924,16 +834,14 @@
 - `上下文`：上一轮已确认 `county=如东县`
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=继承如东县; time=上周`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：正确继承地区，只重算时间范围
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### DT-04
+### SM-DETAIL-004
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：多轮继承设备指标
@@ -943,16 +851,14 @@
 - `上下文`：上一轮设备详情上下文有效
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=继承; metric=water20cm`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：只继承白名单槽位，不继承无关输出意图
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### DT-05
+### SM-DETAIL-005
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：上下文衰减
@@ -962,16 +868,14 @@
 - `上下文`：距离上次明确对象已 4~5 轮
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：命中上下文衰减；不能继续强继承旧对象
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### DT-06
+### SM-DETAIL-006
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：城市简称详情
@@ -981,16 +885,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=南京市; time=30天`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：`南京` 必须补全为 `南京市`，不能退回默认概览
 - `备注`：补充地区别名详情类 Case。
 
-### DT-07
+### SM-DETAIL-007
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：县区简称详情
@@ -1000,16 +902,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=如东县; city=南通市; time=最近`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：县级简称补全后需补齐父级市
 - `备注`：补充县级简称详情。
 
-### DT-08
+### SM-DETAIL-008
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：开发区详情
@@ -1019,16 +919,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=镇江经开区; city=镇江市; time=最近`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：开发区名称应按有效地区解析，不应误判为无数据
 - `备注`：补充非典型行政区名称。
 
-### DT-09
+### SM-DETAIL-009
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：城市详情
@@ -1038,16 +936,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=南京市; time=最近`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：城市详情不应退回概览
 - `备注`：补充规范城市名详情。
 
-### DT-10
+### SM-DETAIL-010
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：城市周详情
@@ -1057,16 +953,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=南通市; time=本周`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：本周范围应按业务时间解析
 - `备注`：补充城市时间范围详情。
 
-### DT-11
+### SM-DETAIL-011
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：设备详情补充
@@ -1076,16 +970,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNS00213807; time=最近`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：设备SN应精确命中，不误判为异常清单问法
 - `备注`：补充第二设备详情样本。
 
-### DT-12
+### SM-DETAIL-012
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：多轮继承指标40cm
@@ -1095,16 +987,14 @@
 - `上下文`：上一轮设备详情上下文有效
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=继承; metric=water40cm`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：只继承白名单槽位，不改对象
 - `备注`：补充多轮指标切换。
 
-### DT-13
+### SM-DETAIL-013
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：多轮继承指标10cm
@@ -1114,16 +1004,14 @@
 - `上下文`：上一轮设备详情上下文有效
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=继承; metric=water10cm`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：继续只继承白名单槽位
 - `备注`：补充另一深度指标切换。
 
-### DT-14
+### SM-DETAIL-014
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：多轮继承时间
@@ -1133,16 +1021,14 @@
 - `上下文`：上一轮已确认 city=南京市
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=继承南京市; time=上周`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：多轮中只切换时间，不更改地区
 - `备注`：补充多轮时间继承。
 
-### DT-15
+### SM-DETAIL-015
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：县区日详情
@@ -1152,16 +1038,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=如东县; city=南通市; time=昨天`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：昨天应解析成业务时间相关的单日范围
 - `备注`：补充单日县区详情。
 
-### DT-16
+### SM-DETAIL-016
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：城市月详情
@@ -1171,16 +1055,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=镇江市; time=30天`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：详情问法不应退回概览
 - `备注`：补充城市月度详情。
 
-### DT-17
+### SM-DETAIL-017
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：开发区详情补充
@@ -1190,16 +1072,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=镇江经开区; city=镇江市; time=本周`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：开发区名称应按有效地区解析
 - `备注`：补充开发区周详情。
 
-### DT-18
+### SM-DETAIL-018
 
 - `一级分类`：E. 地区 / 设备详情
 - `二级分类`：设备日详情
@@ -1209,11 +1089,9 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNS00204333; time=昨天`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`yes`
 - `是否写查询日志`：是
 - `关键断言`：设备日详情应命中单设备单日查询语义
 - `备注`：补充设备单日详情。
@@ -1221,7 +1099,7 @@
 
 ## F. 异常分析
 
-### AN-01
+### SM-DETAIL-019
 
 - `一级分类`：F. 异常分析
 - `二级分类`：异常分析
@@ -1231,16 +1109,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=最近`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：SQL 只拉候选；最终异常统计以规则复判结果为准，对外不直接展示规则引擎名称
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AN-02
+### SM-DETAIL-020
 
 - `一级分类`：F. 异常分析
 - `二级分类`：异常关注点
@@ -1250,16 +1126,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=最近`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：输出需含异常数量和重点关注对象，不暴露内部规则链路说明
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AN-03
+### SM-DETAIL-021
 
 - `一级分类`：F. 异常分析
 - `二级分类`：重旱异常
@@ -1269,16 +1143,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`status_target=heavy_drought`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：“重旱”判断必须来自规则引擎，但对外回答不直接点名内部规则组件
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AN-04
+### SM-DETAIL-022
 
 - `一级分类`：F. 异常分析
 - `二级分类`：异常时间窗超限
@@ -1288,16 +1160,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=5年`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`clarify`
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：命中异常查询最大时间窗 180 天
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AN-05
+### SM-DETAIL-023
 
 - `一级分类`：F. 异常分析
 - `二级分类`：城市异常
@@ -1307,16 +1177,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=南京市; time=最近`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：异常结论必须以规则复判为准，不只看 SQL 候选
 - `备注`：补充地区异常分析。
 
-### AN-06
+### SM-DETAIL-024
 
 - `一级分类`：F. 异常分析
 - `二级分类`：设备重旱
@@ -1326,16 +1194,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`sn=SNS00204333; time=7天; status_target=heavy_drought`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：重旱判断必须来自规则引擎，不能根据单个数值自由发挥
 - `备注`：补充设备 + 异常类型组合。
 
-### AN-07
+### SM-DETAIL-025
 
 - `一级分类`：F. 异常分析
 - `二级分类`：涝渍异常
@@ -1345,16 +1211,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=最近; status_target=waterlogging`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：异常类型筛选应落到 `waterlogging`，不要混成所有异常
 - `备注`：补充涝渍异常类型。
 
-### AN-08
+### SM-DETAIL-026
 
 - `一级分类`：F. 异常分析
 - `二级分类`：城市异常关注
@@ -1364,16 +1228,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=南京市; time=最近`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：带城市范围的异常分析要收敛到该市
 - `备注`：补充城市异常关注问法。
 
-### AN-09
+### SM-DETAIL-027
 
 - `一级分类`：F. 异常分析
 - `二级分类`：城市重旱
@@ -1383,16 +1245,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=南通市; time=最近; status_target=heavy_drought`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：异常类型与地区范围必须同时生效
 - `备注`：补充地区+异常类型组合。
 
-### AN-10
+### SM-DETAIL-028
 
 - `一级分类`：F. 异常分析
 - `二级分类`：县区异常
@@ -1402,16 +1262,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`county=如东县; city=南通市; time=最近`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：县区异常分析需补齐父级市
 - `备注`：补充县区异常。
 
-### AN-11
+### SM-DETAIL-029
 
 - `一级分类`：F. 异常分析
 - `二级分类`：异常对象统计
@@ -1421,16 +1279,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=最近`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：仍归入异常分析，不误走severity ranking
 - `备注`：补充异常统计式问法。
 
-### AN-12
+### SM-DETAIL-030
 
 - `一级分类`：F. 异常分析
 - `二级分类`：设备异常清单
@@ -1440,16 +1296,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=7天; aggregation=device`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：异常清单问法不应直接走severity ranking
 - `备注`：补充设备异常清单。
 
-### AN-13
+### SM-DETAIL-031
 
 - `一级分类`：F. 异常分析
 - `二级分类`：城市涝渍
@@ -1459,16 +1313,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=镇江市; time=最近; status_target=waterlogging`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：涝渍类型筛选必须生效
 - `备注`：补充城市涝渍异常。
 
-### AN-14
+### SM-DETAIL-032
 
 - `一级分类`：F. 异常分析
 - `二级分类`：月度异常概况
@@ -1478,16 +1330,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=南京市; time=30天`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：月度异常概况不应退成普通概览
 - `备注`：补充月度异常分析。
 
-### AN-15
+### SM-DETAIL-033
 
 - `一级分类`：F. 异常分析
 - `二级分类`：设备异常补充
@@ -1497,16 +1347,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`sn=SNS00213807; time=7天`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：设备异常分析应围绕单设备范围
 - `备注`：补充设备异常补充样本。
 
-### AN-16
+### SM-DETAIL-034
 
 - `一级分类`：F. 异常分析
 - `二级分类`：县区关注清单
@@ -1516,11 +1364,9 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`time=最近; aggregation=county`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：`yes`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：异常关注对象可按县区汇总，但仍属于异常链路
 - `备注`：补充县区关注清单。
@@ -1528,7 +1374,7 @@
 
 ## G. 预警模板输出
 
-### WA-01
+### SM-DETAIL-035
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：预警模板
@@ -1538,16 +1384,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`need_template=true`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：必须先规则判断，再决定是否触发模板输出
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### WA-02
+### SM-DETAIL-036
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：设备预警判断
@@ -1557,16 +1401,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00204333`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：未触发时内部应为 `soil_status=not_triggered; warning_level=none`
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### WA-03
+### SM-DETAIL-037
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：严格模板
@@ -1576,16 +1418,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00213807; render_mode=strict`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：`strict_mode` 只能输出模板正文 + 极少量固定补充
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### WA-04
+### SM-DETAIL-038
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：模板+解释
@@ -1595,16 +1435,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`render_mode=plus_explanation`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：模板正文与解释段必须分区输出，不能揉成一段
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### WA-05
+### SM-DETAIL-039
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：未触发不生成模板
@@ -1614,16 +1452,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00204333; render_mode=conditional_no_template_if_not_triggered`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：未触发时内部应为 `soil_status=not_triggered; warning_level=none`，不得硬生成模板
 - `备注`：补充未触发预警的模板边界。
 
-### WA-06
+### SM-DETAIL-040
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：地区预警判断
@@ -1633,16 +1469,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`county=如东县; city=南通市`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：地区预警判断必须先查事实再跑规则，不能只按地区名判断
 - `备注`：补充地区级预警判断。
 
-### WA-07
+### SM-DETAIL-041
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：正式口径预警
@@ -1652,16 +1486,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`render_mode=strict; time=最新业务时间`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：`strict_mode` 下模板正文不得被自由改写
 - `备注`：补充正式模板口径。
 
-### WA-08
+### SM-DETAIL-042
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：设备预警判断补充
@@ -1671,16 +1503,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00213807`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：设备预警判断必须先取最新记录再跑规则
 - `备注`：补充第二设备预警判断。
 
-### WA-09
+### SM-DETAIL-043
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：地区模板
@@ -1690,16 +1520,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`county=如东县; city=南通市; need_template=true`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：地区对象也必须走规则判断后再决定模板输出
 - `备注`：补充地区模板输出。
 
-### WA-10
+### SM-DETAIL-044
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：城市模板
@@ -1709,16 +1537,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`city=南京市; need_template=true; time=最新业务时间`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：城市模板输出也应先规则判断
 - `备注`：补充城市模板输出。
 
-### WA-11
+### SM-DETAIL-045
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：设备重旱模板
@@ -1728,16 +1554,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00204333; need_template=true; status_target=heavy_drought`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：异常类型与设备对象都要落到规则判断
 - `备注`：补充设备+异常类型模板。
 
-### WA-12
+### SM-DETAIL-046
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：纯正文设备模板
@@ -1747,16 +1571,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00213807; render_mode=strict`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：strict_mode下模板正文不得被自由改写
 - `备注`：补充设备纯正文模板。
 
-### WA-13
+### SM-DETAIL-047
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：城市预警判断
@@ -1766,16 +1588,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`city=南通市`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：城市级预警判断不能跳过规则
 - `备注`：补充城市预警判断。
 
-### WA-14
+### SM-DETAIL-048
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：正式口径城市模板
@@ -1785,16 +1605,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`city=镇江市; render_mode=strict`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：正式口径应保持模板约束
 - `备注`：补充正式口径城市模板。
 
-### WA-15
+### SM-DETAIL-049
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：未触发直接说明
@@ -1804,16 +1622,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`sn=SNS00204333; no_template_if_not_triggered=true`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：未触发时内部应为not_triggered/none
 - `备注`：补充未触发说明边界。
 
-### WA-16
+### SM-DETAIL-050
 
 - `一级分类`：G. 预警模板输出
 - `二级分类`：模板+解释地区
@@ -1823,11 +1639,9 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_warning_generation`
-- `预期 slots`：`county=如东县; city=南通市; render_mode=plus_explanation`
-- `预期 query_type / SQL`：`latest_record / SQL-05`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_warning_answer`
-- `规则触发`：`yes/no`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=warning_mode）
 - `是否写查询日志`：是
 - `关键断言`：模板正文与解释必须分区，不揉成一段
 - `备注`：补充地区模板+解释。
@@ -1835,7 +1649,7 @@
 
 ## H. 指标解释 / 指导建议
 
-### AD-01
+### SM-CONV-015
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：指标解释
@@ -1845,16 +1659,14 @@
 - `上下文`：上一轮已有设备详情
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_metric_explanation`
-- `预期 slots`：`metric=water20cm`
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：先给数据事实，再解释指标含义
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AD-02
+### SM-CONV-016
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：农户建议
@@ -1864,16 +1676,14 @@
 - `上下文`：上一轮已有异常结果
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`audience=farmer`
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：建议必须带不确定性说明
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AD-03
+### SM-CONV-017
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：大棚建议
@@ -1883,16 +1693,14 @@
 - `上下文`：上一轮已有异常结果
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`audience=greenhouse`
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：输出对象应切换为设施大棚主体
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### AD-04
+### SM-CONV-018
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：重旱处置建议
@@ -1902,16 +1710,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`status_target=heavy_drought; audience=farmer`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：否
 - `关键断言`：通用建议不能编造当前监测事实；必须带不确定性说明
 - `备注`：补充无上下文通用建议。
 
-### AD-05
+### SM-CONV-019
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：站所建议
@@ -1921,16 +1727,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`audience=station`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：否
 - `关键断言`：建议类回答不能替代正式预警发布；语气应面向站所
 - `备注`：补充不同受众建议。
 
-### AD-06
+### SM-CONV-020
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：指标解释/20cm
@@ -1940,16 +1744,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_metric_explanation`
-- `预期 slots`：`metric=water20cm`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：否
 - `关键断言`：指标解释可不查库，但不能编造当前数值
 - `备注`：补充通用指标解释。
 
-### AD-07
+### SM-CONV-021
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：指标偏低解释
@@ -1959,16 +1761,14 @@
 - `上下文`：上一轮已有指标或详情结果
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_metric_explanation`
-- `预期 slots`：无
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：先基于已有事实，再做指标解释
 - `备注`：补充低值解释。
 
-### AD-08
+### SM-CONV-022
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：站所建议
@@ -1978,16 +1778,14 @@
 - `上下文`：上一轮已有异常或详情结果
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`audience=station`
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：建议对象应切换到站所角色
 - `备注`：补充管理主体差异。
 
-### AD-09
+### SM-CONV-023
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：农户灌溉建议
@@ -1997,16 +1795,14 @@
 - `上下文`：上一轮已有地区或设备详情
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`audience=farmer`
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：建议不能装成强结论命令
 - `备注`：补充农户灌溉建议。
 
-### AD-10
+### SM-CONV-024
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：大棚紧急建议
@@ -2016,16 +1812,14 @@
 - `上下文`：上一轮已有异常或详情结果
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：`audience=greenhouse`
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：对象为大棚主体，不应沿用农户话术
 - `备注`：补充设施场景建议。
 
-### AD-11
+### SM-CONV-025
 
 - `一级分类`：H. 指标解释 / 指导建议
 - `二级分类`：一句话建议
@@ -2035,11 +1829,9 @@
 - `上下文`：上一轮已有异常或详情结果
 - `预期 input_type`：`business_colloquial`
 - `预期 intent`：`soil_management_advice`
-- `预期 slots`：无
-- `预期 query_type / SQL`：`latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_advice_answer`
-- `规则触发`：`no`
 - `是否写查询日志`：是
 - `关键断言`：简短建议也要带不确定性边界
 - `备注`：补充一句话建议场景。
@@ -2047,7 +1839,7 @@
 
 ## I. 无数据 / 找不到 / 兜底
 
-### FB-01
+### SM-EMPTY-001
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：无效地区兜底
@@ -2057,16 +1849,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=XX县`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：地区不存在时不能编结果，要提示核对名称
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### FB-02
+### SM-EMPTY-002
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：指定日期无数据
@@ -2076,16 +1866,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=如东县; time=2026-04-15`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：指定日期无数据时，要提示库内最新业务时间
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### FB-03
+### SM-EMPTY-003
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：时间窗内无设备
@@ -2095,16 +1883,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNS00299999; time_range=last_7_days`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：设备不存在或明确时间窗内无数据时，不得回答“正常”
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### FB-04
+### SM-EMPTY-004
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：不存在地区
@@ -2114,16 +1900,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=不存在区`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：地区不存在时不能编结果，不能默认查全省
 - `备注`：补充不存在地区兜底。
 
-### FB-05
+### SM-EMPTY-005
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：设备号格式异常
@@ -2133,16 +1917,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNSABC`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`clarify`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：否
 - `关键断言`：设备号明显不完整时优先提示核对，不直接查库扫描
 - `备注`：补充设备号格式异常兜底。
 
-### FB-06
+### SM-FB-001
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：指定日期无数据补充
@@ -2152,16 +1934,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=南京市; time=2025-01-01`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：指定日期无数据时不得编造成正常结论
 - `备注`：补充城市指定日期无数据。
 
-### FB-07
+### SM-FB-002
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：时间窗内城市数据检查
@@ -2171,16 +1951,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`city=南京市; time_range=last_7_days`
-- `预期 query_type / SQL`：`region_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：按明确时间窗查询，不使用导入批次语义
 - `备注`：补充时间窗内城市数据检查。
 
-### FB-08
+### SM-FB-003
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：不存在设备
@@ -2190,16 +1968,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNS00000000; time=最近`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：设备不存在时不能回答“未见异常”
 - `备注`：补充不存在设备。
 
-### FB-09
+### SM-FB-004
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：未来日期无数据
@@ -2209,16 +1985,14 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=如东县; city=南通市; time=2030-01-01`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：未来日期不得默认回落到最新数据
 - `备注`：补充未来日期无数据。
 
-### FB-10
+### SM-FB-005
 
 - `一级分类`：I. 无数据 / 找不到 / 兜底
 - `二级分类`：未知地区异常
@@ -2228,11 +2002,9 @@
 - `上下文`：无
 - `预期 input_type`：`business_direct`
 - `预期 intent`：`soil_region_query`
-- `预期 slots`：`county=某某区; time=最近`
-- `预期 query_type / SQL`：`fallback / SQL-07`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`fallback_answer`
-- `规则触发`：`n/a`
 - `是否写查询日志`：是
 - `关键断言`：未知地区时不得扩展成模糊全省异常分析
 - `备注`：补充未知地区异常问法。
@@ -2240,7 +2012,7 @@
 
 ## J. 能力边界
 
-### BO-01
+### SM-CONV-026
 
 - `一级分类`：J. 能力边界
 - `二级分类`：边界/天气
@@ -2250,16 +2022,14 @@
 - `上下文`：无
 - `预期 input_type`：`out_of_domain`
 - `预期 intent`：`out_of_scope`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`boundary_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=boundary）
 - `是否写查询日志`：否
 - `关键断言`：明确只支持墒情业务，不查天气
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### BO-02
+### SM-CONV-027
 
 - `一级分类`：J. 能力边界
 - `二级分类`：边界/写诗
@@ -2269,16 +2039,14 @@
 - `上下文`：无
 - `预期 input_type`：`out_of_domain`
 - `预期 intent`：`out_of_scope`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`boundary_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=boundary）
 - `是否写查询日志`：否
 - `关键断言`：不转成闲聊，不误走业务链路
 - `备注`：当前为正式维护 Case；如需修订，请同步更新对应回答样例与结构化期望。
 
-### BO-03
+### SM-CONV-028
 
 - `一级分类`：J. 能力边界
 - `二级分类`：边界/产量预测
@@ -2288,16 +2056,14 @@
 - `上下文`：无
 - `预期 input_type`：`out_of_domain`
 - `预期 intent`：`out_of_scope`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`boundary_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=boundary）
 - `是否写查询日志`：否
 - `关键断言`：不扩展到产量预测；回到当前墒情能力边界
 - `备注`：补充农业相关但超出墒情域的问题。
 
-### BO-04
+### SM-CONV-029
 
 - `一级分类`：J. 能力边界
 - `二级分类`：边界/虫害
@@ -2307,16 +2073,14 @@
 - `上下文`：无
 - `预期 input_type`：`out_of_domain`
 - `预期 intent`：`out_of_scope`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`boundary_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=boundary）
 - `是否写查询日志`：否
 - `关键断言`：不扩展到虫害业务
 - `备注`：补充相邻农业域边界。
 
-### BO-05
+### SM-CONV-030
 
 - `一级分类`：J. 能力边界
 - `二级分类`：边界/降雨预测
@@ -2326,11 +2090,9 @@
 - `上下文`：无
 - `预期 input_type`：`out_of_domain`
 - `预期 intent`：`out_of_scope`
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`boundary_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=boundary）
 - `是否写查询日志`：否
 - `关键断言`：不扩展到气候预测
 - `备注`：补充预测类边界。
@@ -2345,11 +2107,9 @@
 - `上下文`：第一轮已保存 `county=如东县` 的业务上下文
 - `预期 input_type`：第二轮 `conversation_closing`
 - `预期 intent`：无业务 intent
-- `预期 slots`：无
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：不进入
-- `预期 answer_type`：`closing_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=closing）
 - `是否写查询日志`：否
 - `关键断言`：纯结束语命中 `closing_end`，后端立即清空该 `session_id` 上下文
 - `备注`：前端仍保留同一 `thread_id`，但后端不再继承旧对象。
@@ -2364,11 +2124,9 @@
 - `上下文`：第二轮已清空上下文
 - `预期 input_type`：第三轮 `business_colloquial`
 - `预期 intent`：`clarification_needed`
-- `预期 slots`：`follow_up=true; time=上周`
-- `预期 query_type / SQL`：无
-- `ExecutionGate`：不进入
-- `预期 answer_type`：`clarification_answer`
-- `规则触发`：`n/a`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：否
 - `关键断言`：结束后同线程继续追问也不能继承如东县
 - `备注`：覆盖“结束即清空上下文”。
@@ -2383,11 +2141,9 @@
 - `上下文`：可有可无
 - `预期 input_type`：`business_colloquial` 或 `business_direct`
 - `预期 intent`：按上下文框架或独立南京查询解析
-- `预期 slots`：`city=南京市`
-- `预期 query_type / SQL`：视上下文而定；不得因“谢谢”直接结束
-- `ExecutionGate`：按业务请求判断
-- `预期 answer_type`：不得为 `closing_answer`
-- `规则触发`：按业务请求判断
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：不得为 `guidance_answer`（guidance_reason=closing）
 - `是否写查询日志`：若查库则是
 - `关键断言`：结束词旁边有地区业务信号时，不触发 `closing_end`
 - `备注`：纯结束检测不能做简单关键词匹配。
@@ -2402,11 +2158,9 @@
 - `上下文`：上一轮 `city=南京市; query_family=anomaly; start_time/end_time=最近30天`
 - `预期 input_type`：第二轮 `business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=徐州市; time=继承上一轮绝对 start_time/end_time`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：异常规则
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：显式地区覆盖历史地区，查询框架和时间窗继承；`inheritance_mode=carry_frame`
 - `备注`：避免把“徐州呢？”误判为全新无时间问题。
@@ -2421,11 +2175,9 @@
 - `上下文`：上一轮 `query_family=anomaly`
 - `预期 input_type`：`business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_anomaly_query`
-- `预期 slots`：`city=盐城市; time=昨天; metric=water20cm`
-- `预期 query_type / SQL`：`anomaly_list / SQL-04`
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：`soil_anomaly_answer`
-- `规则触发`：异常规则
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：`soil_detail_answer`（output_mode=anomaly_focus）
 - `是否写查询日志`：是
 - `关键断言`：地区、时间、指标同时覆盖；未显式改变的异常框架继续继承
 - `备注`：覆盖多显式槽位覆盖历史槽位。
@@ -2440,11 +2192,9 @@
 - `上下文`：上一轮 `query_family=ranking`
 - `预期 input_type`：`business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_device_query`
-- `预期 slots`：`sn=SNS00204333; time=继承上一轮时间窗`
-- `预期 query_type / SQL`：`device_detail / SQL-03`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_detail_answer`
-- `规则触发`：详情规则
 - `是否写查询日志`：是
 - `关键断言`：`inheritance_mode=convert_frame`，从 ranking 转成设备详情
 - `备注`：排名框架不适合直接延续到单设备。
@@ -2459,11 +2209,9 @@
 - `上下文`：第一轮 `base_query_family=anomaly`，第二轮 `answer_type=soil_advice_answer`
 - `预期 input_type`：第三轮 `business_colloquial` 或 `business_direct`
 - `预期 intent`：`soil_anomaly_query` 或最近兼容的数据查询 intent
-- `预期 slots`：`city=徐州市; time=继承可用窗口`
-- `预期 query_type / SQL`：不得固定为 advice 的 `latest_record / SQL-06`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：不得继续为 `soil_advice_answer`
-- `规则触发`：按数据查询框架判断
 - `是否写查询日志`：是
 - `关键断言`：`warning/advice` 是输出层 overlay，不作为下一轮默认框架
 - `备注`：覆盖“建议后对象切换”。
@@ -2478,11 +2226,9 @@
 - `上下文`：上一轮 `county=如东县`
 - `预期 input_type`：第二轮 `business_colloquial`
 - `预期 intent`：继承上一轮兼容 intent
-- `预期 slots`：`county=继承如东县`
-- `预期 query_type / SQL`：按继承框架查询
-- `ExecutionGate`：`pass`
-- `预期 answer_type`：不得因 `InputGuard` 提前变成 `clarification_answer`
-- `规则触发`：按继承框架判断
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：不得因 `InputGuard` 提前变成 `guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：是
 - `关键断言`：`那个情况呢` 这类上下文依赖短句必须进入 `ConversationBoundary`
 - `备注`：无上下文时仍应澄清。
@@ -2497,11 +2243,9 @@
 - `上下文`：上一轮 `county=如东县`
 - `预期 input_type`：第二轮 `business_direct`
 - `预期 intent`：`soil_recent_summary`
-- `预期 slots`：`city=南京市; time=最近15天`
-- `预期 query_type / SQL`：`recent_summary / SQL-01`
-- `ExecutionGate`：`pass`
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
 - `预期 answer_type`：`soil_summary_answer`
-- `规则触发`：概览统计
 - `是否写查询日志`：是
 - `关键断言`：当前轮信息完整时 `inheritance_mode=reset_frame`，不继承如东县
 - `备注`：避免过度继承。
@@ -2516,11 +2260,9 @@
 - `上下文`：距离上次明确如东县对象已 4~5 轮，但当前轮显式给出南京
 - `预期 input_type`：最后一轮 `business_colloquial` 或 `business_direct`
 - `预期 intent`：按最近可兼容数据框架处理
-- `预期 slots`：`city=南京市`
-- `预期 query_type / SQL`：若框架可兼容则查库
-- `ExecutionGate`：按业务请求判断
-- `预期 answer_type`：不得仅因衰减返回 `clarification_answer`
-- `规则触发`：按业务请求判断
+- `预期 Tool 参数`：由 LLM 根据问题决定
+- `预期 Tool`：由 LLM 根据意图调用对应工具
+- `预期 answer_type`：不得仅因衰减返回 `guidance_answer`（guidance_reason=clarification）
 - `是否写查询日志`：若查库则是
 - `关键断言`：上下文衰减只阻断纯省略追问；显式新对象不受衰减阻断
 - `备注`：与“有没有问题”这类纯省略衰减澄清形成对照。

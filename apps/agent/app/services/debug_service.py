@@ -83,7 +83,6 @@ class DebugService:
         return {
             "node_name": node_name,
             "final_status": getattr(state, "final_status", None),
-            "query_type": getattr(getattr(state, "query_plan", None), "query_type", None),
             "answer_type": getattr(state, "answer_type", None),
         }
 

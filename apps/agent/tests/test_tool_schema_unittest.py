@@ -6,7 +6,7 @@ from app.llm.qwen_client import QwenClient
 
 class ToolSchemaTest(unittest.TestCase):
     def test_tool_count(self):
-        self.assertEqual(len(SOIL_TOOLS), 7)
+        self.assertEqual(len(SOIL_TOOLS), 4)
 
     def test_each_tool_has_required_keys(self):
         for tool in SOIL_TOOLS:
@@ -23,12 +23,9 @@ class ToolSchemaTest(unittest.TestCase):
     def test_tool_names_match_contract(self):
         names = {t["function"]["name"] for t in SOIL_TOOLS}
         expected = {
-            "get_soil_overview",
-            "get_soil_ranking",
-            "get_soil_detail",
-            "get_soil_anomaly",
-            "get_warning_data",
-            "get_advice_context",
+            "query_soil_summary",
+            "query_soil_ranking",
+            "query_soil_detail",
             "diagnose_empty_result",
         }
         self.assertEqual(names, expected)
@@ -60,7 +57,7 @@ class QwenClientFunctionCallingTest(unittest.TestCase):
                         "id": "call_abc",
                         "type": "function",
                         "function": {
-                            "name": "get_soil_overview",
+                            "name": "query_soil_summary",
                             "arguments": '{"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"}'
                         }
                     }]
@@ -78,7 +75,7 @@ class QwenClientFunctionCallingTest(unittest.TestCase):
             ))
         self.assertIsNotNone(result)
         self.assertEqual(result["type"], "tool_call")
-        self.assertEqual(result["tool_name"], "get_soil_overview")
+        self.assertEqual(result["tool_name"], "query_soil_summary")
         self.assertIn("start_time", result["tool_args"])
 
     def test_call_with_tools_parses_text_response(self):
@@ -127,3 +124,13 @@ class SystemPromptTest(unittest.TestCase):
         prompt = build_system_prompt(latest_business_time=None)
         self.assertIsInstance(prompt, str)
         self.assertGreater(len(prompt), 100)
+
+    def test_lists_all_4_canonical_tools(self):
+        prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
+        for tool in ("query_soil_summary", "query_soil_ranking", "query_soil_detail", "diagnose_empty_result"):
+            self.assertIn(tool, prompt)
+
+    def test_includes_p0_rule(self):
+        prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
+        # System prompt must mention the P0 mandatory tool-call constraint
+        self.assertIn("P0", prompt)

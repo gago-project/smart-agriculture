@@ -1,99 +1,120 @@
-"""Unit tests for region alias resolution."""
+"""Unit tests for region handling in the new tool-executor architecture.
+
+IntentSlotService was deleted. Region parameters are now passed directly by
+the LLM to the tool executor. These tests verify that the tool executor
+handles region filters correctly and that the InputGuard routes
+out-of-scope requests to guidance_answer without a DB query.
+"""
 
 from __future__ import annotations
 
 import asyncio
 import unittest
 
+from app.llm.qwen_client import QwenClient
 from app.services.agent_service import SoilAgentService
-from app.services.intent_slot_service import IntentSlotService
-from support_repositories import SeedSoilRepository
+from app.services.tool_executor_service import ToolExecutorService
+from tests.support_repositories import SeedSoilRepository
 
 
-class RegionAliasResolutionTest(unittest.TestCase):
-    """Test cases for region alias resolution."""
+class ToolExecutorRegionFilterTest(unittest.TestCase):
+    """Tool executor returns correct structure for region-scoped queries."""
+
     def setUp(self) -> None:
-        """Prepare the shared fixtures for each test case."""
-        self.repository = SeedSoilRepository()
+        self.repo = SeedSoilRepository()
+        self.executor = ToolExecutorService(repository=self.repo)
 
-    def parse(self, text: str):
-        """Handle parse on the region alias resolution test."""
-        async def run_case():
-            service = IntentSlotService(repository=self.repository, qwen_client=None)
-            return await service.parse(text, "region-alias")
-
-        return asyncio.run(run_case())
-
-    def test_city_short_name_should_resolve_to_canonical_city(self) -> None:
-        """Verify city short name should resolve to canonical city."""
-        result = self.parse("南京最近一个月的数据")
-
-        self.assertEqual(result.slots.get("city"), "南京市")
-        self.assertEqual(result.slots.get("time_range"), "last_30_days")
-
-    def test_county_short_name_should_resolve_to_canonical_county(self) -> None:
-        """Verify county short name should resolve to canonical county."""
-        result = self.parse("如东最近怎么样")
-
-        self.assertEqual(result.slots.get("county"), "如东县")
-        self.assertEqual(result.intent, "soil_region_query")
-
-    def test_city_short_name_should_keep_existing_summary_routing(self) -> None:
-        """Verify city short name should keep existing summary routing."""
-        result = self.parse("南通最近7天墒情怎么样")
-
-        self.assertEqual(result.slots.get("city"), "南通市")
-        self.assertEqual(result.intent, "soil_recent_summary")
-
-    def test_typo_should_resolve_when_candidate_is_unique(self) -> None:
-        """Verify typo should resolve when candidate is unique."""
-        result = self.parse("苏洲最近一个月的数据")
-
-        self.assertEqual(result.slots.get("city"), "苏州市")
-
-    def test_batch_phrase_without_explicit_time_should_clarify(self) -> None:
-        """Verify batch-like filler words no longer imply latest-batch queries."""
-        result = self.parse("这批数据整体情况如何")
-
-        self.assertEqual(result.intent, "clarification_needed")
-        self.assertEqual(result.answer_type, "clarification_answer")
-        self.assertEqual(result.slots, {})
-
-    def test_batch_phrase_with_explicit_time_should_ignore_filler(self) -> None:
-        """Verify batch-like filler words are ignored when real time exists."""
-        result = self.parse("这次南京最近7天墒情怎么样")
-
-        self.assertEqual(result.intent, "soil_recent_summary")
-        self.assertEqual(result.answer_type, "soil_summary_answer")
-        self.assertEqual(result.slots.get("city"), "南京市")
-        self.assertEqual(result.slots.get("time_range"), "last_7_days")
-        self.assertTrue({"city", "time_range", "time_explicit", "raw_time_expr", "follow_up"}.issuperset(result.slots.keys()))
-
-    def test_ambiguous_alias_should_clarify_without_query(self) -> None:
-        """Verify ambiguous alias should clarify without query."""
-        self.repository.extra_region_aliases = [
-            {
-                "alias_name": "新区",
-                "canonical_name": "甲新区",
-                "region_level": "county",
-                "parent_city_name": "甲市",
-                "alias_source": "manual",
+    def test_detail_query_with_city_filter_returns_entity_type_region(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_detail",
+            tool_args={
+                "start_time": "2025-01-01 00:00:00",
+                "end_time": "2025-12-31 23:59:59",
+                "city": "南京市",
             },
-            {
-                "alias_name": "新区",
-                "canonical_name": "乙新区",
-                "region_level": "county",
-                "parent_city_name": "乙市",
-                "alias_source": "manual",
-            },
-        ]
-        service = SoilAgentService(repository=self.repository)
-        result = service.chat("新区最近怎么样", session_id="ambiguous-region", turn_id=1)
+        ))
+        self.assertEqual(result["entity_type"], "region")
+        self.assertIn("latest_record", result)
+        self.assertIn("status_summary", result)
 
-        self.assertEqual(result["intent"], "clarification_needed")
-        self.assertEqual(result["answer_type"], "clarification_answer")
+    def test_detail_query_with_sn_filter_returns_entity_type_device(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_detail",
+            tool_args={
+                "start_time": "2025-01-01 00:00:00",
+                "end_time": "2025-12-31 23:59:59",
+                "sn": "SNS00204333",
+            },
+        ))
+        self.assertEqual(result["entity_type"], "device")
+        self.assertEqual(result["entity_name"], "SNS00204333")
+
+    def test_summary_query_with_city_filter_returns_scoped_stats(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_summary",
+            tool_args={
+                "start_time": "2025-01-01 00:00:00",
+                "end_time": "2025-12-31 23:59:59",
+                "city": "南京市",
+            },
+        ))
+        self.assertIn("total_records", result)
+        self.assertIn("avg_water20cm", result)
+
+    def test_diagnose_region_exists_returns_entity_exists_flag(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="diagnose_empty_result",
+            tool_args={
+                "start_time": "2025-01-01 00:00:00",
+                "end_time": "2025-12-31 23:59:59",
+                "scenario": "region_exists",
+                "city": "南京市",
+            },
+        ))
+        self.assertIn("entity_exists", result)
+        self.assertIn("diagnosis", result)
+        self.assertIn(result["diagnosis"], ("data_exists", "entity_not_found"))
+
+    def test_diagnose_unknown_region_returns_entity_not_found(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="diagnose_empty_result",
+            tool_args={
+                "start_time": "2025-01-01 00:00:00",
+                "end_time": "2025-12-31 23:59:59",
+                "scenario": "region_exists",
+                "city": "不存在市XYZABC",
+            },
+        ))
+        self.assertFalse(result["entity_exists"])
+        self.assertEqual(result["diagnosis"], "entity_not_found")
+
+
+class OutOfScopeRoutingTest(unittest.TestCase):
+    """Out-of-scope inputs are routed to guidance_answer without a DB query."""
+
+    def setUp(self) -> None:
+        self.service = SoilAgentService(
+            repository=SeedSoilRepository(),
+            qwen_client=QwenClient(api_key=""),
+        )
+
+    def test_weather_question_routes_to_guidance_answer(self):
+        result = self.service.chat("查一下明天天气", session_id="oos1", turn_id=1)
+
+        self.assertEqual(result["answer_type"], "guidance_answer")
+        self.assertEqual(result["guidance_reason"], "boundary")
         self.assertFalse(result["should_query"])
-        self.assertEqual(result["query_plan"], {})
+
+    def test_greeting_routes_to_guidance_answer(self):
+        result = self.service.chat("你好", session_id="oos2", turn_id=1)
+
+        self.assertEqual(result["answer_type"], "guidance_answer")
+        self.assertFalse(result["should_query"])
+
+    def test_intent_slot_service_is_deleted(self):
+        """IntentSlotService was removed; importing it must fail."""
+        with self.assertRaises(ImportError):
+            import app.services.intent_slot_service  # noqa: F401
 
 
 if __name__ == "__main__":

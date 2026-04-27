@@ -9,7 +9,7 @@
 | 序号 | 文件 | 用途简述 | 主要读者 |
 |:---:|---|---|---|
 | **1** | [`1.plan.md`](./1.plan.md) | **总实施方案**：目标、架构（主控 Agent + 受限 Flow + 工具）、技术栈、数据与规则来源、交付范围（做/不做）、全局约束与命名约定等，是整套方案的「母文档」。 | 研发 / 架构 / 产品（通读） |
-| **2** | [`2.answer-types-business.md`](./2.answer-types-business.md) | **当前 11 类回答类型（待收口）与业务对照表**：用户怎么问、对应 `intent`、是否查库/规则/模板、系统动作与输出重点，供商务、产品、运营确认行为边界；后续建议收口为 `5` 个一级 `answer_type` + 辅助模式字段。 | 商务 / 产品 / 运营 |
+| **2** | [`2.answer-types-business.md`](./2.answer-types-business.md) | **【已归档】历史 11 类回答类型与业务对照表**：旧管线的 intent/tool/输出格式对照，供历史参考。当前已收口为 `5` 个一级 `answer_type`（`soil_summary_answer` / `soil_ranking_answer` / `soil_detail_answer` / `guidance_answer` / `fallback_answer`）+ `output_mode` / `guidance_reason` / `fallback_reason` 辅助字段。 | 商务 / 产品（历史参考） |
 | **4** | [`4.python-flow-design.md`](./4.python-flow-design.md) | **Python 工程方案**：在文档 1 之上说明如何用 Python + **自研受限 Flow** 落地（不引入 LangChain/LangGraph 的阶段性理由）、目录与分层、状态与节点职责等工程设计。 | 研发 / 架构 |
 | **5** | [`5.python-implementation-plan.md`](./5.python-implementation-plan.md) | **已归档的旧 Python 实施计划**：保留旧版受限 Flow 的 Task 拆分与历史实施路径，当前版本不要单独依赖本文件推进实现。 | 研发（历史参考） |
 | **6** | [`6.python-pseudocode.md`](./6.python-pseudocode.md) | **已归档的旧 Python 伪代码**：保留旧版受限 Flow 的代码骨架参考，当前版本请优先以文档 1、4、8、9 为准。 | 研发（历史参考） |
