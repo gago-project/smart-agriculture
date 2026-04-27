@@ -144,3 +144,70 @@ class SeedSoilRepository(SoilRepository):
     async def region_alias_rows_async(self) -> list[dict[str, Any]]:
         """Return region alias rows async."""
         return self.region_alias_rows()
+
+    def region_record_count(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+    ) -> int:
+        """Count records matching one region combination."""
+        return len(self.filter_records(city=city, county=county))
+
+    async def region_record_count_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+    ) -> int:
+        """Async region record count."""
+        return self.region_record_count(city=city, county=county)
+
+    def device_record_count(self, sn: str) -> int:
+        """Count records for one device SN."""
+        return len(self.filter_records(sn=sn))
+
+    async def device_record_count_async(self, sn: str) -> int:
+        """Async device record count."""
+        return self.device_record_count(sn=sn)
+
+    def period_record_summary(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
+        """Return count and latest create time for a fallback time-period check."""
+        records = self.filter_records(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+        )
+        latest_create_time = max((str(item.get("create_time") or "") for item in records), default=None)
+        return {
+            "period_record_count": len(records),
+            "latest_create_time": latest_create_time or self.latest_business_time(),
+        }
+
+    async def period_record_summary_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
+        """Async period summary."""
+        return self.period_record_summary(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+        )
