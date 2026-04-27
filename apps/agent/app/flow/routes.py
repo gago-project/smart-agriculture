@@ -1,50 +1,32 @@
-"""Static route table for the restricted Soil Agent Flow.
+"""Simplified static route table for the LLM + Function Calling Agent.
 
-The design goal is predictability: nodes choose from declared actions, and this
-table maps those actions to the next node or terminal.  We intentionally avoid
-LLM-generated dynamic graphs here because this project is a data-task agent,
-not an open-ended autonomous agent.
+Five nodes replace the previous eighteen. LLM handles understanding and
+tool routing; code handles validation, execution, and safety checks.
 """
-
 from __future__ import annotations
 
-
-# Terminal actions end the request without visiting another node.  Non-terminal
-# actions keep the request on the fixed pipeline: guard -> parse -> context ->
-# time -> region -> gate -> query -> rules -> answer -> fact check -> verify.
 ROUTES = {
     "input_guard": {
         "safe_end": "safe_end",
         "clarify_end": "clarify_end",
         "boundary_end": "boundary_end",
         "closing_end": "closing_end",
-        "continue": "intent_slot_extract",
+        "continue": "agent_loop",
     },
-    "intent_slot_extract": {"continue": "conversation_boundary"},
-    "conversation_boundary": {"continue": "history_context_merge", "clarify_end": "clarify_end"},
-    "history_context_merge": {"continue": "time_resolve"},
-    "time_resolve": {"continue": "region_resolve"},
-    "region_resolve": {"continue": "execution_gate"},
-    "execution_gate": {
-        "clarify_end": "clarify_end",
-        "block_end": "block_end",
-        "continue": "soil_data_query",
+    "agent_loop": {
+        "continue": "data_fact_check",
+        "fallback": "fallback_guard",
     },
-    "soil_data_query": {"continue": "soil_rule_engine", "fallback": "fallback_guard"},
-    "soil_rule_engine": {
-        "template_only": "template_render",
-        "advice_only": "advice_compose",
-        "template_and_advice": "template_render",
-        "response_only": "response_generate",
-    },
-    "template_render": {"go_advice": "advice_compose", "go_response": "response_generate"},
-    "advice_compose": {"continue": "response_generate"},
-    "response_generate": {"continue": "data_fact_check"},
     "data_fact_check": {
-        "retry_response": "response_generate",
+        "retry_response": "fallback_guard",
         "go_verify": "answer_verify",
         "fallback": "fallback_guard",
     },
-    "answer_verify": {"verified_end": "verified_end", "fallback": "fallback_guard"},
-    "fallback_guard": {"fallback_end": "fallback_end"},
+    "answer_verify": {
+        "verified_end": "verified_end",
+        "fallback": "fallback_guard",
+    },
+    "fallback_guard": {
+        "fallback_end": "fallback_end",
+    },
 }

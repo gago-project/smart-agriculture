@@ -51,32 +51,20 @@ class ExplodingNode:
 
 class FlowContractTest(unittest.TestCase):
     """Test cases for flow contract."""
-    def test_route_table_matches_latest_plan_actions(self):
-        """Verify route table matches latest plan actions."""
-        self.assertEqual(
-            ROUTES["execution_gate"],
-            {
-                "clarify_end": "clarify_end",
-                "block_end": "block_end",
-                "continue": "soil_data_query",
-            },
-        )
-        self.assertEqual(
-            ROUTES["soil_rule_engine"],
-            {
-                "template_only": "template_render",
-                "advice_only": "advice_compose",
-                "template_and_advice": "template_render",
-                "response_only": "response_generate",
-            },
-        )
-        self.assertEqual(
-            ROUTES["template_render"],
-            {
-                "go_advice": "advice_compose",
-                "go_response": "response_generate",
-            },
-        )
+    def test_route_table_matches_5_node_architecture(self):
+        """Verify route table matches the new 5-node LLM + FC architecture."""
+        self.assertIn("input_guard", ROUTES)
+        self.assertIn("agent_loop", ROUTES)
+        self.assertIn("data_fact_check", ROUTES)
+        self.assertIn("answer_verify", ROUTES)
+        self.assertIn("fallback_guard", ROUTES)
+        # Old pipeline nodes must NOT be in routes
+        self.assertNotIn("intent_slot_extract", ROUTES)
+        self.assertNotIn("conversation_boundary", ROUTES)
+        self.assertNotIn("execution_gate", ROUTES)
+        self.assertNotIn("soil_data_query", ROUTES)
+        # New AgentLoop route
+        self.assertEqual(ROUTES["agent_loop"], {"continue": "data_fact_check", "fallback": "fallback_guard"})
 
     def test_route_registry_rejects_missing_next_action(self):
         """Verify route registry rejects missing next action."""
@@ -195,6 +183,34 @@ class FlowContractTest(unittest.TestCase):
         node = StaticNode("continue", name="input_guard", allowed_next_actions=("continue", "fallback"))
         with self.assertRaisesRegex(ValueError, "do not match"):
             RouteRegistry({"input_guard": {"continue": "fallback_end"}}).validate(nodes={"input_guard": node}, terminals={"fallback_end"})
+
+
+from app.flow.nodes.agent_loop import AgentLoopNode
+
+
+class AgentLoopNodeContractTest(unittest.TestCase):
+    def _make_node(self):
+        from tests.support_repositories import SeedSoilRepository
+        from app.llm.qwen_client import QwenClient
+        from app.repositories.session_context_repository import SessionContextRepository
+        from app.services.tool_executor_service import ToolExecutorService
+        from app.services.agent_loop_service import AgentLoopService
+        repo = SeedSoilRepository()
+        svc = AgentLoopService(
+            qwen_client=QwenClient(api_key=""),
+            tool_executor=ToolExecutorService(repository=repo),
+            history_store=SessionContextRepository(),
+        )
+        return AgentLoopNode(svc, repository=repo)
+
+    def test_agent_loop_node_name(self):
+        node = self._make_node()
+        self.assertEqual(node.name, "agent_loop")
+
+    def test_agent_loop_node_allowed_actions(self):
+        node = self._make_node()
+        self.assertIn("continue", node.allowed_next_actions)
+        self.assertIn("fallback", node.allowed_next_actions)
 
 
 if __name__ == "__main__":

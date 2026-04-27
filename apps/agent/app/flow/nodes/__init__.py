@@ -5,6 +5,7 @@ graph without importing each implementation path throughout the codebase.
 """
 
 from app.flow.nodes.advice_compose import AdviceComposeNode
+from app.flow.nodes.agent_loop import AgentLoopNode
 from app.flow.nodes.answer_verify import AnswerVerifyNode
 from app.flow.nodes.data_fact_check import DataFactCheckNode
 from app.flow.nodes.conversation_boundary import ConversationBoundaryNode
@@ -22,6 +23,7 @@ from app.flow.nodes.time_resolve import TimeResolveNode
 
 __all__ = [
     "AdviceComposeNode",
+    "AgentLoopNode",
     "AnswerVerifyNode",
     "DataFactCheckNode",
     "ConversationBoundaryNode",
