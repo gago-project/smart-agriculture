@@ -57,5 +57,34 @@ class AgentServiceTest(unittest.TestCase):
         self.assertIn("预警", result["final_answer"])
 
 
+class AgentServiceNewFlowSmokeTest(unittest.TestCase):
+    def setUp(self):
+        from unittest.mock import AsyncMock, MagicMock
+        from app.llm.qwen_client import QwenClient
+
+        qwen = MagicMock(spec=QwenClient)
+        qwen.available.return_value = True
+        qwen.call_with_tools = AsyncMock(return_value={
+            "type": "text",
+            "content": "全省整体墒情偏干，平均相对含水量 55%。",
+        })
+        self.service = SoilAgentService(
+            repository=SeedSoilRepository(),
+            qwen_client=qwen,
+        )
+
+    def test_chat_returns_final_answer(self):
+        result = self.service.chat("全省墒情怎么样", session_id="smoke1", turn_id=1)
+        self.assertIn("final_answer", result)
+        self.assertGreater(len(result["final_answer"]), 0)
+
+    def test_new_flow_does_not_use_old_nodes(self):
+        node_names = list(self.service.orchestrator.runner.nodes.keys())
+        self.assertIn("agent_loop", node_names)
+        self.assertNotIn("intent_slot_extract", node_names)
+        self.assertNotIn("conversation_boundary", node_names)
+        self.assertNotIn("history_context_merge", node_names)
+
+
 if __name__ == "__main__":
     unittest.main()
