@@ -2,13 +2,22 @@
 
 Sets answer_type, output_mode, intent, fallback_reason, tool_trace,
 and query_log_entries based on AgentLoopResult.
+
+P1-7/8/9: For business_colloquial inputs, SemanticParserService is called
+first to resolve coreferences and extract an explicit intent_hint.
+The resolved_input (coreference-expanded) is passed to AgentLoopService.
 """
 from __future__ import annotations
+
+import logging
 
 from app.flow.nodes.base import BaseNode
 from app.repositories.soil_repository import SoilRepository
 from app.schemas.state import FlowState, NodeResult
 from app.services.agent_loop_service import AgentLoopService
+from app.services.semantic_parser_service import SemanticParserService
+
+logger = logging.getLogger(__name__)
 
 _TOOL_TO_ANSWER_TYPE = {
     "query_soil_summary": "soil_summary_answer",
@@ -24,25 +33,64 @@ _TOOL_TO_INTENT = {
     "diagnose_empty_result": "soil_diagnose",
 }
 
+_INTENT_HINT_MAP = {
+    "soil_summary": "soil_recent_summary",
+    "soil_ranking": "soil_severity_ranking",
+    "soil_detail": "soil_region_query",
+}
+
 
 class AgentLoopNode(BaseNode):
     """Run the LLM + function-calling loop and populate final answer."""
 
-    def __init__(self, service: AgentLoopService, *, repository: SoilRepository) -> None:
+    def __init__(
+        self,
+        service: AgentLoopService,
+        *,
+        repository: SoilRepository,
+        semantic_parser: SemanticParserService | None = None,
+    ) -> None:
         super().__init__(
             "agent_loop",
             ("continue", "fallback"),
             ("intent", "answer_type", "output_mode", "fallback_reason",
              "answer_bundle", "query_result", "query_log_entries",
-             "tool_trace", "answer_facts"),
+             "tool_trace", "answer_facts", "session_reset"),
         )
         self.service = service
         self.repository = repository
+        self.semantic_parser = semantic_parser or SemanticParserService()
 
     async def run(self, state: FlowState) -> NodeResult:
         latest_business_time = await self.repository.latest_business_time_async()
+
+        # P1-8/9: For colloquial business inputs, resolve coreferences and get intent_hint
+        effective_input = state.user_input
+        semantic_intent_hint: str | None = None
+        if getattr(state, "input_type", None) and str(state.input_type or "").endswith("colloquial"):
+            history = await self.service.history_store.load_history(state.session_id)
+            parse_result = await self.semantic_parser.parse(state.user_input, history)
+            if parse_result.needs_clarify and parse_result.clarify_message:
+                patch: dict = {
+                    "answer_bundle": {"final_answer": (
+                        f"您的问题需要补充一些信息：{parse_result.clarify_message}。"
+                        "请补充说明后重试。"
+                    )},
+                    "answer_type": "fallback_answer",
+                    "fallback_reason": "clarification_needed",
+                    "session_reset": False,
+                }
+                return self.ensure_result(NodeResult(next_action="fallback", state_patch=patch))
+            effective_input = parse_result.resolved_input
+            semantic_intent_hint = _INTENT_HINT_MAP.get(parse_result.intent_hint)
+            if parse_result.entities or parse_result.time_hint:
+                logger.debug(
+                    "SemanticParser resolved: entities=%s time=%s input=%r",
+                    parse_result.entities, parse_result.time_hint, effective_input,
+                )
+
         result = await self.service.run(
-            user_input=state.user_input,
+            user_input=effective_input,
             session_id=state.session_id,
             turn_id=state.turn_id,
             latest_business_time=latest_business_time,
@@ -51,17 +99,28 @@ class AgentLoopNode(BaseNode):
 
         patch: dict = {
             "answer_bundle": {"final_answer": result.final_answer},
+            "session_reset": result.session_reset,
         }
 
-        # Derive answer_type and intent from the first successful tool call
+        # Derive answer_type from the final result structure (P1-9)
+        # intent: prefer semantic_intent_hint (from SemanticParser); fall back to first tool
         first_tool = result.tool_calls_made[0]["tool_name"] if result.tool_calls_made else None
         if result.is_fallback:
             patch["answer_type"] = "fallback_answer"
             patch["fallback_reason"] = result.fallback_reason or "unknown"
         elif first_tool:
-            patch["answer_type"] = _TOOL_TO_ANSWER_TYPE.get(first_tool, "soil_summary_answer")
-            patch["intent"] = _TOOL_TO_INTENT.get(first_tool, "soil_recent_summary")
-            # Refine intent for detail: device vs region
+            # answer_type reflects actual result: has data → typed answer, else fallback
+            has_any_data = any(_has_data(tr) for tr in result.tool_results)
+            patch["answer_type"] = (
+                _TOOL_TO_ANSWER_TYPE.get(first_tool, "soil_summary_answer")
+                if has_any_data else "fallback_answer"
+            )
+            # intent: semantic hint wins; execution evidence corrects device vs region only
+            if semantic_intent_hint:
+                patch["intent"] = semantic_intent_hint
+            else:
+                patch["intent"] = _TOOL_TO_INTENT.get(first_tool, "soil_recent_summary")
+            # Refine detail intent: device vs region
             if first_tool == "query_soil_detail":
                 first_args = result.tool_calls_made[0].get("tool_args", {})
                 if first_args.get("sn"):

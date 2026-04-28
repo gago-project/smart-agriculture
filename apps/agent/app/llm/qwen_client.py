@@ -90,9 +90,11 @@ class QwenClient:
         """Call Qwen with function calling tools.
 
         Returns one of:
-        - {"type": "tool_call", "tool_name": str, "tool_args": dict, "call_id": str}
+        - {"type": "tool_calls", "calls": [{"tool_name": str, "tool_args": dict, "call_id": str}, ...]}
         - {"type": "text", "content": str}
         - None  (LLM unavailable or error)
+
+        All tool_calls returned by the model are preserved (not just the first one).
         """
         if not self.available():
             return None
@@ -121,15 +123,16 @@ class QwenClient:
 
             tool_calls = message.get("tool_calls")
             if tool_calls:
-                first = tool_calls[0]
-                raw_args = first["function"]["arguments"]
-                tool_args = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
-                return {
-                    "type": "tool_call",
-                    "tool_name": first["function"]["name"],
-                    "tool_args": tool_args,
-                    "call_id": first.get("id", ""),
-                }
+                parsed: list[dict] = []
+                for tc in tool_calls:
+                    raw_args = tc["function"]["arguments"]
+                    tool_args = _json.loads(raw_args) if isinstance(raw_args, str) else raw_args
+                    parsed.append({
+                        "tool_name": tc["function"]["name"],
+                        "tool_args": tool_args,
+                        "call_id": tc.get("id", ""),
+                    })
+                return {"type": "tool_calls", "calls": parsed}
 
             content = message.get("content") or ""
             return {"type": "text", "content": content}

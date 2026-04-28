@@ -30,6 +30,7 @@ from app.services.answer_verify_service import AnswerVerifyService
 from app.services.debug_service import DebugService
 from app.services.fact_check_service import FactCheckService
 from app.services.input_guard_service import InputGuardService
+from app.services.semantic_parser_service import SemanticParserService
 from app.services.tool_executor_service import ToolExecutorService
 
 
@@ -60,7 +61,11 @@ class SoilAgentService:
             debug_service=self.debug_service,
             nodes={
                 "input_guard": InputGuardNode(InputGuardService()),
-                "agent_loop": AgentLoopNode(self.agent_loop_service, repository=self.repository),
+                "agent_loop": AgentLoopNode(
+                    self.agent_loop_service,
+                    repository=self.repository,
+                    semantic_parser=SemanticParserService(self.qwen_client),
+                ),
                 "data_fact_check": DataFactCheckNode(FactCheckService()),
                 "answer_verify": AnswerVerifyNode(AnswerVerifyService()),
                 "fallback_guard": FallbackGuardNode(),
@@ -147,6 +152,7 @@ class SoilAgentService:
             "final_answer": final_state.answer_bundle.get("final_answer", ""),
             "should_query": self._should_query(final_state.query_result),
             "conversation_closed": final_state.conversation_closed,
+            "session_reset": final_state.session_reset,
             "status": "ok",
             "query_result": self._dump_bundle(final_state.query_result),
             "query_log_entries": final_state.query_log_entries,

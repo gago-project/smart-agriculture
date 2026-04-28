@@ -11,7 +11,27 @@ import json
 from typing import Any
 
 
-_MAX_MESSAGES = 20
+_MAX_CONTEXT_TOKENS = 8000
+_MIN_MESSAGES_KEEP = 4  # always keep at least the last 2 user+assistant turns
+
+
+def _estimate_tokens(messages: list) -> int:
+    """Rough token count: len(serialized JSON) / 2 handles mixed Chinese/English."""
+    return len(json.dumps(messages, ensure_ascii=False)) // 2
+
+
+def _trim_to_token_limit(messages: list) -> list:
+    """Drop oldest messages until within _MAX_CONTEXT_TOKENS.
+
+    Always keeps the last _MIN_MESSAGES_KEEP messages to avoid destroying
+    the immediate prior turn even when a single tool result is huge.
+    """
+    while (
+        len(messages) > _MIN_MESSAGES_KEEP
+        and _estimate_tokens(messages) > _MAX_CONTEXT_TOKENS
+    ):
+        messages = messages[1:]
+    return messages
 
 
 class InMemoryRedisClient:
@@ -87,7 +107,7 @@ class SessionContextRepository:
         # Final assistant message with the visible answer text
         messages.append({"role": "assistant", "content": assistant_message})
 
-        messages = messages[-_MAX_MESSAGES:]
+        messages = _trim_to_token_limit(messages)
         try:
             await self.redis_client.set(
                 key,
