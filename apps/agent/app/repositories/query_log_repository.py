@@ -32,10 +32,6 @@ class QueryLogRepository:
         self._write_to_mysql(normalized)
         self.logs.append(dict(normalized))
 
-    async def insert_query_log(self, payload: dict[str, Any]) -> None:
-        """Insert one query-log payload asynchronously."""
-        await self.insert_many([payload])
-
     async def insert_many(self, entries: list[dict[str, Any]]) -> None:
         """Normalize and persist multiple query-log entries."""
         for entry in entries:

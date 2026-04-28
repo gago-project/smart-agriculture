@@ -79,7 +79,6 @@
 
 - `apps/agent/app/repositories/query_log_repository.py`
   - `append()`
-  - `insert_query_log()`
   - `insert_many()`
 
 写入时会对 JSON 字段进行序列化，并在 `query_id` 已存在时执行更新。
