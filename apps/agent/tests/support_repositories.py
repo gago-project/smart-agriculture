@@ -144,6 +144,14 @@ class SeedSoilRepository(SoilRepository):
         """Return region alias rows async."""
         return self.region_alias_rows()
 
+    def region_alias_version(self) -> str:
+        """Return a deterministic alias version token for tests."""
+        return f"seed|{len(self.extra_region_aliases)}"
+
+    async def region_alias_version_async(self) -> str:
+        """Return alias version token async."""
+        return self.region_alias_version()
+
     def region_record_count(
         self,
         *,

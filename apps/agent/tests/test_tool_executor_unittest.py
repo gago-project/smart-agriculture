@@ -84,8 +84,8 @@ class ToolExecutorServiceTest(unittest.TestCase):
             self.assertIn("rank", result["items"][0])
             self.assertEqual(result["items"][0]["rank"], 1)
 
-    def test_query_soil_ranking_items_are_truly_sorted(self):
-        """Items must be sorted by severity: more alerts first."""
+    def test_query_soil_ranking_items_follow_risk_then_alert_sort_order(self):
+        """Items must be sorted by avg_risk_score desc, then alert_count desc."""
         result = asyncio.run(self.executor.execute(
             tool_name="query_soil_ranking",
             tool_args={
@@ -97,8 +97,19 @@ class ToolExecutorServiceTest(unittest.TestCase):
         ))
         items = result["items"]
         for i in range(len(items) - 1):
-            self.assertGreaterEqual(items[i]["alert_count"], items[i + 1]["alert_count"],
-                                    "Items must be sorted by alert_count descending")
+            left = items[i]
+            right = items[i + 1]
+            self.assertGreaterEqual(
+                left["avg_risk_score"],
+                right["avg_risk_score"],
+                "Items must be sorted by avg_risk_score descending",
+            )
+            if left["avg_risk_score"] == right["avg_risk_score"]:
+                self.assertGreaterEqual(
+                    left["alert_count"],
+                    right["alert_count"],
+                    "Items with equal risk must be sorted by alert_count descending",
+                )
 
     def test_query_soil_detail_returns_entity_evidence(self):
         result = asyncio.run(self.executor.execute(

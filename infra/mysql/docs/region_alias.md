@@ -36,10 +36,12 @@
   - `apps/web/scripts/generate-region-alias-seed.mjs`
 - 读取：
   - `apps/agent/app/repositories/soil_repository.py`
-  - `apps/agent/app/services/region_service.py`
+  - `apps/agent/app/services/parameter_resolver_service.py`
 
 ## 业务约定
 
 - `region_level=city` 时，`parent_city_name` 通常为空。
 - `region_level=county` 时，允许带上所属 `city`，帮助处理重名区县。
 - 多候选场景必须进入澄清，不允许直接猜测。
+- 若 LLM 把区县名填进 `city` 或把市名填进 `county`，仅在候选唯一时允许自动纠正字段。
+- `city` 与 `county` 同时存在时，应校验 `county.parent_city_name` 与 `city` 是否一致；不一致时必须澄清。

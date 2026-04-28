@@ -37,7 +37,7 @@ class ConversationHistoryTest(unittest.TestCase):
         self.assertEqual(history[0]["content"], "查延安")
         self.assertEqual(history[2]["content"], "那旱情最严重的县是哪个")
 
-    def test_history_capped_at_20_messages(self):
+    def test_short_history_is_preserved_until_token_budget(self):
         for i in range(12):
             asyncio.run(self.repo.save_message_turn(
                 session_id="s3", turn_id=i + 1,
@@ -45,7 +45,9 @@ class ConversationHistoryTest(unittest.TestCase):
                 tool_calls=[], tool_results=[],
             ))
         history = asyncio.run(self.repo.load_history("s3"))
-        self.assertLessEqual(len(history), 20)
+        self.assertEqual(len(history), 24)
+        self.assertEqual(history[0]["content"], "问题0")
+        self.assertEqual(history[-1]["content"], "回答11")
 
     def test_save_with_tool_calls_stores_them(self):
         asyncio.run(self.repo.save_message_turn(

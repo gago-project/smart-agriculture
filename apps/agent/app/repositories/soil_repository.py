@@ -437,6 +437,34 @@ class SoilRepository:
         """Async wrapper for region alias lookup."""
         return await asyncio.to_thread(self.region_alias_rows)
 
+    def region_alias_version(self) -> str:
+        """Return a version token for enabled region_alias rows."""
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT
+                      COALESCE(DATE_FORMAT(MAX(updated_at), '%Y-%m-%d %H:%i:%s'), '') AS max_updated_at,
+                      COUNT(*) AS row_count
+                    FROM region_alias
+                    WHERE enabled = 1
+                    """
+                )
+                row = cursor.fetchone() or {}
+                return f"{row.get('max_updated_at') or ''}|{int(row.get('row_count') or 0)}"
+        except Exception as exc:
+            message = str(exc)
+            if "region_alias" in message and ("1146" in message or "doesn't exist" in message):
+                return "|0"
+            raise DatabaseQueryError(f"MySQL 查询地区别名版本失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def region_alias_version_async(self) -> str:
+        """Async wrapper for region alias version lookup."""
+        return await asyncio.to_thread(self.region_alias_version)
+
     def known_region_names(self) -> set[str]:
         """Return known city/county names observed in the fact table."""
         names = set()

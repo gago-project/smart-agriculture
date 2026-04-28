@@ -300,10 +300,7 @@ class ToolExecutorService:
         are kept in the result so the answer can mention them explicitly.
         """
         entity_type = args.get("entity_type", "region")
-        # Resolved entities are passed through resolved_args as a list under "entities"
-        # plus per-entity fields city/county/sn arrays (depending on resolver behavior).
-        # Fallback path: use raw entities verbatim.
-        entities: list[str] = list(args.get("entities") or [])
+        entities: list[dict[str, Any]] = list(args.get("entities") or [])
         start_time = args["start_time"]
         end_time = args["end_time"]
 
@@ -317,20 +314,23 @@ class ToolExecutorService:
 
         items: list[dict[str, Any]] = []
         for entity in entities:
-            if entity_type == "device":
-                kwargs = {"sn": entity}
+            canonical_name = str(entity.get("canonical_name") or "")
+            level = str(entity.get("level") or "")
+            parent_city_name = entity.get("parent_city_name")
+            raw_name = str(entity.get("raw_name") or canonical_name or "未知")
+
+            if level == "device":
+                kwargs = {"sn": canonical_name}
+            elif level == "city":
+                kwargs = {"city": canonical_name}
+            elif level == "county":
+                kwargs = {"county": canonical_name}
             else:
-                # Region: try as county first; fall back to city
-                kwargs = {"county": entity}
+                kwargs = {}
 
             records = await self.repository.filter_records_async(
                 start_time=start_time, end_time=end_time, **kwargs,
             )
-            if not records and entity_type == "region":
-                # Retry as city
-                records = await self.repository.filter_records_async(
-                    city=entity, start_time=start_time, end_time=end_time,
-                )
 
             if not records:
                 empty_path = await self._auto_diagnose_empty(
@@ -338,8 +338,10 @@ class ToolExecutorService:
                     entity_confidence,
                 )
                 items.append({
-                    "name": entity,
+                    "name": canonical_name or raw_name,
                     "entity_type": entity_type,
+                    "entity_level": level or entity_type,
+                    "parent_city_name": parent_city_name,
                     "record_count": 0,
                     "avg_water20cm": None,
                     "avg_risk_score": 0.0,
@@ -364,8 +366,10 @@ class ToolExecutorService:
             dominant_status = max(status_counts.items(), key=lambda x: x[1])[0]
 
             items.append({
-                "name": entity,
+                "name": canonical_name or raw_name,
                 "entity_type": entity_type,
+                "entity_level": level or entity_type,
+                "parent_city_name": parent_city_name,
                 "record_count": len(enriched),
                 "avg_water20cm": avg_water,
                 "avg_risk_score": avg_risk,
@@ -509,6 +513,18 @@ class ToolExecutorService:
                 raise ToolValidationError(
                     f"comparison entity_type must be 'region' or 'device', got {entity_type!r}"
                 )
+            for entity in entities:
+                if not isinstance(entity, dict):
+                    raise ToolValidationError("comparison entities must be resolver-normalized objects")
+                canonical_name = str(entity.get("canonical_name") or "").strip()
+                level = str(entity.get("level") or "").strip()
+                if not canonical_name:
+                    raise ToolValidationError("comparison entity canonical_name is required")
+                if entity_type == "device":
+                    if level != "device":
+                        raise ToolValidationError("device comparison entity level must be 'device'")
+                elif level not in ("city", "county"):
+                    raise ToolValidationError("region comparison entity level must be 'city' or 'county'")
 
     @staticmethod
     def _day_span(start_time: str, end_time: str) -> int:

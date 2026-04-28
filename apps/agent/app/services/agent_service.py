@@ -30,6 +30,7 @@ from app.services.answer_verify_service import AnswerVerifyService
 from app.services.debug_service import DebugService
 from app.services.fact_check_service import FactCheckService
 from app.services.input_guard_service import InputGuardService
+from app.services.parameter_resolver_service import ParameterResolverService
 from app.services.semantic_parser_service import SemanticParserService
 from app.services.tool_executor_service import ToolExecutorService
 
@@ -52,10 +53,12 @@ class SoilAgentService:
         self.debug_service = debug_service or DebugService()
 
         self.tool_executor = ToolExecutorService(self.repository)
+        self.parameter_resolver = ParameterResolverService(self.repository)
         self.agent_loop_service = AgentLoopService(
             qwen_client=self.qwen_client,
             tool_executor=self.tool_executor,
             history_store=self.context_store,
+            resolver=self.parameter_resolver,
         )
         self.orchestrator = SoilMoistureFlowOrchestrator(
             debug_service=self.debug_service,

@@ -15,26 +15,36 @@ from app.llm.qwen_client import QwenClient
 from app.schemas.enums import AnswerType, GuidanceReason, FallbackReason
 from app.services.agent_service import SoilAgentService
 from app.services.agent_loop_service import AgentLoopService, AgentLoopResult
+from app.services.parameter_resolver_service import ParameterResolverService
 from tests.support_repositories import SeedSoilRepository
 
 _VALID_ANSWER_TYPES = {v.value for v in AnswerType} | {None}
 
 
-def _mock_agent_loop_service(tool_responses: list[dict], final_text: str) -> AgentLoopService:
+def _mock_agent_loop_service(
+    tool_calls: list[dict],
+    final_text: str,
+    *,
+    repository: SeedSoilRepository | None = None,
+) -> AgentLoopService:
     """Return a mock AgentLoopService that calls tools then returns final_text."""
     from app.repositories.session_context_repository import SessionContextRepository
     from app.services.tool_executor_service import ToolExecutorService
 
-    repo = SeedSoilRepository()
+    repo = repository or SeedSoilRepository()
     mock_qwen = MagicMock(spec=QwenClient)
     mock_qwen.available.return_value = True
-    responses = tool_responses + [{"type": "text", "content": final_text}]
+    responses = [
+        {"type": "tool_calls", "calls": tool_calls},
+        {"type": "text", "content": final_text},
+    ]
     mock_qwen.call_with_tools = AsyncMock(side_effect=responses)
 
     return AgentLoopService(
         qwen_client=mock_qwen,
         tool_executor=ToolExecutorService(repository=repo),
         history_store=SessionContextRepository(),
+        resolver=ParameterResolverService(repo),
     )
 
 
@@ -87,6 +97,22 @@ class P0RedLineTest(unittest.TestCase):
 
     def setUp(self):
         self.repo = SeedSoilRepository()
+        self.repo.extra_region_aliases = [
+            {
+                "alias_name": "南通市",
+                "canonical_name": "南通市",
+                "region_level": "city",
+                "parent_city_name": None,
+                "alias_source": "canonical",
+            },
+            {
+                "alias_name": "如东县",
+                "canonical_name": "如东县",
+                "region_level": "county",
+                "parent_city_name": "南通市",
+                "alias_source": "canonical",
+            },
+        ]
 
     def test_business_query_without_llm_key_returns_fallback_answer(self):
         service = SoilAgentService(
@@ -236,8 +262,27 @@ class StructuredEvidenceFieldsTest(unittest.TestCase):
 class ToolToAnswerTypeMappingTest(unittest.TestCase):
     """summary/ranking/detail tools map to the correct answer_type."""
 
+    _DATA_START = "2026-04-01 00:00:00"
+    _DATA_END = "2026-04-30 23:59:59"
+
     def setUp(self):
         self.repo = SeedSoilRepository()
+        self.repo.extra_region_aliases = [
+            {
+                "alias_name": "南通市",
+                "canonical_name": "南通市",
+                "region_level": "city",
+                "parent_city_name": None,
+                "alias_source": "canonical",
+            },
+            {
+                "alias_name": "如东县",
+                "canonical_name": "如东县",
+                "region_level": "county",
+                "parent_city_name": "南通市",
+                "alias_source": "canonical",
+            },
+        ]
 
     def _run_with_tool(self, tool_name: str, tool_args: dict, final_text: str) -> dict:
         svc = SoilAgentService(
@@ -245,8 +290,9 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
             qwen_client=QwenClient(api_key=""),
         )
         mock_loop = _mock_agent_loop_service(
-            tool_responses=[{"type": "tool_call", "tool_name": tool_name, "tool_args": tool_args, "call_id": "c1"}],
+            tool_calls=[{"tool_name": tool_name, "tool_args": tool_args, "call_id": "c1"}],
             final_text=final_text,
+            repository=self.repo,
         )
         svc.agent_loop_service = mock_loop
         # The runner holds the live nodes dict
@@ -257,7 +303,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
     def test_query_soil_summary_produces_soil_summary_answer(self):
         result = self._run_with_tool(
             "query_soil_summary",
-            {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"},
+            {"start_time": self._DATA_START, "end_time": self._DATA_END},
             "整体墒情偏干。",
         )
         self.assertEqual(result["answer_type"], "soil_summary_answer")
@@ -265,7 +311,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
     def test_query_soil_ranking_produces_soil_ranking_answer(self):
         result = self._run_with_tool(
             "query_soil_ranking",
-            {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59", "aggregation": "county"},
+            {"start_time": self._DATA_START, "end_time": self._DATA_END, "aggregation": "county"},
             "如东县最严重。",
         )
         self.assertEqual(result["answer_type"], "soil_ranking_answer")
@@ -273,7 +319,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
     def test_query_soil_detail_produces_soil_detail_answer(self):
         result = self._run_with_tool(
             "query_soil_detail",
-            {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59", "county": "如东县"},
+            {"start_time": self._DATA_START, "end_time": self._DATA_END, "county": "如东县"},
             "如东县最新含水量 55%。",
         )
         self.assertEqual(result["answer_type"], "soil_detail_answer")

@@ -11,7 +11,24 @@ from app.services.agent_loop_service import AgentLoopService, AgentLoopResult
 def _mock_qwen(responses: list[dict]) -> QwenClient:
     client = MagicMock(spec=QwenClient)
     client.available.return_value = True
-    client.call_with_tools = AsyncMock(side_effect=responses)
+    normalized_responses: list[dict] = []
+    for response in responses:
+        if response.get("type") == "tool_call":
+            normalized_responses.append(
+                {
+                    "type": "tool_calls",
+                    "calls": [
+                        {
+                            "tool_name": response["tool_name"],
+                            "tool_args": response["tool_args"],
+                            "call_id": response.get("call_id", ""),
+                        }
+                    ],
+                }
+            )
+        else:
+            normalized_responses.append(response)
+    client.call_with_tools = AsyncMock(side_effect=normalized_responses)
     return client
 
 

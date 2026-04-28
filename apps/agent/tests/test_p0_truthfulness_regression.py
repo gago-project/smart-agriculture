@@ -83,55 +83,80 @@ class TestRuleThresholds:
 class TestEntityNormalization:
     """Uses an in-memory alias index (no DB)."""
 
-    _ALIAS_INDEX = {
-        "合肥": {"alias_name": "合肥", "canonical_name": "合肥市"},
-        "安徽": {"alias_name": "安徽", "canonical_name": "安徽省"},
-        "如东": {"alias_name": "如东", "canonical_name": "如东县"},
-    }
+    _ALIAS_ROWS = [
+        {
+            "alias_name": "南通",
+            "canonical_name": "南通市",
+            "region_level": "city",
+            "parent_city_name": None,
+            "alias_source": "generated_fact",
+        },
+        {
+            "alias_name": "南通市",
+            "canonical_name": "南通市",
+            "region_level": "city",
+            "parent_city_name": None,
+            "alias_source": "canonical",
+        },
+        {
+            "alias_name": "如东",
+            "canonical_name": "如东县",
+            "region_level": "county",
+            "parent_city_name": "南通市",
+            "alias_source": "generated_fact",
+        },
+        {
+            "alias_name": "如东县",
+            "canonical_name": "如东县",
+            "region_level": "county",
+            "parent_city_name": "南通市",
+            "alias_source": "canonical",
+        },
+    ]
 
     def _resolver(self):
         svc = ParameterResolverService()
-        svc._alias_index = self._ALIAS_INDEX
+        svc._alias_index = svc._build_alias_index(self._ALIAS_ROWS)
         return svc
 
-    def test_hefei_normalized(self):
+    def test_city_alias_normalized(self):
         svc = self._resolver()
-        canon, conf = svc._normalize_name("合肥", self._ALIAS_INDEX)
-        assert canon == "合肥市"
+        canon, conf = svc._normalize_name("南通", svc._alias_index, expected_level="city")
+        assert canon == "南通市"
         assert conf == CONFIDENCE_HIGH
 
-    def test_anhui_normalized(self):
+    def test_county_alias_normalized(self):
         svc = self._resolver()
-        canon, conf = svc._normalize_name("安徽", self._ALIAS_INDEX)
-        assert canon == "安徽省"
+        canon, conf = svc._normalize_name("如东", svc._alias_index, expected_level="county")
+        assert canon == "如东县"
         assert conf == CONFIDENCE_HIGH
 
-    def test_canonical_suffix_passthrough(self):
+    def test_known_canonical_name_is_high_confidence(self):
         svc = self._resolver()
-        canon, conf = svc._normalize_name("南通市", self._ALIAS_INDEX)
+        canon, conf = svc._normalize_name("南通市", svc._alias_index, expected_level="city")
         assert canon == "南通市"
         assert conf == CONFIDENCE_HIGH
 
     def test_unknown_name_low_confidence(self):
         svc = self._resolver()
-        canon, conf = svc._normalize_name("火星城", self._ALIAS_INDEX)
+        canon, conf = svc._normalize_name("火星城", svc._alias_index, expected_level="city")
         assert conf == CONFIDENCE_LOW
 
     @pytest.mark.asyncio
     async def test_sn_valid_format(self):
         svc = self._resolver()
         raw_args = {"sn": "sns00204333", "time_expression": "today"}
-        resolved, conf, _ = await svc._resolve_entities(raw_args, self._ALIAS_INDEX)
-        assert resolved["sn"] == "SNS00204333"
-        assert conf == CONFIDENCE_HIGH
+        outcome = await svc._resolve_entities(raw_args, svc._alias_index)
+        assert outcome.resolved_args["sn"] == "SNS00204333"
+        assert outcome.confidence == CONFIDENCE_HIGH
 
     @pytest.mark.asyncio
     async def test_sn_invalid_format_medium(self):
         svc = self._resolver()
         raw_args = {"sn": "BADFORMAT123", "time_expression": "today"}
-        resolved, conf, warnings = await svc._resolve_entities(raw_args, self._ALIAS_INDEX)
-        assert conf == CONFIDENCE_MEDIUM
-        assert any("格式不符" in w for w in warnings)
+        outcome = await svc._resolve_entities(raw_args, svc._alias_index)
+        assert outcome.confidence == CONFIDENCE_MEDIUM
+        assert any("格式不符" in w for w in outcome.warnings)
 
 
 # ── 3. Time expression expansion ──────────────────────────────────────────────
