@@ -40,7 +40,6 @@ Follow this rule when the task involves testing, regression, or business review 
 ## 正式库口径
 
 - 正式 Case 总数固定为 `30`
-- 旧三层测试模型已废弃
 - 每次都全跑 30 条
 - 每条 Case 都保留 `当前回答`
 - 每条业务 Case 都必须有：
@@ -60,5 +59,14 @@ Follow this rule when the task involves testing, regression, or business review 
 ## 执行要求
 
 - 优先验证答案是否被真实数据支撑，而不是只看文案是否像样
-- 不允许继续沿用旧 `130` Case、旧 CaseID、旧三层测试模型
+- 只允许使用当前正式库中的 30 条 Case 与当前 `SM-*` CaseID 体系
 - 新增或修订 Case 时，只改 `case-library.md`
+- 当用户要求“正式测试报告”“逐条详细报告”“30 条 Case 全量验收报告”时，必须逐条覆盖 30 条 Case，并为每条业务 Case 输出：
+  - 实际输入 / 输出
+  - 实际 Tool 与参数
+  - `tool_trace / query_result / answer_facts / query_log_entries`
+  - `执行 SQL` 或 `等效 SQL`
+  - SQL 结果摘要与样本
+  - 数据库事实校验结果
+  - `是否符合事实`
+  - 最终通过 / 失败结论

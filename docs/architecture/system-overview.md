@@ -26,7 +26,7 @@
 
 ## Validation Basis
 
-- Answer contract and migration direction follow `apps/agent/plans/1/2.answer-types-business.md` and `apps/agent/plans/1/9.llm-fc-design-audit.md`.
+- Answer contract follows `apps/agent/plans/1/1.plan.md` and `apps/agent/plans/1/4.python-flow-design.md`.
 - Agent tool calling follows `apps/agent/app/llm/tools/soil_tools.py`.
 - MVP acceptance follows `testdata/agent/soil-moisture/case-library.md` plus the soil-moisture QA skill/rule assets.
 - Flow safety follows `apps/agent/plans/1/8.flow-risk-contract.md`.

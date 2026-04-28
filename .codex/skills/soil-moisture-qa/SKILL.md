@@ -8,8 +8,8 @@ description: >
 
 # Smart Agriculture — 墒情 Agent QA Skill
 
-> **架构版本**：LLM + Function Calling 5 节点（已完成迁移）。
-> 当前正式测试入口已废弃旧三层测试模型，只保留一套 **30 条** 的正式验收库。
+> **架构版本**：LLM + Function Calling 5 节点。
+> 正式测试入口为一套 **30 条** 的正式验收库。
 
 ## 权威入口
 
@@ -17,7 +17,7 @@ description: >
 |------|------|------|
 | **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 30 条正式验收 Case，每次全量执行 |
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
-| 风险审计与整改 | `apps/agent/plans/1/9.llm-fc-design-audit.md` | 风险、契约、测试口径 |
+| Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
 
 ## 架构约束（QA 必须对齐）
 
@@ -78,9 +78,7 @@ description: >
 
 ### 每次都全跑
 
-旧三层测试模型已废弃。
-
-当前正式要求是：
+正式要求是：
 - 只维护一套正式库
 - 每次都全量跑完 30 条
 - 测试以单元测试为主
@@ -107,6 +105,124 @@ description: >
 - 结构化证据字段是否存在
 - 回答中的关键事实是否被数据库支撑
 - 回答中是否出现数据库无法支持的结论
+
+### 标准详细测试报告
+
+当用户明确要求“正式测试报告”“逐条详细报告”“30 条 Case 全量验收报告”时，必须按统一报告标准输出。
+
+推荐报告落点：
+
+- `testdata/agent/soil-moisture/outputs/formal-acceptance-report.md`
+
+若另存其他路径，也必须在结果中明确写出最终文件位置。
+
+#### 报告范围
+
+- 必须逐条覆盖全部 **30** 条正式 Case
+- 不允许抽样
+- 每条业务 Case 都必须包含数据库回查与事实校验
+- 每条业务 Case 都必须明确给出 `是否符合事实`
+
+#### 每条 Case 的固定报告字段
+
+每条 Case 至少输出：
+
+- `CaseID`
+- `用户问题`
+- `上下文`
+- `预期 input_type`
+- `预期 Tool`
+- `预期 answer_type`
+- `预期 output_mode`
+- `预期 guidance_reason`
+- `预期 fallback_reason`
+- `实际 input_type`
+- `实际 Tool`
+- `实际 answer_type`
+- `实际 output_mode`
+- `实际 guidance_reason`
+- `实际 fallback_reason`
+- `实际 final_answer`
+- `tool_trace`
+- `query_result`
+- `answer_facts`
+- `query_log_entries`
+- `执行 SQL` 或 `等效 SQL`
+- `SQL 参数`
+- `SQL 结果摘要`
+- `SQL 结果样本`
+- `当前回答（Case 样例）`
+- `事实校验结果`
+- `是否符合事实`
+- `是否通过`
+- `失败原因`
+- `修复建议`
+
+#### SQL 说明要求
+
+- 优先记录真实执行 SQL，例如：
+  - `agent_query_log.executed_sql_text`
+  - 测试过程可拿到的 repository 实际 SQL
+- 如果当前实现拿不到 literal SQL，则必须输出 **等效 SQL**
+- 使用等效 SQL 时要明确标记：
+  - `SQL 类型：等效 SQL（由查询条件重建）`
+
+#### 事实校验要求
+
+每条业务 Case 至少校验适用项：
+
+- 地区是否正确
+- 设备是否正确
+- 时间范围是否正确
+- 排名顺序是否正确
+- 关键数字是否正确
+- 是否真的存在异常 / 无数据 / 预警条件
+- 回答是否包含数据库无法支撑的结论
+
+如果 Case 中定义了以下字段，也必须逐项核验：
+
+- `预期实体`
+- `预期时间窗`
+- `预期关键指标`
+- `预期排序结果`
+- `预期诊断类别`
+- `必含事实`
+- `禁止事实`
+
+#### 严格失败标准
+
+出现以下任意一项，该 Case 直接失败：
+
+- 域内业务问题未命中 Tool
+- Tool 命中错误
+- `answer_type` 错误
+- `output_mode / guidance_reason / fallback_reason` 错误
+- 没有结构化证据
+- 没有 SQL 或等效 SQL
+- 没有数据库回查
+- 回答中的关键数字与数据库不一致
+- 回答中的地区 / 设备 / 时间范围不一致
+- 排名顺序不一致
+- guidance Case 误查库
+- fallback Case 分类错误
+- 回答出现数据库无法支撑的事实结论
+- `是否符合事实=是`，但实际数据库核验失败
+
+#### 报告结论
+
+完整报告最后必须给出：
+
+- 测试范围
+- 正式库自检结果
+- Python / Node 测试结果
+- 30 条逐条测试结果
+- 数据库真实性校验汇总
+- 哪些 Case 的 `是否符合事实` 需要调整
+- 是否仍存在“未调 Tool 直接回答业务问题”的路径
+- 最终结论：
+  - `通过`
+  - `有条件通过`
+  - `不通过`
 
 ---
 

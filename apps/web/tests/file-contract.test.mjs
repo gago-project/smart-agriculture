@@ -299,9 +299,11 @@ test('soil moisture testing docs use testdata case library as the single formal 
   }
   assert.match(claudeSkillSource, /30/);
   assert.match(claudeSkillSource, /每次都全量跑完 30 条/);
-  assert.match(claudeSkillSource, /旧三层测试模型已废弃/);
+  assert.match(claudeSkillSource, /正式测试入口为一套 \*\*30 条\*\* 的正式验收库/);
+  assert.doesNotMatch(claudeSkillSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
   assert.match(cursorRuleSource, /正式 Case 总数固定为 `30`/);
-  assert.match(cursorRuleSource, /旧三层测试模型已废弃/);
+  assert.match(cursorRuleSource, /只允许使用当前正式库中的 30 条 Case/);
+  assert.doesNotMatch(cursorRuleSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
 });
 
 test('agent summary route must surface upstream errors instead of fake fallback data', () => {

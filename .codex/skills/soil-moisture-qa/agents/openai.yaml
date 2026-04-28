@@ -1,4 +1,4 @@
 interface:
   display_name: "Soil Moisture Agent QA"
   short_description: "Run QA regression or business review for the soil-moisture Agent"
-  default_prompt: "Use this skill when running QA regression or preparing business review for the soil-moisture Agent. Use the single 30-case formal acceptance library at testdata/agent/soil-moisture/case-library.md as the source of truth."
+  default_prompt: "Use this skill when running QA regression, preparing business review, or generating a formal 30-case acceptance report for the soil-moisture Agent. Use testdata/agent/soil-moisture/case-library.md as the source of truth, and when a formal report is requested, produce a per-case detailed record including input, final answer, tool, tool args, SQL or equivalent SQL, SQL result summary, structured evidence, fact validation, and whether the answer matches facts."
