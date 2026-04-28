@@ -1,7 +1,7 @@
 ---
 description: >
   Use when testing, regression-checking, or preparing business review for the
-  soil-moisture Agent. Single source of truth is the 30-case formal acceptance
+  soil-moisture Agent. Single source of truth is the 48-case formal acceptance
   library at testdata/agent/soil-moisture/case-library.md.
 globs: []
 alwaysApply: false
@@ -18,12 +18,14 @@ Follow this rule when the task involves testing, regression, or business review 
 
 ## 架构约束速查
 
-### 4 Tools
+### 4 业务 Tools
 
 - `query_soil_summary`
 - `query_soil_ranking`
 - `query_soil_detail`
-- `diagnose_empty_result`
+- `query_soil_comparison`（横向对比，2026 Q2 加入）
+
+> 空结果由系统在 `query_soil_*` 返回空时自动产出 `empty_result_path`，不再调用独立诊断工具。
 
 ### 5 answer_types
 
@@ -33,14 +35,26 @@ Follow this rule when the task involves testing, regression, or business review 
 - `guidance_answer`
 - `fallback_answer`
 
+### 6 fallback_reason（必须全覆盖）
+
+- `no_data` / `entity_not_found` / `tool_missing` / `tool_blocked` / `fact_check_failed` / `unknown`
+
+### entity_confidence
+
+- `low` → ParameterResolver 拦截，不查库
+- `medium` → 继续查询，回答须附"置信度中"说明
+- `high` → 正常查询
+
 ### P0 红线
 
-业务问题未调用 Tool 直接回答 → 必须被拦截为 `fallback_answer`（`fallback_reason=tool_missing`）。
+业务问题路径必须存在 Tool 调用与真实数据；两个对偶失败：
+- `tool_missing`：业务问题但 `tool_trace=[]` → fallback
+- `tool_blocked`：调用了 Tool 但执行失败 → 由 `FallbackGuard` 兜底
 
 ## 正式库口径
 
-- 正式 Case 总数固定为 `30`
-- 每次都全跑 30 条
+- 正式 Case 总数固定为 `48`
+- 每次都全跑 48 条
 - 每条 Case 都保留 `当前回答`
 - 每条业务 Case 都必须有：
   - `数据库校验断言`
@@ -50,18 +64,18 @@ Follow this rule when the task involves testing, regression, or business review 
 
 | 类型 | 数量 |
 |------|----:|
-| `guidance_answer` | 8 |
-| `soil_summary_answer` | 6 |
-| `soil_ranking_answer` | 4 |
-| `soil_detail_answer` | 8 |
-| `fallback_answer` | 4 |
+| `guidance_answer` | 11 |
+| `soil_summary_answer` | 10 |
+| `soil_ranking_answer` | 8 |
+| `soil_detail_answer` | 11 |
+| `fallback_answer` | 8 |
 
 ## 执行要求
 
 - 优先验证答案是否被真实数据支撑，而不是只看文案是否像样
-- 只允许使用当前正式库中的 30 条 Case 与当前 `SM-*` CaseID 体系
+- 只允许使用当前正式库中的 48 条 Case 与当前 `SM-*` CaseID 体系
 - 新增或修订 Case 时，只改 `case-library.md`
-- 当用户要求“正式测试报告”“逐条详细报告”“30 条 Case 全量验收报告”时，必须逐条覆盖 30 条 Case，并为每条业务 Case 输出：
+- 当用户要求"正式测试报告""逐条详细报告""48 条 Case 全量验收报告"时，必须逐条覆盖 48 条 Case，并为每条业务 Case 输出：
   - 实际输入 / 输出
   - 实际 Tool 与参数
   - `tool_trace / query_result / answer_facts / query_log_entries`

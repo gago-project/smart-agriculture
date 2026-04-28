@@ -8,8 +8,8 @@
 
 ## 正式规模
 
-- 正式 Case 总数：`30`
-- 测试方式：**每次全量跑完 30 条**
+- 正式 Case 总数：`48`
+- 测试方式：**每次全量跑完 48 条**
 - 测试定位：**单元测试导向**
 - 当前回答样例：**保留完整长文本**
 - 数据真实性：**每条业务 Case 都必须带数据库校验断言，并标记 `是否符合事实`**
@@ -18,16 +18,16 @@
 
 | 一级 `answer_type` | 数量 | CaseID |
 |---|---:|---|
-| `guidance_answer` | 8 | `SM-CONV-001 ~ SM-CONV-008` |
-| `soil_summary_answer` | 6 | `SM-SUM-001 ~ SM-SUM-006` |
-| `soil_ranking_answer` | 4 | `SM-RANK-001 ~ SM-RANK-004` |
-| `soil_detail_answer` | 8 | `SM-DETAIL-001 ~ SM-DETAIL-008` |
-| `fallback_answer` | 4 | `SM-FB-001 ~ SM-FB-004` |
+| `guidance_answer` | 11 | `SM-CONV-001 ~ SM-CONV-011` |
+| `soil_summary_answer` | 10 | `SM-SUM-001 ~ SM-SUM-010` |
+| `soil_ranking_answer` | 8 | `SM-RANK-001 ~ SM-RANK-008` |
+| `soil_detail_answer` | 11 | `SM-DETAIL-001 ~ SM-DETAIL-011` |
+| `fallback_answer` | 8 | `SM-FB-001 ~ SM-FB-008` |
 
 ## 维护原则
 
 - 只维护这一套正式 Case 主库
-- 正式 Case 总数固定为 `30`
+- 正式 Case 总数固定为 `48`
 - 正式 Case 编号统一使用 `SM-*` 体系
 - 正式 Case 的新增、删减、修订只改 `case-library.md`
 
