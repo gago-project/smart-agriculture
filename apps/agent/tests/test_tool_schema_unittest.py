@@ -6,8 +6,8 @@ from app.llm.qwen_client import QwenClient
 
 class ToolSchemaTest(unittest.TestCase):
     def test_tool_count(self):
-        # diagnose_empty_result removed — now 3 tools exposed to LLM
-        self.assertEqual(len(SOIL_TOOLS), 3)
+        # diagnose_empty_result removed; query_soil_comparison added (P2-14) — now 4 tools
+        self.assertEqual(len(SOIL_TOOLS), 4)
 
     def test_each_tool_has_required_keys(self):
         for tool in SOIL_TOOLS:
@@ -21,12 +21,22 @@ class ToolSchemaTest(unittest.TestCase):
                 self.assertIn("properties", params)
                 self.assertIn("required", params)
 
+    def test_each_tool_has_meta(self):
+        # P2-17: every tool carries internal metadata for intent/answer_type wiring
+        for tool in SOIL_TOOLS:
+            with self.subTest(tool=tool["function"]["name"]):
+                meta = tool.get("meta")
+                self.assertIsNotNone(meta)
+                self.assertIn("intent", meta)
+                self.assertIn("answer_type", meta)
+
     def test_tool_names_match_contract(self):
         names = {t["function"]["name"] for t in SOIL_TOOLS}
         expected = {
             "query_soil_summary",
             "query_soil_ranking",
             "query_soil_detail",
+            "query_soil_comparison",
         }
         self.assertEqual(names, expected)
 
@@ -127,9 +137,14 @@ class SystemPromptTest(unittest.TestCase):
         self.assertIsInstance(prompt, str)
         self.assertGreater(len(prompt), 100)
 
-    def test_lists_all_3_canonical_tools(self):
+    def test_lists_all_canonical_tools(self):
         prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
-        for tool in ("query_soil_summary", "query_soil_ranking", "query_soil_detail"):
+        for tool in (
+            "query_soil_summary",
+            "query_soil_ranking",
+            "query_soil_detail",
+            "query_soil_comparison",
+        ):
             self.assertIn(tool, prompt)
         # diagnose_empty_result is internal — must not be exposed to LLM
         self.assertNotIn("diagnose_empty_result", prompt)

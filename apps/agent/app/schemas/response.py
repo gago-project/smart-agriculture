@@ -24,6 +24,7 @@ class ChatResponse(BaseModel):
     final_answer: str = ""
     should_query: bool = False
     conversation_closed: bool = False
+    session_reset: bool = False
     status: str = "ok"
     query_result: dict[str, Any] = Field(default_factory=dict)
     query_log_entries: list[dict[str, Any]] = Field(default_factory=list)

@@ -21,7 +21,7 @@ from typing import Any
 
 from app.llm.qwen_client import QwenClient
 from app.llm.prompts.system_prompt import build_system_prompt
-from app.llm.tools import SOIL_TOOLS
+from app.llm.tools import get_tools_for_llm
 from app.repositories.session_context_repository import SessionContextRepository
 from app.services.parameter_resolver_service import ParameterResolverService
 from app.services.tool_executor_service import ToolExecutorService, ToolValidationError
@@ -111,7 +111,7 @@ class AgentLoopService:
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.qwen_client.call_with_tools(
                 messages=messages,
-                tools=SOIL_TOOLS,
+                tools=get_tools_for_llm(),
             )
             if response is None:
                 return AgentLoopResult(

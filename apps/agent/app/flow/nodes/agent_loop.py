@@ -12,26 +12,13 @@ from __future__ import annotations
 import logging
 
 from app.flow.nodes.base import BaseNode
+from app.llm.tools import get_tool_meta
 from app.repositories.soil_repository import SoilRepository
 from app.schemas.state import FlowState, NodeResult
 from app.services.agent_loop_service import AgentLoopService
 from app.services.semantic_parser_service import SemanticParserService
 
 logger = logging.getLogger(__name__)
-
-_TOOL_TO_ANSWER_TYPE = {
-    "query_soil_summary": "soil_summary_answer",
-    "query_soil_ranking": "soil_ranking_answer",
-    "query_soil_detail": "soil_detail_answer",
-    "diagnose_empty_result": "fallback_answer",
-}
-
-_TOOL_TO_INTENT = {
-    "query_soil_summary": "soil_recent_summary",
-    "query_soil_ranking": "soil_severity_ranking",
-    "query_soil_detail": "soil_region_query",
-    "diagnose_empty_result": "soil_diagnose",
-}
 
 _INTENT_HINT_MAP = {
     "soil_summary": "soil_recent_summary",
@@ -103,24 +90,25 @@ class AgentLoopNode(BaseNode):
         }
 
         # Derive answer_type from the final result structure (P1-9)
-        # intent: prefer semantic_intent_hint (from SemanticParser); fall back to first tool
+        # intent: prefer semantic_intent_hint (from SemanticParser); fall back to tool meta
         first_tool = result.tool_calls_made[0]["tool_name"] if result.tool_calls_made else None
         if result.is_fallback:
             patch["answer_type"] = "fallback_answer"
             patch["fallback_reason"] = result.fallback_reason or "unknown"
         elif first_tool:
-            # answer_type reflects actual result: has data → typed answer, else fallback
+            # answer_type reflects actual result: has data → tool meta typed answer, else fallback
             has_any_data = any(_has_data(tr) for tr in result.tool_results)
+            tool_meta = get_tool_meta(first_tool)
             patch["answer_type"] = (
-                _TOOL_TO_ANSWER_TYPE.get(first_tool, "soil_summary_answer")
+                tool_meta.get("answer_type", "soil_summary_answer")
                 if has_any_data else "fallback_answer"
             )
-            # intent: semantic hint wins; execution evidence corrects device vs region only
+            # intent: semantic hint wins; otherwise read from tool meta
             if semantic_intent_hint:
                 patch["intent"] = semantic_intent_hint
             else:
-                patch["intent"] = _TOOL_TO_INTENT.get(first_tool, "soil_recent_summary")
-            # Refine detail intent: device vs region
+                patch["intent"] = tool_meta.get("intent", "soil_recent_summary")
+            # Refine detail intent: device vs region (only orthogonal evidence-based override)
             if first_tool == "query_soil_detail":
                 first_args = result.tool_calls_made[0].get("tool_args", {})
                 if first_args.get("sn"):

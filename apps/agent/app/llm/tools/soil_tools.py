@@ -65,6 +65,11 @@ SOIL_TOOLS = [
                 "required": ["time_expression"],
             },
         },
+        # internal metadata — not sent to the LLM, used by AgentLoopNode
+        "meta": {
+            "intent": "soil_recent_summary",
+            "answer_type": "soil_summary_answer",
+        },
     },
     {
         "type": "function",
@@ -88,11 +93,15 @@ SOIL_TOOLS = [
                     "aggregation": {
                         "type": "string",
                         "enum": ["county", "city", "device"],
-                        "description": "排名维度：county=县区级，city=市级，device=设备级",
+                        "description": "排名维度：county=县区级，city=市级,device=设备级",
                     },
                 },
                 "required": ["time_expression", "aggregation"],
             },
+        },
+        "meta": {
+            "intent": "soil_severity_ranking",
+            "answer_type": "soil_ranking_answer",
         },
     },
     {
@@ -111,7 +120,63 @@ SOIL_TOOLS = [
                 "required": ["time_expression"],
             },
         },
+        "meta": {
+            "intent": "soil_region_query",
+            "answer_type": "soil_detail_answer",
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "query_soil_comparison",
+            "description": (
+                "对多个地区或设备做横向对比查询，返回每个实体的统计结果与统一排序后的对比列表。"
+                "适合用户问类似 '南通市和盐城市最近哪边墒情更差'、'对比 SNS00204333 和 SNS00204334' 的问题。"
+                "entities 列表里每一项可以是 city 名、county 名或设备 SN，最多 5 个。"
+                "当某个实体查询返回空结果时，系统会在该实体的结果中说明原因。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "entities": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "对比对象列表（city/county/sn 任意一种），最少 2 个，最多 5 个",
+                        "minItems": 2,
+                        "maxItems": 5,
+                    },
+                    "entity_type": {
+                        "type": "string",
+                        "enum": ["region", "device"],
+                        "description": "对比对象类型：region=地区（city 或 county），device=设备 SN",
+                    },
+                    **_TIME_EXPRESSION_PROP,
+                },
+                "required": ["entities", "entity_type", "time_expression"],
+            },
+        },
+        "meta": {
+            "intent": "soil_severity_ranking",
+            "answer_type": "soil_ranking_answer",
+        },
     },
 ]
 
-__all__ = ["SOIL_TOOLS"]
+
+def get_tool_meta(tool_name: str) -> dict:
+    """Return the internal metadata for a tool name (intent / answer_type)."""
+    for tool in SOIL_TOOLS:
+        if tool.get("function", {}).get("name") == tool_name:
+            return tool.get("meta") or {}
+    return {}
+
+
+def get_tools_for_llm() -> list[dict]:
+    """Return SOIL_TOOLS without internal `meta` keys for the LLM payload."""
+    return [
+        {"type": t["type"], "function": t["function"]}
+        for t in SOIL_TOOLS
+    ]
+
+
+__all__ = ["SOIL_TOOLS", "get_tool_meta", "get_tools_for_llm"]

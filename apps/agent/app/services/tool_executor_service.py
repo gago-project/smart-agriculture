@@ -19,11 +19,13 @@ from app.repositories.soil_repository import SoilRepository, _evaluate_record_st
 MAX_TOP_N = 20
 MAX_RANKING_DAYS = 365
 MAX_ANOMALY_DAYS = 180
+MAX_COMPARISON_ENTITIES = 5
 
 ALLOWED_TOOLS = {
     "query_soil_summary",
     "query_soil_ranking",
     "query_soil_detail",
+    "query_soil_comparison",
     "diagnose_empty_result",
 }
 
@@ -72,6 +74,8 @@ class ToolExecutorService:
             return await self._execute_ranking(tool_args, entity_confidence=entity_confidence)
         if tool_name == "query_soil_detail":
             return await self._execute_detail(tool_args, entity_confidence=entity_confidence)
+        if tool_name == "query_soil_comparison":
+            return await self._execute_comparison(tool_args, entity_confidence=entity_confidence)
         # diagnose_empty_result (internal use only — not exposed in SOIL_TOOLS)
         return await self._execute_diagnose(tool_args)
 
@@ -286,6 +290,102 @@ class ToolExecutorService:
 
         return result
 
+    async def _execute_comparison(
+        self, args: dict[str, Any], *, entity_confidence: str = "high"
+    ) -> dict[str, Any]:
+        """Compare soil moisture across multiple entities side-by-side.
+
+        Each entity is queried independently with the same time window and
+        results are sorted by avg_risk_score (highest first). Empty entities
+        are kept in the result so the answer can mention them explicitly.
+        """
+        entity_type = args.get("entity_type", "region")
+        # Resolved entities are passed through resolved_args as a list under "entities"
+        # plus per-entity fields city/county/sn arrays (depending on resolver behavior).
+        # Fallback path: use raw entities verbatim.
+        entities: list[str] = list(args.get("entities") or [])
+        start_time = args["start_time"]
+        end_time = args["end_time"]
+
+        if not entities:
+            return {
+                "entity_type": entity_type,
+                "time_window": {"start_time": start_time, "end_time": end_time},
+                "items": [],
+                "empty_result_path": "normalize_failed",
+            }
+
+        items: list[dict[str, Any]] = []
+        for entity in entities:
+            if entity_type == "device":
+                kwargs = {"sn": entity}
+            else:
+                # Region: try as county first; fall back to city
+                kwargs = {"county": entity}
+
+            records = await self.repository.filter_records_async(
+                start_time=start_time, end_time=end_time, **kwargs,
+            )
+            if not records and entity_type == "region":
+                # Retry as city
+                records = await self.repository.filter_records_async(
+                    city=entity, start_time=start_time, end_time=end_time,
+                )
+
+            if not records:
+                empty_path = await self._auto_diagnose_empty(
+                    {**kwargs, "start_time": start_time, "end_time": end_time},
+                    entity_confidence,
+                )
+                items.append({
+                    "name": entity,
+                    "entity_type": entity_type,
+                    "record_count": 0,
+                    "avg_water20cm": None,
+                    "avg_risk_score": 0.0,
+                    "alert_count": 0,
+                    "status": "no_data",
+                    "empty_result_path": empty_path,
+                })
+                continue
+
+            enriched = [_evaluate_and_merge(r) for r in records]
+
+            water_vals = [float(r["water20cm"]) for r in enriched if r.get("water20cm") is not None]
+            avg_water = round(sum(water_vals) / len(water_vals), 2) if water_vals else None
+
+            risk_vals = [float(r["risk_score"]) for r in enriched if r.get("risk_score") is not None]
+            avg_risk = round(sum(risk_vals) / len(risk_vals), 2) if risk_vals else 0.0
+
+            status_counts: dict[str, int] = defaultdict(int)
+            for r in enriched:
+                status_counts[r.get("soil_status", "unknown")] += 1
+            alert_count = sum(v for k, v in status_counts.items() if k in _ALERT_STATUSES)
+            dominant_status = max(status_counts.items(), key=lambda x: x[1])[0]
+
+            items.append({
+                "name": entity,
+                "entity_type": entity_type,
+                "record_count": len(enriched),
+                "avg_water20cm": avg_water,
+                "avg_risk_score": avg_risk,
+                "alert_count": alert_count,
+                "status": dominant_status,
+                "status_counts": dict(status_counts),
+            })
+
+        # Rank: highest avg_risk_score first; alert_count is the tiebreaker
+        items.sort(key=lambda x: (-(x["avg_risk_score"] or 0.0), -(x["alert_count"] or 0)))
+        for idx, item in enumerate(items, start=1):
+            item["rank"] = idx
+
+        return {
+            "entity_type": entity_type,
+            "time_window": {"start_time": start_time, "end_time": end_time},
+            "total_entities": len(entities),
+            "items": items,
+        }
+
     async def _execute_diagnose(self, args: dict[str, Any]) -> dict[str, Any]:
         """Return structured diagnosis: entity_not_found / no_data_in_window / data_exists."""
         scenario = args.get("scenario", "period_exists")
@@ -394,6 +494,20 @@ class ToolExecutorService:
             if output_mode in ("anomaly_focus",) and day_span > MAX_ANOMALY_DAYS:
                 raise ToolValidationError(
                     f"time_span {day_span} days exceeds {MAX_ANOMALY_DAYS} for anomaly query"
+                )
+
+        if tool_name == "query_soil_comparison":
+            entities = args.get("entities") or []
+            if not isinstance(entities, list) or len(entities) < 2:
+                raise ToolValidationError("query_soil_comparison requires at least 2 entities")
+            if len(entities) > MAX_COMPARISON_ENTITIES:
+                raise ToolValidationError(
+                    f"comparison entities {len(entities)} exceeds maximum {MAX_COMPARISON_ENTITIES}"
+                )
+            entity_type = args.get("entity_type")
+            if entity_type not in ("region", "device"):
+                raise ToolValidationError(
+                    f"comparison entity_type must be 'region' or 'device', got {entity_type!r}"
                 )
 
     @staticmethod

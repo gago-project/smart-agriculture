@@ -181,7 +181,7 @@ class ParameterResolverService:
         raw_args: dict[str, Any],
         alias_index: dict,
     ) -> tuple[dict[str, Any], str, list[str]]:
-        """Standardize city/county/sn. Returns (resolved_entity_args, confidence, warnings)."""
+        """Standardize city/county/sn (and optional entities list). Returns (resolved, confidence, warnings)."""
         resolved: dict[str, Any] = {}
         warnings: list[str] = []
         confidences: list[str] = []
@@ -216,6 +216,33 @@ class ParameterResolverService:
                 resolved["sn"] = sn
                 confidences.append(CONFIDENCE_MEDIUM)
                 warnings.append(f"设备编号 '{sn}' 格式不符合 SNSxxxxxxxx，请核对")
+
+        # comparison tool: entities is a list — normalize per-item
+        entities = raw_args.get("entities")
+        if isinstance(entities, list) and entities:
+            entity_type = raw_args.get("entity_type", "region")
+            normalized_entities: list[str] = []
+            for entity in entities:
+                if not entity or not isinstance(entity, str):
+                    continue
+                if entity_type == "device":
+                    if _SN_PATTERN.match(entity):
+                        normalized_entities.append(entity.upper())
+                        confidences.append(CONFIDENCE_HIGH)
+                    else:
+                        normalized_entities.append(entity)
+                        confidences.append(CONFIDENCE_MEDIUM)
+                        warnings.append(f"设备编号 '{entity}' 格式不符合 SNSxxxxxxxx，请核对")
+                else:
+                    canon, conf = self._normalize_name(entity, alias_index)
+                    normalized_entities.append(canon or entity)
+                    confidences.append(conf)
+                    if conf == CONFIDENCE_MEDIUM:
+                        warnings.append(f"地区名称 '{entity}' 近似匹配为 '{canon}'，请确认")
+                    elif conf == CONFIDENCE_LOW:
+                        warnings.append(f"地区名称 '{entity}' 在地区库中未找到匹配，查询结果可能为空")
+            resolved["entities"] = normalized_entities
+            resolved["entity_type"] = entity_type
 
         # Overall entity confidence = worst of all fields
         if CONFIDENCE_LOW in confidences:
@@ -285,9 +312,12 @@ class ParameterResolverService:
         all_warnings = entity_warnings + time_warnings
 
         # Build resolved_args: start with raw non-entity/time keys, then overlay resolved values
+        _MANAGED_KEYS = {
+            "city", "county", "sn", "entities", "entity_type",
+            "time_expression", "start_time", "end_time",
+        }
         resolved_args: dict[str, Any] = {
-            k: v for k, v in raw_args.items()
-            if k not in ("city", "county", "sn", "time_expression", "start_time", "end_time")
+            k: v for k, v in raw_args.items() if k not in _MANAGED_KEYS
         }
         resolved_args.update(entity_resolved)
         resolved_args.update(time_resolved)
