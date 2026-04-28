@@ -48,6 +48,7 @@ test('workspace app renders neutral loading while redirecting guarded routes', (
 
 test('agent chat route proxies to configured AGENT_BASE_URL', () => {
   const source = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
+  const evidenceSource = readFileSync(new URL('../lib/server/agentChatEvidence.mjs', import.meta.url), 'utf8');
   assert.match(source, /AGENT_BASE_URL/);
   assert.match(source, /\/chat/);
   assert.match(source, /output_mode/);
@@ -57,15 +58,23 @@ test('agent chat route proxies to configured AGENT_BASE_URL', () => {
   assert.match(source, /answer_facts/);
   assert.match(source, /conversation_closed/);
   assert.match(source, /buildAnalysisContext/);
+  assert.match(source, /buildRequestUnderstanding/);
+  assert.match(source, /queryLogEntries/);
   assert.doesNotMatch(source, /mergedSlots/);
   assert.doesNotMatch(source, /inheritanceMode/);
   assert.doesNotMatch(source, /closing_answer/);
   assert.doesNotMatch(source, /region_level:\s*'county'/);
+  assert.doesNotMatch(source, /window_type:\s*'all'/);
+  assert.doesNotMatch(source, /used_context:\s*false/);
   assert.doesNotMatch(source, /used_context:\s*history\.length > 0/);
   assert.doesNotMatch(source, /memory:\s*history\.length > 0/);
+  assert.match(evidenceSource, /start_time/);
+  assert.match(evidenceSource, /end_time/);
+  assert.match(evidenceSource, /usedContext/);
 });
 
 test('admin routes for records upload and rules exist', () => {
+  assert.equal(existsSync(new URL('../app/api/admin/agent/query-evidence/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/admin/soil/records/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/admin/soil/upload/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/route.ts', import.meta.url)), true);
@@ -271,24 +280,28 @@ test('soil moisture testing docs use testdata case library as the single formal 
   );
 
   assert.match(testdataReadmeSource, /case-library\.md/);
-  assert.match(testdataReadmeSource, /30/);
+  assert.match(testdataReadmeSource, /60/);
   assert.doesNotMatch(testdataReadmeSource, /当前正式规模为 `130` 个 Case/);
-  assert.match(caseLibrarySource, /30 条正式验收 Case/);
+  assert.match(caseLibrarySource, /60 条正式验收 Case/);
   assert.match(caseLibrarySource, /是否符合事实/);
   assert.match(caseLibrarySource, /数据库校验断言/);
   assert.match(caseLibrarySource, /### SM-CONV-001/);
-  assert.match(caseLibrarySource, /### SM-CONV-008/);
-  assert.match(caseLibrarySource, /### SM-SUM-006/);
-  assert.match(caseLibrarySource, /### SM-RANK-004/);
-  assert.match(caseLibrarySource, /### SM-DETAIL-008/);
-  assert.match(caseLibrarySource, /### SM-FB-004/);
-  assert.equal([...caseLibrarySource.matchAll(/^### /gm)].length, 30);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-CONV-/gm)].length, 8);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-SUM-/gm)].length, 6);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-RANK-/gm)].length, 4);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-DETAIL-/gm)].length, 8);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-FB-/gm)].length, 4);
-  const blocks = caseLibrarySource.split(/^### /gm).slice(1).map((block) => `### ${block}`);
+  assert.match(caseLibrarySource, /### SM-CONV-015/);
+  assert.match(caseLibrarySource, /### SM-SUM-012/);
+  assert.match(caseLibrarySource, /### SM-RANK-008/);
+  assert.match(caseLibrarySource, /### SM-DETAIL-015/);
+  assert.match(caseLibrarySource, /### SM-FB-010/);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-[A-Z]+-\d+/gm)].length, 60);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-CONV-/gm)].length, 15);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-SUM-/gm)].length, 12);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-RANK-/gm)].length, 8);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-DETAIL-/gm)].length, 15);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-FB-/gm)].length, 10);
+  const blocks = caseLibrarySource
+    .split(/^### /gm)
+    .slice(1)
+    .map((block) => `### ${block}`)
+    .filter((block) => /^### SM-[A-Z]+-\d+/m.test(block));
   for (const block of blocks) {
     assert.match(block, /当前回答/);
     const isBusiness = /是否域内业务问题[：:]\s*是/.test(block);
@@ -297,12 +310,12 @@ test('soil moisture testing docs use testdata case library as the single formal 
       assert.match(block, /是否符合事实[：:]\s*是/);
     }
   }
-  assert.match(claudeSkillSource, /30/);
-  assert.match(claudeSkillSource, /每次都全量跑完 30 条/);
-  assert.match(claudeSkillSource, /正式测试入口为一套 \*\*30 条\*\* 的正式验收库/);
+  assert.match(claudeSkillSource, /60/);
+  assert.match(claudeSkillSource, /每次都全量跑完 60 条/);
+  assert.match(claudeSkillSource, /正式测试入口为一套 \*\*60 条\*\* 的正式验收库/);
   assert.doesNotMatch(claudeSkillSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
-  assert.match(cursorRuleSource, /正式 Case 总数固定为 `30`/);
-  assert.match(cursorRuleSource, /只允许使用当前正式库中的 30 条 Case/);
+  assert.match(cursorRuleSource, /正式 Case 总数固定为 `60`/);
+  assert.match(cursorRuleSource, /只允许使用当前正式库中的 60 条 Case/);
   assert.doesNotMatch(cursorRuleSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
 });
 

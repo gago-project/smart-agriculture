@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from tests.support_repositories import SeedSoilRepository
 from app.llm.qwen_client import QwenClient
 from app.repositories.session_context_repository import SessionContextRepository
+from app.services.parameter_resolver_service import ResolvedParams
 from app.services.tool_executor_service import ToolExecutorService
 from app.services.agent_loop_service import AgentLoopService, AgentLoopResult
 
@@ -159,3 +160,116 @@ class AgentLoopServiceTest(unittest.TestCase):
         self.assertEqual(history[2]["tool_call_id"], "call_1")
         self.assertEqual(history[3]["role"], "assistant")
         self.assertEqual(history[3]["content"], "延安市最近7天整体偏干。")
+
+    def test_history_persists_resolved_tool_args_instead_of_raw_args(self):
+        resolver = MagicMock()
+        resolver.resolve = AsyncMock(return_value=ResolvedParams(
+            tool_name="query_soil_summary",
+            raw_args={
+                "city": "南通",
+                "start_time": "2025-04-14 00:00:00",
+                "end_time": "2025-04-20 23:59:59",
+            },
+            resolved_args={
+                "city": "南通市",
+                "start_time": "2025-04-14 00:00:00",
+                "end_time": "2025-04-20 23:59:59",
+            },
+        ))
+        svc = AgentLoopService(
+            qwen_client=_mock_qwen([
+                {
+                    "type": "tool_call",
+                    "tool_name": "query_soil_summary",
+                    "tool_args": {
+                        "city": "南通",
+                        "start_time": "2025-04-14 00:00:00",
+                        "end_time": "2025-04-20 23:59:59",
+                    },
+                    "call_id": "call_resolved",
+                },
+                {"type": "text", "content": "南通市最近7天整体偏干。"},
+            ]),
+            tool_executor=self.executor,
+            history_store=self.history_store,
+            resolver=resolver,
+        )
+
+        asyncio.run(svc.run(
+            user_input="查南通最近7天墒情",
+            session_id="persist_resolved_history",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        history = asyncio.run(self.history_store.load_history("persist_resolved_history"))
+        stored_args = history[1]["tool_calls"][0]["function"]["arguments"]
+        self.assertIn("南通市", stored_args)
+        self.assertNotIn('"city": "南通"', stored_args)
+
+    def test_query_log_entry_uses_deterministic_turn_key_and_audit_sql(self):
+        svc = self._make_service([
+            {
+                "type": "tool_call",
+                "tool_name": "query_soil_summary",
+                "tool_args": {
+                    "city": "南通市",
+                    "start_time": "2025-04-14 00:00:00",
+                    "end_time": "2025-04-20 23:59:59",
+                },
+                "call_id": "call_audit",
+            },
+            {"type": "text", "content": "南通市最近7天整体偏干。"},
+        ])
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="查南通市最近7天墒情",
+            session_id="audit-session",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        self.assertEqual(len(result.query_log_entries), 1)
+        entry = result.query_log_entries[0]
+        self.assertEqual(entry["query_id"], "audit-session:1:0")
+        self.assertEqual(entry["session_id"], "audit-session")
+        self.assertEqual(entry["turn_id"], 1)
+        self.assertEqual(entry["query_type"], "recent_summary")
+        self.assertIn("FROM fact_soil_moisture", entry["executed_sql_text"])
+        self.assertIn("city = '南通市'", entry["executed_sql_text"])
+        self.assertIn("create_time >=", entry["executed_sql_text"])
+        self.assertIn("create_time <=", entry["executed_sql_text"])
+        self.assertEqual(entry["executed_result_json"]["total_records"], entry["row_count"])
+
+    def test_comparison_query_log_entry_concatenates_multiple_audit_sql_blocks(self):
+        svc = self._make_service([
+            {
+                "type": "tool_call",
+                "tool_name": "query_soil_comparison",
+                "tool_args": {
+                    "entities": ["南通市", "如东县"],
+                    "entity_type": "region",
+                    "start_time": "2025-04-14 00:00:00",
+                    "end_time": "2025-04-20 23:59:59",
+                },
+                "call_id": "call_cmp",
+            },
+            {"type": "text", "content": "如东县的风险更高。"},
+        ])
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="对比南通市和如东县最近7天墒情",
+            session_id="cmp-session",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        self.assertEqual(len(result.query_log_entries), 1)
+        entry = result.query_log_entries[0]
+        self.assertEqual(entry["query_id"], "cmp-session:1:0")
+        self.assertEqual(entry["query_type"], "comparison")
+        self.assertIn("-- entity 1", entry["executed_sql_text"])
+        self.assertIn("-- entity 2", entry["executed_sql_text"])
+        self.assertIn("city = '南通市'", entry["executed_sql_text"])
+        self.assertIn("county = '如东县'", entry["executed_sql_text"])
+        self.assertEqual(entry["row_count"], 2)

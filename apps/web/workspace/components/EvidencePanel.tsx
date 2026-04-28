@@ -45,13 +45,13 @@ function regionLevelLabel(level: unknown): string {
 function formatWindow(window: unknown, kind: 'past' | 'future'): string {
   const parsed = asObject(window);
   if (!parsed) return '—';
+  if (typeof parsed.start_time === 'string' && typeof parsed.end_time === 'string') {
+    const source = typeof parsed.source === 'string' && parsed.source ? ` (${parsed.source})` : '';
+    return `${parsed.start_time} ~ ${parsed.end_time}${source}`;
+  }
   if (kind === 'future' && typeof parsed.horizon_days === 'number') {
     return `未来 ${parsed.horizon_days} 天`;
   }
-  if (parsed.window_type === 'months') return `${kind === 'future' ? '未来' : '过去'} ${parsed.window_value} 个月`;
-  if (parsed.window_type === 'weeks') return `${kind === 'future' ? '未来' : '过去'} ${parsed.window_value} 周`;
-  if (parsed.window_type === 'days') return `${kind === 'future' ? '未来' : '过去'} ${parsed.window_value} 天`;
-  if (parsed.window_type === 'all') return '全量历史';
   return toLabelValue(window);
 }
 

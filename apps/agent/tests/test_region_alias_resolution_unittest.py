@@ -16,6 +16,10 @@ from app.services.tool_executor_service import ToolExecutorService
 
 
 _LBT = "2026-04-20 12:00:00"
+_WINDOW = {
+    "start_time": "2026-04-14 00:00:00",
+    "end_time": "2026-04-20 23:59:59",
+}
 
 
 def _alias_row(
@@ -87,7 +91,7 @@ class TestResolverLevelAwareNormalization:
 
         result = await svc.resolve(
             "query_soil_detail",
-            {"city": "如东", "time_expression": "last_7_days"},
+            {"city": "如东", **_WINDOW},
             _LBT,
         )
 
@@ -111,7 +115,7 @@ class TestResolverLevelAwareNormalization:
 
         result = await svc.resolve(
             "query_soil_detail",
-            {"county": "南通", "time_expression": "last_7_days"},
+            {"county": "南通", **_WINDOW},
             _LBT,
         )
 
@@ -135,12 +139,12 @@ class TestResolverLevelAwareNormalization:
 
         city_result = await svc.resolve(
             "query_soil_detail",
-            {"city": "海门", "time_expression": "last_7_days"},
+            {"city": "海门", **_WINDOW},
             _LBT,
         )
         county_result = await svc.resolve(
             "query_soil_detail",
-            {"county": "海门", "time_expression": "last_7_days"},
+            {"county": "海门", **_WINDOW},
             _LBT,
         )
 
@@ -162,7 +166,7 @@ class TestResolverLevelAwareNormalization:
 
         result = await svc.resolve(
             "query_soil_detail",
-            {"city": "南京市", "county": "新北区", "time_expression": "last_7_days"},
+            {"city": "南京市", "county": "新北区", **_WINDOW},
             _LBT,
         )
 
@@ -184,7 +188,7 @@ class TestResolverLevelAwareNormalization:
 
         result = await svc.resolve(
             "query_soil_detail",
-            {"city": "苏洲", "time_expression": "last_7_days"},
+            {"city": "苏洲", **_WINDOW},
             _LBT,
         )
 
@@ -207,7 +211,7 @@ class TestResolverLevelAwareNormalization:
 
         result = await svc.resolve(
             "query_soil_detail",
-            {"county": "新区", "time_expression": "last_7_days"},
+            {"county": "新区", **_WINDOW},
             _LBT,
         )
 
@@ -229,12 +233,12 @@ class TestAliasVersionedCache:
 
         first = await svc.resolve(
             "query_soil_detail",
-            {"city": "南通", "time_expression": "last_7_days"},
+            {"city": "南通", **_WINDOW},
             _LBT,
         )
         second = await svc.resolve(
             "query_soil_detail",
-            {"county": "海门", "time_expression": "last_7_days"},
+            {"county": "海门", **_WINDOW},
             _LBT,
         )
 
@@ -255,12 +259,12 @@ class TestAliasVersionedCache:
 
         first = await svc.resolve(
             "query_soil_detail",
-            {"city": "南通", "time_expression": "last_7_days"},
+            {"city": "南通", **_WINDOW},
             _LBT,
         )
         second = await svc.resolve(
             "query_soil_detail",
-            {"city": "南通", "time_expression": "last_7_days"},
+            {"city": "南通", **_WINDOW},
             _LBT,
         )
 
@@ -278,7 +282,7 @@ class TestAliasVersionedCache:
 
         result = await svc.resolve(
             "query_soil_detail",
-            {"city": "如东", "time_expression": "last_7_days"},
+            {"city": "如东", **_WINDOW},
             _LBT,
         )
 
@@ -302,7 +306,7 @@ class TestComparisonStructuredEntities:
 
         result = await svc.resolve(
             "query_soil_comparison",
-            {"entities": ["南通", "如东"], "entity_type": "region", "time_expression": "last_7_days"},
+            {"entities": ["南通", "如东"], "entity_type": "region", **_WINDOW},
             _LBT,
         )
 
@@ -339,7 +343,7 @@ class TestComparisonStructuredEntities:
 
         result = await svc.resolve(
             "query_soil_comparison",
-            {"entities": ["新区", "如东"], "entity_type": "region", "time_expression": "last_7_days"},
+            {"entities": ["新区", "如东"], "entity_type": "region", **_WINDOW},
             _LBT,
         )
 

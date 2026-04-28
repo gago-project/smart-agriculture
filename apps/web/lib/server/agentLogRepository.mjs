@@ -71,6 +71,30 @@ function fromDbDetailLog(row) {
   };
 }
 
+function fromDbEvidenceEntry(row, entryIndex) {
+  const missingFields = [];
+  if (!row.executed_sql_text) {
+    missingFields.push('executed_sql_text');
+  }
+  if (row.executed_result_json === null || row.executed_result_json === undefined) {
+    missingFields.push('executed_result_json');
+  }
+  return {
+    query_id: row.query_id,
+    entry_index: entryIndex,
+    query_type: row.query_type,
+    status: row.status,
+    row_count: Number(row.row_count || 0),
+    created_at: row.created_at,
+    query_plan_json: parseJsonValue(row.query_plan_json),
+    time_range_json: parseJsonValue(row.time_range_json),
+    filters_json: parseJsonValue(row.filters_json),
+    executed_sql_text: row.executed_sql_text || null,
+    executed_result_json: parseJsonValue(row.executed_result_json),
+    missing_fields: missingFields,
+  };
+}
+
 export async function listAgentQueryLogs(query) {
   return await withMysqlConnection(async (connection) => {
     const filters = [];
@@ -193,5 +217,41 @@ export async function getAgentQueryLogDetail(queryId) {
       throw new Error('查询日志不存在');
     }
     return fromDbDetailLog(row);
+  });
+}
+
+export async function getAgentQueryEvidenceByTurn({ session_id, turn_id }) {
+  return await withMysqlConnection(async (connection) => {
+    const sessionId = String(session_id || '').trim();
+    const turnId = Number(turn_id || 0);
+    if (!sessionId || !Number.isInteger(turnId) || turnId <= 0) {
+      throw new Error('session_id and turn_id are required');
+    }
+
+    const [rows] = await connection.query(
+      `SELECT
+         query_id,
+         query_type,
+         status,
+         row_count,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,
+         query_plan_json,
+         time_range_json,
+         filters_json,
+         executed_sql_text,
+         executed_result_json
+       FROM agent_query_log
+       WHERE session_id = ?
+         AND turn_id = ?
+       ORDER BY created_at ASC, query_id ASC`,
+      [sessionId, turnId],
+    );
+
+    return {
+      session_id: sessionId,
+      turn_id: turnId,
+      has_query: rows.length > 0,
+      entries: rows.map((row, index) => fromDbEvidenceEntry(row, index + 1)),
+    };
   });
 }

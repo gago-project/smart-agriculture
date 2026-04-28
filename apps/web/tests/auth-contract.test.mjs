@@ -34,6 +34,7 @@ test('soil admin store is pure helpers without runtime file persistence', () => 
 
 test('admin routes require admin role instead of generic authenticated user', () => {
   const adminRoutes = [
+    '../app/api/admin/agent/query-evidence/route.ts',
     '../app/api/admin/soil/records/route.ts',
     '../app/api/admin/soil/records/[recordId]/route.ts',
     '../app/api/admin/soil/records/bulk-delete/route.ts',

@@ -18,7 +18,15 @@ function walk(relativePath) {
     const entryRelativePath = path.posix.join(normalizedPath, entry);
     const entryAbsolutePath = new URL(entryRelativePath, repoRoot);
     if (statSync(entryAbsolutePath).isDirectory()) {
-      if (entry === '__pycache__' || entry === '.git' || entry === 'node_modules') {
+      if (
+        entry === '__pycache__'
+        || entry === '.git'
+        || entry === '.next'
+        || entry === '.runtime'
+        || entry === 'node_modules'
+        || entry === 'output'
+        || entry === 'outputs'
+      ) {
         continue;
       }
       files.push(...walk(entryRelativePath));

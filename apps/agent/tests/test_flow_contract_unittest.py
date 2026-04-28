@@ -64,7 +64,10 @@ class FlowContractTest(unittest.TestCase):
         self.assertNotIn("execution_gate", ROUTES)
         self.assertNotIn("soil_data_query", ROUTES)
         # New AgentLoop route
-        self.assertEqual(ROUTES["agent_loop"], {"continue": "data_fact_check", "fallback": "fallback_guard"})
+        self.assertEqual(
+            ROUTES["agent_loop"],
+            {"continue": "data_fact_check", "clarify": "clarify_end", "fallback": "fallback_guard"},
+        )
 
     def test_route_registry_rejects_missing_next_action(self):
         """Verify route registry rejects missing next action."""

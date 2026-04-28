@@ -4,6 +4,8 @@ interface ChatPanelProps {
   session: Session | null;
   error: string | null;
   onRetry: (message: Message) => Promise<void>;
+  selectedAssistantMessageId: string | null;
+  onSelectAssistantMessage: (message: Message) => void;
 }
 
 function findPreviousUserMessage(messages: Message[], index: number): Message | null {
@@ -15,7 +17,13 @@ function findPreviousUserMessage(messages: Message[], index: number): Message | 
   return null;
 }
 
-export function ChatPanel({ session, error, onRetry }: ChatPanelProps) {
+export function ChatPanel({
+  session,
+  error,
+  onRetry,
+  selectedAssistantMessageId,
+  onSelectAssistantMessage,
+}: ChatPanelProps) {
   if (!session) {
     return (
       <section className="chat-panel empty">
@@ -49,11 +57,23 @@ export function ChatPanel({ session, error, onRetry }: ChatPanelProps) {
       <div className="messages" aria-label="消息列表">
         {session.messages.map((message, index) => {
           const retryMessage = message.status === 'error' ? findPreviousUserMessage(session.messages, index) : null;
+          const isSelectable = message.role === 'assistant' && message.status === 'done' && Boolean(message.meta);
+          const isSelected = isSelectable && selectedAssistantMessageId === message.id;
 
           return (
-            <article key={message.id} className={`message-row ${message.role}`}>
+            <article
+              key={message.id}
+              className={`message-row ${message.role} ${isSelected ? 'is-selected' : ''} ${isSelectable ? 'is-selectable' : ''}`}
+            >
               <div className={`message-avatar ${message.role}`}>{message.role === 'user' ? '你' : 'AI'}</div>
-              <div className={`message ${message.role}`}>
+              <div
+                className={`message ${message.role} ${isSelectable ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`}
+                onClick={() => {
+                  if (message.role === 'assistant' && isSelectable) {
+                    onSelectAssistantMessage(message);
+                  }
+                }}
+              >
                 <p>{message.content || (message.status === 'streaming' ? '...' : '')}</p>
                 {message.status === 'error' && retryMessage ? (
                   <button className="retry" onClick={() => onRetry(retryMessage)}>

@@ -8,8 +8,8 @@
 
 ## 正式规模
 
-- 正式 Case 总数：`56`
-- 测试方式：**每次全量跑完 56 条**
+- 正式 Case 总数：`60`
+- 测试方式：**每次全量跑完 60 条**
 - 测试定位：**单元测试导向**
 - 当前回答样例：**保留完整长文本**
 - 数据真实性：**每条业务 Case 都必须带数据库校验断言，并标记 `是否符合事实`**
@@ -19,15 +19,15 @@
 | 一级 `answer_type` | 数量 | CaseID |
 |---|---:|---|
 | `guidance_answer` | 15 | `SM-CONV-001 ~ SM-CONV-015` |
-| `soil_summary_answer` | 10 | `SM-SUM-001 ~ SM-SUM-010` |
+| `soil_summary_answer` | 12 | `SM-SUM-001 ~ SM-SUM-012` |
 | `soil_ranking_answer` | 8 | `SM-RANK-001 ~ SM-RANK-008` |
-| `soil_detail_answer` | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
+| `soil_detail_answer` | 15 | `SM-DETAIL-001 ~ SM-DETAIL-015` |
 | `fallback_answer` | 10 | `SM-FB-001 ~ SM-FB-010` |
 
 ## 维护原则
 
 - 只维护这一套正式 Case 主库
-- 正式 Case 总数固定为 `56`
+- 正式 Case 总数固定为 `60`
 - 正式 Case 编号统一使用 `SM-*` 体系
 - 正式 Case 的新增、删减、修订只改 `case-library.md`
 
@@ -73,4 +73,5 @@
 ## 其他说明
 
 - `outputs/` 仍只放一次性测试结果，不作为长期规则源
+- 当前正式库已覆盖 `最近13天 / 近2周 / 近3月 / 过去21天 / 两周 / 三个月` 等相对时间，以及 `这几天 / 最近400天 / 开始时间晚于结束时间` 的统一澄清口径
 - 如未来确实需要结构化导出，再考虑新增 `json/csv/xlsx` 副本；当前仍以 Markdown 主库为准

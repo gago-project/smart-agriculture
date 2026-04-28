@@ -27,25 +27,23 @@ _SYSTEM_PROMPT = """\
 1. 将用户输入中的代词（它、那个地区、那个设备、换成上周 等）替换为对话历史中已明确的实体或时间，输出为 resolved_input。
 2. 识别用户意图：soil_summary（整体概览）/ soil_ranking（排名）/ soil_detail（某地/设备详情）/ unclear。
 3. 提取实体：city、county、sn（如有）。
-4. 提取时间枚举（如有）：today / yesterday / last_3_days / last_7_days / last_14_days / last_30_days / last_week / this_month / last_month。
-5. 若信息严重缺失无法推断，needs_clarify=true，clarify_message 说明缺少什么。
+4. 若用户当前输入已经给出明确时间，提取最终的 start_time / end_time（格式 YYYY-MM-DD HH:MM:SS）。
+5. 若当前输入没给新时间，但历史最近一轮已有明确时间窗，则可直接继承同一时间窗。
+6. 若信息严重缺失无法推断，needs_clarify=true，clarify_message 说明缺少什么。
 
 输出格式（严格 JSON，所有字段都要存在）：
 {
   "resolved_input": "展开代词后的完整问题，如无代词则与原文相同",
   "intent_hint": "soil_summary|soil_ranking|soil_detail|unclear",
   "entities": {"city": "...", "county": "...", "sn": "..."},
-  "time_hint": "last_7_days|...|null",
+  "start_time": "YYYY-MM-DD HH:MM:SS|null",
+  "end_time": "YYYY-MM-DD HH:MM:SS|null",
   "needs_clarify": false,
   "clarify_message": ""
 }
 """
 
 _VALID_INTENT_HINTS = {"soil_summary", "soil_ranking", "soil_detail", "unclear"}
-_VALID_TIME_HINTS = {
-    "today", "yesterday", "last_3_days", "last_7_days",
-    "last_14_days", "last_30_days", "last_week", "this_month", "last_month",
-}
 
 
 @dataclass
@@ -55,7 +53,8 @@ class SemanticParseResult:
     resolved_input: str
     intent_hint: str = "unclear"
     entities: dict[str, str] = field(default_factory=dict)
-    time_hint: str | None = None
+    start_time: str | None = None
+    end_time: str | None = None
     needs_clarify: bool = False
     clarify_message: str = ""
 
@@ -76,6 +75,7 @@ class SemanticParserService:
         self,
         user_input: str,
         history_tail: list[dict[str, Any]],
+        latest_business_time: str | None = None,
     ) -> SemanticParseResult:
         """Parse user_input with optional history context.
 
@@ -95,13 +95,17 @@ class SemanticParserService:
         )
 
         user_msg = (
+            f"当前最新业务时间：{latest_business_time or '暂无'}\n"
             f"对话历史（最近几轮）：\n{history_text}\n\n当前用户输入：{user_input}"
             if history_text
-            else f"当前用户输入：{user_input}"
+            else f"当前最新业务时间：{latest_business_time or '暂无'}\n当前用户输入：{user_input}"
         )
 
+        system_prompt = (
+            f"{_SYSTEM_PROMPT}\n当前最新业务时间：{latest_business_time or '暂无'}"
+        )
         messages = [
-            {"role": "system", "content": _SYSTEM_PROMPT},
+            {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_msg},
         ]
 
@@ -131,9 +135,13 @@ class SemanticParserService:
                 if v and str(v).strip()
             }
 
-            time_hint = raw.get("time_hint")
-            if time_hint not in _VALID_TIME_HINTS:
-                time_hint = None
+            start_time = raw.get("start_time")
+            if not isinstance(start_time, str) or not start_time.strip():
+                start_time = None
+
+            end_time = raw.get("end_time")
+            if not isinstance(end_time, str) or not end_time.strip():
+                end_time = None
 
             needs_clarify = bool(raw.get("needs_clarify"))
             clarify_message = str(raw.get("clarify_message") or "").strip()
@@ -142,7 +150,8 @@ class SemanticParserService:
                 resolved_input=resolved_input,
                 intent_hint=intent_hint,
                 entities=entities,
-                time_hint=time_hint,
+                start_time=start_time,
+                end_time=end_time,
                 needs_clarify=needs_clarify,
                 clarify_message=clarify_message,
             )

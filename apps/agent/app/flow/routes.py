@@ -15,6 +15,7 @@ ROUTES = {
     },
     "agent_loop": {
         "continue": "data_fact_check",
+        "clarify": "clarify_end",
         "fallback": "fallback_guard",
     },
     "data_fact_check": {

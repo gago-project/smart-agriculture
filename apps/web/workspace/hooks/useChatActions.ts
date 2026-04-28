@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { sendChat } from '../services/chatApi';
 import { simulateStream } from '../services/streamWriter';
 import { useChatStore } from '../store/chatStore';
@@ -19,8 +19,21 @@ function toHistory(messages: Message[]): ChatHistoryTurn[] {
     }));
 }
 
+function isAssistantMessageSelectable(message: Message): boolean {
+  return message.role === 'assistant' && message.status === 'done' && Boolean(message.meta);
+}
+
 export function useChatActions() {
-  const { sessions, activeSessionId, createSession, addMessage, updateMessage, switchSession } = useChatStore();
+  const {
+    sessions,
+    activeSessionId,
+    selectedAssistantMessageIds,
+    createSession,
+    addMessage,
+    updateMessage,
+    switchSession,
+    selectAssistantMessage: selectAssistantMessageInStore,
+  } = useChatStore();
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -29,10 +42,39 @@ export function useChatActions() {
     [activeSessionId, sessions]
   );
 
-  const latestEvidenceMessage = useMemo(() => {
-    const assistantMessages = activeSession?.messages.filter((message) => message.role === 'assistant' && message.meta) ?? [];
+  const selectedAssistantMessageId = activeSessionId ? (selectedAssistantMessageIds[activeSessionId] ?? null) : null;
+  const latestAssistantMessage = useMemo(() => {
+    const assistantMessages = activeSession?.messages.filter(isAssistantMessageSelectable) ?? [];
     return assistantMessages.length > 0 ? assistantMessages[assistantMessages.length - 1] : null;
   }, [activeSession]);
+  const selectedAssistantMessage = useMemo(() => {
+    if (!activeSession) {
+      return null;
+    }
+    if (selectedAssistantMessageId) {
+      const matched = activeSession.messages.find((message) => message.id === selectedAssistantMessageId);
+      if (matched && isAssistantMessageSelectable(matched)) {
+        return matched;
+      }
+    }
+    return latestAssistantMessage;
+  }, [activeSession, latestAssistantMessage, selectedAssistantMessageId]);
+
+  useEffect(() => {
+    if (!activeSessionId || !latestAssistantMessage) {
+      return;
+    }
+    if (!selectedAssistantMessageId || selectedAssistantMessage?.id !== selectedAssistantMessageId) {
+      selectAssistantMessageInStore(activeSessionId, latestAssistantMessage.id);
+    }
+  }, [activeSessionId, latestAssistantMessage, selectedAssistantMessageId, selectAssistantMessageInStore, selectedAssistantMessage]);
+
+  const selectAssistantMessage = useCallback((message: Message) => {
+    if (!activeSessionId || !isAssistantMessageSelectable(message)) {
+      return;
+    }
+    selectAssistantMessageInStore(activeSessionId, message.id);
+  }, [activeSessionId, selectAssistantMessageInStore]);
 
   const sendQuestion = useCallback(
     async (rawQuestion: string, targetSessionId?: string, historyOverride?: ChatHistoryTurn[]) => {
@@ -86,6 +128,7 @@ export function useChatActions() {
             processing: result.processing ?? null
           }
         });
+        selectAssistantMessageInStore(sessionId, assistantMessageId);
       } catch (caughtError) {
         const message = caughtError instanceof Error ? caughtError.message : '请求失败，请稍后重试';
         updateMessage(sessionId, assistantMessageId, {
@@ -115,7 +158,9 @@ export function useChatActions() {
     isSending,
     error,
     activeSession,
-    latestEvidenceMessage,
+    selectedAssistantMessage,
+    selectedAssistantMessageId,
+    selectAssistantMessage,
     sendQuestion,
     retryForMessage
   };

@@ -16,9 +16,22 @@ export interface ProcessingTrace {
   memory?: string;
 }
 
+export interface ChatMessageData {
+  session_id?: string;
+  turn_id?: number;
+  intent?: string;
+  answer_type?: string;
+  output_mode?: string;
+  guidance_reason?: string;
+  fallback_reason?: string;
+  input_type?: string;
+  should_query?: boolean;
+  conversation_closed?: boolean;
+}
+
 export interface MessageMeta {
   mode?: ChatMode | string;
-  data?: unknown;
+  data?: ChatMessageData | null;
   evidence?: unknown;
   processing?: ProcessingTrace | null;
 }
@@ -43,7 +56,7 @@ export interface Session {
 export interface ChatResponse {
   answer: string;
   mode: ChatMode | string;
-  data: unknown;
+  data: ChatMessageData | null;
   evidence: unknown;
   processing?: ProcessingTrace | null;
 }

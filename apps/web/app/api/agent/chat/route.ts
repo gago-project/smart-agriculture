@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireRequestUser } from '../../../../lib/server/auth.mjs';
-import { buildAnalysisContext } from '../../../../lib/server/agentChatEvidence.mjs';
+import { buildAnalysisContext, buildRequestUnderstanding } from '../../../../lib/server/agentChatEvidence.mjs';
 
 function mapMode(answerType: string, outputMode: string) {
   if (outputMode === 'advice_mode') return 'advice';
@@ -49,6 +49,7 @@ export async function POST(request: NextRequest) {
     const guidanceReason = String(data.guidance_reason || '');
     const fallbackReason = String(data.fallback_reason || '');
     const toolTrace = Array.isArray(data.tool_trace) ? data.tool_trace : [];
+    const queryLogEntries = Array.isArray(data.query_log_entries) ? data.query_log_entries : [];
     const answerFacts = data.answer_facts && typeof data.answer_facts === 'object' ? data.answer_facts : {};
     const queryResult = data.query_result && typeof data.query_result === 'object' ? data.query_result : {};
 
@@ -57,6 +58,14 @@ export async function POST(request: NextRequest) {
       intent: data.intent,
       toolTrace,
       answerFacts,
+      queryLogEntries,
+    });
+    const requestUnderstanding = buildRequestUnderstanding({
+      question,
+      intent: data.intent,
+      inputType: data.input_type,
+      toolTrace,
+      queryLogEntries,
     });
 
     return NextResponse.json({
@@ -80,18 +89,7 @@ export async function POST(request: NextRequest) {
           source_types: toolTrace.length > 0 ? ['database'] : ['guardrail'],
           fallback_reason: fallbackReason,
         },
-        request_understanding: {
-          original_question: question,
-          normalized_question: question,
-          resolved_question: question,
-          domain: 'soil',
-          task_type: data.intent,
-          understanding_engine: 'restricted-flow',
-          used_context: false,
-          ignored_phrases: data.input_type === 'meaningless_input' ? [question] : [],
-          window: { window_type: 'all', window_value: null },
-          future_window: null,
-        },
+        request_understanding: requestUnderstanding,
         analysis_context: analysisContext,
         tool_trace: toolTrace,
         answer_facts: answerFacts,
@@ -113,7 +111,7 @@ export async function POST(request: NextRequest) {
         answer_generation: answerType || 'fallback_answer',
         ai_involvement: toolTrace.length > 0 ? '中' : '低',
         orchestration: 'Next BFF -> Python Agent',
-        memory: '无',
+        memory: requestUnderstanding.used_context ? '上下文继承' : '无',
       },
     });
   } catch (error) {

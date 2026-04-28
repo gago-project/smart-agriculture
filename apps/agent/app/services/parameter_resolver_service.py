@@ -1,24 +1,13 @@
-"""Parameter Resolver: normalizes LLM-supplied tool args before execution.
-
-Sits between LLM output and ToolExecutorService. Responsible for:
-  1. Entity standardization (city/county via RegionAlias table)
-  2. Time semantic slot expansion (time_expression → start_time/end_time)
-  3. Parameter validation and safety hard limits
-  4. Confidence scoring (entity_confidence, time_confidence)
-
-Confidence strategy:
-  - entity_confidence == low OR time_confidence == low  → return clarify signal, do not query
-  - either == medium                                    → proceed with warning in trace
-  - all high                                            → proceed normally
-"""
+"""Parameter Resolver: normalizes LLM-supplied tool args before execution."""
 from __future__ import annotations
 
-import calendar
 import logging
 import re
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Any
+
+from app.services.time_window_service import TimeWindowResolution
 
 logger = logging.getLogger(__name__)
 
@@ -27,11 +16,6 @@ CONFIDENCE_MEDIUM = "medium"
 CONFIDENCE_LOW = "low"
 
 _SN_PATTERN = re.compile(r"^SNS\d{8}$", re.IGNORECASE)
-
-_VALID_TIME_EXPRESSIONS = {
-    "today", "yesterday", "last_3_days", "last_7_days",
-    "last_14_days", "last_30_days", "last_week", "this_month", "last_month",
-}
 
 _REGION_LEVELS = ("city", "county")
 _REGION_SUFFIXES = ("市", "县", "区", "省", "乡", "镇")
@@ -80,6 +64,7 @@ class ResolvedParams:
     warning_trace: list[str] = field(default_factory=list)
     should_clarify: bool = False
     clarify_message: str = ""
+    time_source: str | None = None
 
     @property
     def overall_confidence(self) -> str:
@@ -88,64 +73,6 @@ class ResolvedParams:
         if self.entity_confidence == CONFIDENCE_MEDIUM or self.time_confidence == CONFIDENCE_MEDIUM:
             return CONFIDENCE_MEDIUM
         return CONFIDENCE_HIGH
-
-
-def _expand_time_expression(expression: str, latest_business_time: str) -> tuple[str, str]:
-    """Expand a semantic time_expression to absolute start_time/end_time strings."""
-    try:
-        lbt = datetime.strptime(latest_business_time[:19], "%Y-%m-%d %H:%M:%S")
-    except (ValueError, TypeError):
-        lbt = datetime.now()
-
-    d = lbt.date()
-
-    if expression == "today":
-        start = datetime(d.year, d.month, d.day)
-        end = datetime(d.year, d.month, d.day, 23, 59, 59)
-    elif expression == "yesterday":
-        yd = d - timedelta(days=1)
-        start = datetime(yd.year, yd.month, yd.day)
-        end = datetime(yd.year, yd.month, yd.day, 23, 59, 59)
-    elif expression == "last_3_days":
-        sd = d - timedelta(days=2)
-        start = datetime(sd.year, sd.month, sd.day)
-        end = datetime(d.year, d.month, d.day, 23, 59, 59)
-    elif expression == "last_7_days":
-        sd = d - timedelta(days=6)
-        start = datetime(sd.year, sd.month, sd.day)
-        end = datetime(d.year, d.month, d.day, 23, 59, 59)
-    elif expression == "last_14_days":
-        sd = d - timedelta(days=13)
-        start = datetime(sd.year, sd.month, sd.day)
-        end = datetime(d.year, d.month, d.day, 23, 59, 59)
-    elif expression == "last_30_days":
-        sd = d - timedelta(days=29)
-        start = datetime(sd.year, sd.month, sd.day)
-        end = datetime(d.year, d.month, d.day, 23, 59, 59)
-    elif expression == "last_week":
-        # previous full Mon–Sun
-        days_since_monday = d.weekday()  # Mon=0, Sun=6
-        last_sunday = d - timedelta(days=days_since_monday + 1)
-        last_monday = last_sunday - timedelta(days=6)
-        start = datetime(last_monday.year, last_monday.month, last_monday.day)
-        end = datetime(last_sunday.year, last_sunday.month, last_sunday.day, 23, 59, 59)
-    elif expression == "this_month":
-        start = datetime(d.year, d.month, 1)
-        end = datetime(d.year, d.month, d.day, 23, 59, 59)
-    elif expression == "last_month":
-        if d.month == 1:
-            ym, yy = 12, d.year - 1
-        else:
-            ym, yy = d.month - 1, d.year
-        last_day = calendar.monthrange(yy, ym)[1]
-        start = datetime(yy, ym, 1)
-        end = datetime(yy, ym, last_day, 23, 59, 59)
-    else:
-        raise ValueError(f"Unknown time_expression: {expression!r}")
-
-    fmt = "%Y-%m-%d %H:%M:%S"
-    return start.strftime(fmt), end.strftime(fmt)
-
 
 class ParameterResolverService:
     """Normalize and validate LLM-supplied tool parameters before execution."""
@@ -426,6 +353,14 @@ class ParameterResolverService:
             if cross_prefix is not None:
                 return cross_prefix
 
+        if name.endswith(_REGION_SUFFIXES):
+            return RegionResolution(
+                raw_name=name,
+                canonical_name=name,
+                level=expected_level or self._infer_level_from_name(name),
+                confidence=CONFIDENCE_HIGH,
+            )
+
         logger.debug("RegionAlias: no match for %r", name)
         return RegionResolution(
             raw_name=name,
@@ -437,6 +372,14 @@ class ParameterResolverService:
     @staticmethod
     def _level_name(level: str) -> str:
         return "市级地区" if level == "city" else "县区"
+
+    @staticmethod
+    def _infer_level_from_name(name: str) -> str | None:
+        if name.endswith("市"):
+            return "city"
+        if name.endswith("县") or name.endswith("区"):
+            return "county"
+        return None
 
     @staticmethod
     def _normalize_name(
@@ -650,61 +593,131 @@ class ParameterResolverService:
         resolved_regions: dict[str, RegionResolution],
     ) -> str:
         county_result = resolved_regions.get("county")
-        city_name = resolved.get("city")
-        if not county_result or not city_name or not county_result.parent_city_name:
+        resolved_city = resolved.get("city")
+        if not county_result or not resolved_city or not county_result.parent_city_name:
             return ""
-        if county_result.parent_city_name == city_name:
+        if county_result.parent_city_name == resolved_city:
             return ""
         return (
             f"县区 '{resolved['county']}' 的所属市是 '{county_result.parent_city_name}'，"
-            f"与当前 city='{city_name}' 不一致，请确认"
+            f"与当前 city='{resolved_city}' 不一致，请确认"
         )
+
+    @staticmethod
+    def _base_time_clarify_message() -> str:
+        return "你想查看的时间段是？例如 最近 7 天、上周、2026 年 4 月、4 月 1 日到 4 月 13 日。"
+
+    def _clarify_from_reason(self, reason: str) -> str:
+        if reason == "ambiguous_time":
+            return f"时间表达不够明确。{self._base_time_clarify_message()}"
+        if reason == "missing_latest_business_time":
+            return f"当前无法稳定识别相对时间，请直接给出明确日期范围。{self._base_time_clarify_message()}"
+        if reason == "invalid_time_range":
+            return f"时间范围不合法。{self._base_time_clarify_message()}"
+        return self._base_time_clarify_message()
+
+    @staticmethod
+    def _parse_datetime(value: str | None) -> datetime | None:
+        if not value:
+            return None
+        try:
+            return datetime.strptime(str(value), "%Y-%m-%d %H:%M:%S")
+        except (TypeError, ValueError):
+            return None
 
     def _resolve_time(
         self,
         raw_args: dict[str, Any],
         latest_business_time: str | None,
-    ) -> tuple[dict[str, Any], str, list[str]]:
-        """Expand time_expression to start_time/end_time. Returns (time_args, confidence, warnings)."""
+        *,
+        time_evidence: TimeWindowResolution | None,
+        inherited_time_window: dict[str, str] | None,
+    ) -> tuple[dict[str, Any], str, list[str], bool, str, str | None]:
+        """Resolve the final executable time window."""
         warnings: list[str] = []
+        evidence = time_evidence or TimeWindowResolution()
 
-        time_expression = raw_args.get("time_expression")
+        if evidence.clarify_reason:
+            return {}, CONFIDENCE_LOW, warnings, True, self._clarify_from_reason(evidence.clarify_reason), evidence.time_source
 
-        if not time_expression:
-            # No time_expression — check if raw start_time/end_time provided (legacy fallback)
-            start_time = raw_args.get("start_time")
-            end_time = raw_args.get("end_time")
-            if start_time and end_time:
-                return {"start_time": start_time, "end_time": end_time}, CONFIDENCE_MEDIUM, [
-                    "时间参数未使用 time_expression 枚举，已直接透传，建议使用标准时间枚举"
-                ]
-            return {}, CONFIDENCE_LOW, ["缺少 time_expression 参数，无法确定查询时间范围"]
+        raw_start = raw_args.get("start_time")
+        raw_end = raw_args.get("end_time")
+        lbt = self._parse_datetime(latest_business_time)
 
-        if time_expression not in _VALID_TIME_EXPRESSIONS:
-            return {}, CONFIDENCE_LOW, [
-                f"time_expression '{time_expression}' 不在支持的枚举列表中"
-            ]
+        if evidence.matched and evidence.start_time and evidence.end_time:
+            if raw_start and raw_end and (raw_start != evidence.start_time or raw_end != evidence.end_time):
+                warnings.append("LLM时间窗与程序识别冲突，已采用程序识别结果")
+            time_args = {"start_time": evidence.start_time, "end_time": evidence.end_time}
+            return self._validate_time_window(
+                time_args,
+                latest_business_time=lbt,
+                warnings=warnings,
+                time_source=evidence.time_source or "rule_relative",
+            )
 
-        lbt = latest_business_time or ""
-        if not lbt or lbt == "暂无":
-            # No business time available — still expand using wall clock as fallback
-            lbt = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            warnings.append("数据库最新时间不可用，已使用当前系统时间展开查询窗口")
+        if raw_start and raw_end:
+            return self._validate_time_window(
+                {"start_time": str(raw_start), "end_time": str(raw_end)},
+                latest_business_time=lbt,
+                warnings=warnings,
+                time_source="llm_absolute",
+            )
 
-        try:
-            start_time, end_time = _expand_time_expression(time_expression, lbt)
-        except Exception as exc:
-            return {}, CONFIDENCE_LOW, [f"时间展开失败: {exc}"]
+        if not evidence.has_time_signal and inherited_time_window:
+            inherited_start = inherited_time_window.get("start_time")
+            inherited_end = inherited_time_window.get("end_time")
+            if inherited_start and inherited_end:
+                return self._validate_time_window(
+                    {"start_time": inherited_start, "end_time": inherited_end},
+                    latest_business_time=lbt,
+                    warnings=warnings,
+                    time_source="history_inherited",
+                )
 
-        return {"start_time": start_time, "end_time": end_time}, CONFIDENCE_HIGH, warnings
+        if evidence.has_time_signal:
+            return {}, CONFIDENCE_LOW, warnings, True, self._base_time_clarify_message(), evidence.time_source
+        return {}, CONFIDENCE_LOW, warnings, True, self._base_time_clarify_message(), None
+
+    def _validate_time_window(
+        self,
+        time_args: dict[str, str],
+        *,
+        latest_business_time: datetime | None,
+        warnings: list[str],
+        time_source: str,
+    ) -> tuple[dict[str, Any], str, list[str], bool, str, str | None]:
+        start_dt = self._parse_datetime(time_args.get("start_time"))
+        end_dt = self._parse_datetime(time_args.get("end_time"))
+        if start_dt is None or end_dt is None:
+            return {}, CONFIDENCE_LOW, warnings, True, f"时间格式不正确。{self._base_time_clarify_message()}", time_source
+        if start_dt > end_dt:
+            return {}, CONFIDENCE_LOW, warnings, True, f"开始时间不能晚于结束时间。{self._base_time_clarify_message()}", time_source
+        if latest_business_time is not None:
+            latest_day_end = datetime(
+                latest_business_time.year,
+                latest_business_time.month,
+                latest_business_time.day,
+                23, 59, 59,
+            )
+            if end_dt > latest_day_end:
+                return {}, CONFIDENCE_LOW, warnings, True, f"结束时间超出了当前可用数据范围。{self._base_time_clarify_message()}", time_source
+        day_span = max((end_dt.date() - start_dt.date()).days + 1, 1)
+        if day_span > 365:
+            return {}, CONFIDENCE_LOW, warnings, True, f"当前时间范围过大，请缩小到更明确的时间段。{self._base_time_clarify_message()}", time_source
+        return time_args, CONFIDENCE_HIGH, warnings, False, "", time_source
 
     async def resolve(
         self,
         tool_name: str,
         raw_args: dict[str, Any],
         latest_business_time: str | None = None,
+        *,
+        user_input: str = "",
+        time_evidence: TimeWindowResolution | None = None,
+        inherited_time_window: dict[str, str] | None = None,
     ) -> ResolvedParams:
         """Normalize and validate raw LLM tool args. Returns ResolvedParams with confidence."""
+        del user_input
         alias_index = await self._load_alias_index()
 
         # --- entity resolution ---
@@ -713,14 +726,19 @@ class ParameterResolverService:
         )
 
         # --- time resolution ---
-        time_resolved, time_conf, time_warnings = self._resolve_time(raw_args, latest_business_time)
+        time_resolved, time_conf, time_warnings, time_should_clarify, time_clarify_message, time_source = self._resolve_time(
+            raw_args,
+            latest_business_time,
+            time_evidence=time_evidence,
+            inherited_time_window=inherited_time_window,
+        )
 
         all_warnings = entity_resolution.warnings + time_warnings
 
         # Build resolved_args: start with raw non-entity/time keys, then overlay resolved values
         _MANAGED_KEYS = {
             "city", "county", "sn", "entities", "entity_type",
-            "time_expression", "start_time", "end_time",
+            "start_time", "end_time",
         }
         resolved_args: dict[str, Any] = {
             k: v for k, v in raw_args.items() if k not in _MANAGED_KEYS
@@ -729,12 +747,12 @@ class ParameterResolverService:
         resolved_args.update(time_resolved)
 
         # --- confidence decision ---
-        should_clarify = entity_resolution.should_clarify or time_conf == CONFIDENCE_LOW
+        should_clarify = entity_resolution.should_clarify or time_should_clarify
         clarify_parts: list[str] = []
         if entity_resolution.should_clarify and entity_resolution.clarify_message:
             clarify_parts.append(entity_resolution.clarify_message)
-        if time_conf == CONFIDENCE_LOW:
-            clarify_parts += [w for w in time_warnings]
+        if time_should_clarify and time_clarify_message:
+            clarify_parts.append(time_clarify_message)
         clarify_message = "；".join(clarify_parts) if clarify_parts else ""
 
         return ResolvedParams(
@@ -746,6 +764,7 @@ class ParameterResolverService:
             warning_trace=all_warnings,
             should_clarify=should_clarify,
             clarify_message=clarify_message,
+            time_source=time_source,
         )
 
 

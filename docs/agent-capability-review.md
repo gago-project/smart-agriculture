@@ -225,7 +225,7 @@ LLM 输出工具参数
 - **整合而非新增**：RegionAlias 负责实体标准化，metric_rule 负责状态/风险判定，两者职责分离，Resolver 只负责前者
 - 子能力：
   - **实体标准化**：通过 `RegionAlias` 表将"合肥"→"合肥市"、"安徽"→"安徽省"，SN 格式校验
-  - **时间语义槽展开**：LLM 只产出枚举（`last_7_days`、`last_week`、`yesterday`），程序基于 `latest_business_time` 展开为绝对 `start_time` / `end_time`，校验未来时间、非法区间、超范围时间
+  - **时间窗收口**：正式契约只认 `start_time` / `end_time`。程序优先解析"今天 / 上周 / 最近13天 / 近2周 / 近3个月"等相对时间并展开为绝对窗口；LLM 仅在用户给出绝对日期表达时补充 `start_time` / `end_time`，所有结果都要经过未来时间、非法区间、超范围校验
   - **参数合法性校验**：必填字段、格式、值域；含安全硬上限（时间范围、limit、批量），防止提示词诱导大扫表
   - **参数置信度标记**：结构化字段 `entity_confidence` / `time_confidence`，下游可程序判断
 - **置信度策略**（Resolver 是清洗层也是决策层）：

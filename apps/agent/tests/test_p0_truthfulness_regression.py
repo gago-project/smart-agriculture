@@ -3,7 +3,7 @@
 Covers:
   1. Rule thresholds: feature flag on/off produces consistent status judgments.
   2. Entity normalization: common short-form city names → canonical.
-  3. Time expression expansion: last_7_days within expected range.
+  3. Deterministic time window resolution: relative Chinese time phrases expand correctly.
   4. Empty-result diagnosis: three distinct paths (normalize_failed / entity_not_found / no_data_in_window).
   5. FactCheck alert-mode: numeric value out of range produces a warning (not a block).
   6. FactCheck blocking: value not in tool result blocks with failed=True.
@@ -24,8 +24,8 @@ from app.services.parameter_resolver_service import (
     CONFIDENCE_LOW,
     CONFIDENCE_MEDIUM,
     ParameterResolverService,
-    _expand_time_expression,
 )
+from app.services.time_window_service import TimeWindowService
 from app.services.tool_executor_service import ToolExecutorService
 
 
@@ -43,6 +43,10 @@ def _profile(heavy_drought_max: float = 20.0, waterlogging_min: float = 80.0) ->
 
 
 _LBT = "2026-04-20 12:00:00"
+_WINDOW = {
+    "start_time": "2026-04-20 00:00:00",
+    "end_time": "2026-04-20 23:59:59",
+}
 
 
 # ── 1. Rule threshold feature-flag consistency ─────────────────────────────────
@@ -145,7 +149,7 @@ class TestEntityNormalization:
     @pytest.mark.asyncio
     async def test_sn_valid_format(self):
         svc = self._resolver()
-        raw_args = {"sn": "sns00204333", "time_expression": "today"}
+        raw_args = {"sn": "sns00204333", **_WINDOW}
         outcome = await svc._resolve_entities(raw_args, svc._alias_index)
         assert outcome.resolved_args["sn"] == "SNS00204333"
         assert outcome.confidence == CONFIDENCE_HIGH
@@ -153,46 +157,50 @@ class TestEntityNormalization:
     @pytest.mark.asyncio
     async def test_sn_invalid_format_medium(self):
         svc = self._resolver()
-        raw_args = {"sn": "BADFORMAT123", "time_expression": "today"}
+        raw_args = {"sn": "BADFORMAT123", **_WINDOW}
         outcome = await svc._resolve_entities(raw_args, svc._alias_index)
         assert outcome.confidence == CONFIDENCE_MEDIUM
         assert any("格式不符" in w for w in outcome.warnings)
 
 
-# ── 3. Time expression expansion ──────────────────────────────────────────────
+# ── 3. Deterministic time window resolution ───────────────────────────────────
 
 class TestTimeExpansion:
-    def test_last_7_days_range(self):
+    _SVC = TimeWindowService()
+
+    def test_recent_7_days_range(self):
         lbt = "2026-04-20 12:00:00"
-        start, end = _expand_time_expression("last_7_days", lbt)
-        start_dt = datetime.strptime(start, "%Y-%m-%d %H:%M:%S")
-        end_dt = datetime.strptime(end, "%Y-%m-%d %H:%M:%S")
+        result = self._SVC.resolve("最近7天墒情怎么样", lbt)
+        start_dt = datetime.strptime(result.start_time, "%Y-%m-%d %H:%M:%S")
+        end_dt = datetime.strptime(result.end_time, "%Y-%m-%d %H:%M:%S")
         anchor = datetime(2026, 4, 20)
         assert start_dt.date() == (anchor - timedelta(days=6)).date()
         assert end_dt.date() == anchor.date()
 
     def test_today(self):
         lbt = "2026-04-20 08:00:00"
-        start, end = _expand_time_expression("today", lbt)
-        assert start == "2026-04-20 00:00:00"
-        assert end == "2026-04-20 23:59:59"
+        result = self._SVC.resolve("今天墒情怎么样", lbt)
+        assert result.start_time == "2026-04-20 00:00:00"
+        assert result.end_time == "2026-04-20 23:59:59"
 
     def test_last_month_january_rollover(self):
         lbt = "2026-01-15 00:00:00"
-        start, end = _expand_time_expression("last_month", lbt)
-        assert start.startswith("2025-12-01")
-        assert end.startswith("2025-12-31")
+        result = self._SVC.resolve("上月墒情怎么样", lbt)
+        assert result.start_time.startswith("2025-12-01")
+        assert result.end_time.startswith("2025-12-31")
 
     def test_last_week_full_mon_sun(self):
         # 2026-04-20 is Monday; last_week = 2026-04-13 (Mon) to 2026-04-19 (Sun)
         lbt = "2026-04-20 00:00:00"
-        start, end = _expand_time_expression("last_week", lbt)
-        assert start.startswith("2026-04-13")
-        assert end.startswith("2026-04-19")
+        result = self._SVC.resolve("上周墒情怎么样", lbt)
+        assert result.start_time.startswith("2026-04-13")
+        assert result.end_time.startswith("2026-04-19")
 
-    def test_invalid_expression_raises(self):
-        with pytest.raises(ValueError):
-            _expand_time_expression("next_century", _LBT)
+    def test_ambiguous_phrase_requires_clarification(self):
+        result = self._SVC.resolve("这几天墒情怎么样", _LBT)
+        assert result.matched is False
+        assert result.has_time_signal is True
+        assert result.clarify_reason == "ambiguous_time"
 
 
 # ── 4. Empty-result diagnosis ──────────────────────────────────────────────────

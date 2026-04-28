@@ -40,11 +40,13 @@ class ToolSchemaTest(unittest.TestCase):
         }
         self.assertEqual(names, expected)
 
-    def test_all_tools_require_time_expression(self):
+    def test_all_tools_require_absolute_time_window(self):
         for tool in SOIL_TOOLS:
             required = tool["function"]["parameters"]["required"]
             with self.subTest(tool=tool["function"]["name"]):
-                self.assertIn("time_expression", required)
+                self.assertIn("start_time", required)
+                self.assertIn("end_time", required)
+                self.assertNotIn("time_expression", required)
 
 
 class QwenClientFunctionCallingTest(unittest.TestCase):
@@ -127,10 +129,12 @@ class SystemPromptTest(unittest.TestCase):
         self.assertIn("不允许", prompt)
         self.assertIn("facts", prompt.lower())
 
-    def test_includes_time_expression_instructions(self):
+    def test_includes_absolute_time_window_instructions(self):
         prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
-        self.assertIn("time_expression", prompt)
-        self.assertIn("last_7_days", prompt)
+        self.assertIn("start_time", prompt)
+        self.assertIn("end_time", prompt)
+        self.assertIn("YYYY-MM-DD HH:MM:SS", prompt)
+        self.assertNotIn("time_expression", prompt)
 
     def test_returns_nonempty_string(self):
         prompt = build_system_prompt(latest_business_time=None)

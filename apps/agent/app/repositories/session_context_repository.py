@@ -44,7 +44,8 @@ def _parse_summary(msg: dict) -> dict[str, Any]:
         return _empty_summary()
     content = msg["content"][len(_SUMMARY_PREFIX):]
     state = _empty_summary()
-    # Each entry like "实体=南通市,如东县;时间窗=last_7_days;记录=12;问题=南通市最近怎么样|如东县呢"
+    # Each entry like
+    # "实体=南通市,如东县;时间窗=2026-04-01 00:00:00~2026-04-13 23:59:59|...;记录=12;问题=..."
     for part in content.split(";"):
         if "=" not in part:
             continue
@@ -54,7 +55,12 @@ def _parse_summary(msg: dict) -> dict[str, Any]:
         if key == "实体" and val:
             state["entities"] = [e for e in val.split(",") if e]
         elif key == "时间窗" and val:
-            state["time_windows"] = [t for t in val.split(",") if t]
+            windows: list[dict[str, str]] = []
+            for token in val.split("|"):
+                parsed = _parse_time_window_token(token)
+                if parsed:
+                    windows.append(parsed)
+            state["time_windows"] = windows
         elif key == "记录" and val.isdigit():
             state["total_records"] = int(val)
         elif key == "问题" and val:
@@ -71,13 +77,33 @@ def _empty_summary() -> dict[str, Any]:
     }
 
 
+def _parse_time_window_token(token: str) -> dict[str, str] | None:
+    raw = token.strip()
+    if not raw or "~" not in raw:
+        return None
+    start_time, _, end_time = raw.partition("~")
+    start_time = start_time.strip()
+    end_time = end_time.strip()
+    if not start_time or not end_time:
+        return None
+    return {"start_time": start_time, "end_time": end_time}
+
+
+def _render_time_window_token(window: dict[str, Any]) -> str:
+    start_time = str(window.get("start_time") or "").strip()
+    end_time = str(window.get("end_time") or "").strip()
+    if not start_time or not end_time:
+        return ""
+    return f"{start_time}~{end_time}"
+
+
 def _merge_summary(base: dict[str, Any], to_drop: list[dict]) -> dict[str, Any]:
     """Fold information from the messages being dropped into a running summary.
 
     Extraction is deterministic — no LLM. Captures:
       - user message texts (most recent-first window of 5)
       - tool args city/county/sn → entity names
-      - tool args time_expression / start_time → time windows
+      - tool args start_time + end_time → time windows
       - tool result total_records / record_count → record totals
     """
     merged = {
@@ -111,9 +137,12 @@ def _merge_summary(base: dict[str, Any], to_drop: list[dict]) -> dict[str, Any]:
                     for e in entities_list:
                         if e and e not in merged["entities"]:
                             merged["entities"].append(str(e))
-                time_expr = args.get("time_expression") or args.get("start_time")
-                if time_expr and time_expr not in merged["time_windows"]:
-                    merged["time_windows"].append(str(time_expr))
+                start_time = args.get("start_time")
+                end_time = args.get("end_time")
+                if start_time and end_time:
+                    window = {"start_time": str(start_time), "end_time": str(end_time)}
+                    if window not in merged["time_windows"]:
+                        merged["time_windows"].append(window)
 
         elif role == "tool" and isinstance(msg.get("content"), str):
             try:
@@ -143,7 +172,13 @@ def _render_summary_message(summary: dict[str, Any]) -> dict[str, Any]:
     if summary["entities"]:
         parts.append(f"实体={','.join(summary['entities'])}")
     if summary["time_windows"]:
-        parts.append(f"时间窗={','.join(summary['time_windows'])}")
+        rendered_windows = [
+            token
+            for token in (_render_time_window_token(window) for window in summary["time_windows"])
+            if token
+        ]
+        if rendered_windows:
+            parts.append(f"时间窗={'|'.join(rendered_windows)}")
     if summary["total_records"] > 0:
         parts.append(f"记录={summary['total_records']}")
     if summary["user_questions"]:

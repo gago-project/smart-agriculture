@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
+import { AdminQueryEvidenceSidebar } from './components/AdminQueryEvidenceSidebar';
 import { ChatPanel } from './components/ChatPanel';
 import { Composer } from './components/Composer';
 import { LoginPage } from './components/LoginPage';
@@ -22,10 +23,20 @@ export default function App() {
   const login = useAuthStore((state) => state.login);
   const logout = useAuthStore((state) => state.logout);
   const { sessions, activeSessionId, createSession, switchSession, renameSession, deleteSession } = useChatStore();
-  const { activeSession, error, isSending, retryForMessage, sendQuestion } = useChatActions();
+  const {
+    activeSession,
+    error,
+    isSending,
+    retryForMessage,
+    sendQuestion,
+    selectedAssistantMessage,
+    selectedAssistantMessageId,
+    selectAssistantMessage,
+  } = useChatActions();
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
   const canManageSoilAdmin = authUser?.role === 'admin';
+  const canViewChatEvidence = authUser?.role === 'admin';
   const canViewAgentLogs = authUser?.role === 'admin' || authUser?.role === 'developer';
   const isRedirectingWorkspaceRoute =
     authStatus === 'authenticated' &&
@@ -128,14 +139,19 @@ export default function App() {
         ) : currentView === 'agent-logs' ? (
           <AgentLogPage />
         ) : (
-          <>
-            <ChatPanel
-              session={activeSession}
-              error={error}
-              onRetry={async (message) => retryForMessage(activeSessionId!, message)}
-            />
-            <Composer isSending={isSending} onSend={sendQuestion} />
-          </>
+          <div className={`chat-workspace ${canViewChatEvidence ? 'with-query-evidence' : ''}`}>
+            <div className="chat-column">
+              <ChatPanel
+                session={activeSession}
+                error={error}
+                selectedAssistantMessageId={selectedAssistantMessageId}
+                onSelectAssistantMessage={selectAssistantMessage}
+                onRetry={async (message) => retryForMessage(activeSessionId!, message)}
+              />
+              <Composer isSending={isSending} onSend={sendQuestion} />
+            </div>
+            {canViewChatEvidence ? <AdminQueryEvidenceSidebar message={selectedAssistantMessage} /> : null}
+          </div>
         )}
       </main>
     </div>

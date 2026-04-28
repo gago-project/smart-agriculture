@@ -284,7 +284,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
             },
         ]
 
-    def _run_with_tool(self, tool_name: str, tool_args: dict, final_text: str) -> dict:
+    def _run_with_tool(self, tool_name: str, tool_args: dict, final_text: str, user_input: str) -> dict:
         svc = SoilAgentService(
             repository=self.repo,
             qwen_client=QwenClient(api_key=""),
@@ -298,13 +298,14 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
         # The runner holds the live nodes dict
         from app.flow.nodes import AgentLoopNode
         svc.orchestrator.runner.nodes["agent_loop"] = AgentLoopNode(mock_loop, repository=self.repo)
-        return svc.chat("测试", session_id="map-test", turn_id=1)
+        return svc.chat(user_input, session_id="map-test", turn_id=1)
 
     def test_query_soil_summary_produces_soil_summary_answer(self):
         result = self._run_with_tool(
             "query_soil_summary",
             {"start_time": self._DATA_START, "end_time": self._DATA_END},
             "整体墒情偏干。",
+            "最近一个月整体墒情怎么样",
         )
         self.assertEqual(result["answer_type"], "soil_summary_answer")
 
@@ -313,6 +314,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
             "query_soil_ranking",
             {"start_time": self._DATA_START, "end_time": self._DATA_END, "aggregation": "county"},
             "如东县最严重。",
+            "最近一个月哪个县最严重",
         )
         self.assertEqual(result["answer_type"], "soil_ranking_answer")
 
@@ -321,6 +323,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
             "query_soil_detail",
             {"start_time": self._DATA_START, "end_time": self._DATA_END, "county": "如东县"},
             "如东县最新含水量 55%。",
+            "如东县最近一个月详细情况怎么样",
         )
         self.assertEqual(result["answer_type"], "soil_detail_answer")
 
@@ -329,6 +332,7 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
             "diagnose_empty_result",
             {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59", "scenario": "region_exists", "city": "延安市"},
             "该地区暂无数据。",
+            "延安市最近7天有没有数据",
         )
         # diagnose → fallback_answer
         self.assertEqual(result["answer_type"], "fallback_answer")

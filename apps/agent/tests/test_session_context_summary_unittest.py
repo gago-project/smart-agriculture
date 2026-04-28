@@ -63,7 +63,7 @@ class TrimToTokenLimitSummaryTest(unittest.TestCase):
             messages.append(_user(f"问题{i} 南通市最近怎么样"))
             messages.append(_assistant_tool_call(
                 "query_soil_summary",
-                {"city": "南通市", "time_expression": "last_7_days"},
+                {"city": "南通市", "start_time": "2026-04-07 00:00:00", "end_time": "2026-04-13 23:59:59"},
                 call_id=f"c{i}",
             ))
             messages.append(_tool(big_payload, call_id=f"c{i}"))
@@ -83,14 +83,16 @@ class TrimToTokenLimitSummaryTest(unittest.TestCase):
             _user("如东县最近怎么样"),
             _assistant_tool_call("query_soil_summary", {
                 "county": "如东县",
-                "time_expression": "last_7_days",
+                "start_time": "2026-04-07 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
             }, call_id="c1"),
             _tool({"total_records": 12, "entity_name": "如东县"}, call_id="c1"),
             _assistant_text("如东县最近 12 条记录"),
             _user("那海安市呢"),
             _assistant_tool_call("query_soil_summary", {
                 "county": "海安市",
-                "time_expression": "last_7_days",
+                "start_time": "2026-04-07 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
             }, call_id="c2"),
             _tool({"total_records": 8, "entity_name": "海安市"}, call_id="c2"),
             _assistant_text("海安市最近 8 条记录"),
@@ -111,7 +113,7 @@ class TrimToTokenLimitSummaryTest(unittest.TestCase):
         # Pre-existing summary already mentions 南通市
         pre_summary = _render_summary_message({
             "entities": ["南通市"],
-            "time_windows": ["last_7_days"],
+            "time_windows": [{"start_time": "2026-04-07 00:00:00", "end_time": "2026-04-13 23:59:59"}],
             "total_records": 5,
             "user_questions": ["最近南通市怎么样"],
         })
@@ -123,7 +125,7 @@ class TrimToTokenLimitSummaryTest(unittest.TestCase):
             messages.append(_user(f"问题{i}"))
             messages.append(_assistant_tool_call(
                 "query_soil_summary",
-                {"city": "盐城市", "time_expression": "last_7_days"},
+                {"city": "盐城市", "start_time": "2026-04-07 00:00:00", "end_time": "2026-04-13 23:59:59"},
                 call_id=f"c{i}",
             ))
             messages.append(_tool(bulky_tool_payload, call_id=f"c{i}"))
@@ -138,13 +140,30 @@ class TrimToTokenLimitSummaryTest(unittest.TestCase):
     def test_render_and_parse_round_trip(self):
         summary = {
             "entities": ["南通市", "如东县"],
-            "time_windows": ["last_7_days"],
+            "time_windows": [
+                {"start_time": "2026-04-07 00:00:00", "end_time": "2026-04-13 23:59:59"},
+                {"start_time": "2026-03-01 00:00:00", "end_time": "2026-03-31 23:59:59"},
+            ],
             "total_records": 12,
             "user_questions": ["最近的概况", "如东县呢"],
         }
         msg = _render_summary_message(summary)
+        self.assertIn("2026-04-07 00:00:00~2026-04-13 23:59:59", msg["content"])
+        self.assertIn("|", msg["content"])
         parsed = _parse_summary(msg)
         self.assertEqual(parsed, summary)
+
+    def test_old_time_expression_summary_is_ignored_safely(self):
+        msg = {
+            "role": "system",
+            "content": "[历史摘要] 实体=南通市;时间窗=last_7_days;记录=12;问题=最近南通市怎么样",
+        }
+
+        parsed = _parse_summary(msg)
+
+        self.assertEqual(parsed["entities"], ["南通市"])
+        self.assertEqual(parsed["time_windows"], [])
+        self.assertEqual(parsed["total_records"], 12)
 
 
 class SaveMessageTurnSummaryIntegrationTest(unittest.IsolatedAsyncioTestCase):
@@ -164,7 +183,8 @@ class SaveMessageTurnSummaryIntegrationTest(unittest.IsolatedAsyncioTestCase):
                         "name": "query_soil_summary",
                         "arguments": json.dumps({
                             "city": "南通市",
-                            "time_expression": "last_7_days",
+                            "start_time": "2026-04-07 00:00:00",
+                            "end_time": "2026-04-13 23:59:59",
                         }, ensure_ascii=False),
                     },
                 }],

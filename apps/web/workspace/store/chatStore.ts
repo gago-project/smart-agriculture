@@ -18,12 +18,14 @@ interface UpdateMessageInput {
 interface ChatState {
   sessions: Session[];
   activeSessionId: string | null;
+  selectedAssistantMessageIds: Record<string, string>;
   createSession: (title?: string) => string;
   switchSession: (sessionId: string) => void;
   renameSession: (sessionId: string, title: string) => void;
   deleteSession: (sessionId: string) => void;
   addMessage: (sessionId: string, input: AddMessageInput) => string;
   updateMessage: (sessionId: string, messageId: string, patch: UpdateMessageInput) => void;
+  selectAssistantMessage: (sessionId: string, messageId: string | null) => void;
 }
 
 const STORAGE_KEY = 'doc-frontend-chat-v2';
@@ -50,7 +52,8 @@ function withSessionUpdate(sessions: Session[], sessionId: string, fn: (session:
 
 const initialState = {
   sessions: [] as Session[],
-  activeSessionId: null as string | null
+  activeSessionId: null as string | null,
+  selectedAssistantMessageIds: {} as Record<string, string>
 };
 
 export const useChatStore = create<ChatState>()(
@@ -100,7 +103,10 @@ export const useChatStore = create<ChatState>()(
           }
           return {
             sessions: nextSessions,
-            activeSessionId: nextActiveSessionId
+            activeSessionId: nextActiveSessionId,
+            selectedAssistantMessageIds: Object.fromEntries(
+              Object.entries(state.selectedAssistantMessageIds).filter(([key]) => key !== sessionId)
+            )
           };
         });
       },
@@ -141,13 +147,26 @@ export const useChatStore = create<ChatState>()(
             })
           }))
         }));
+      },
+      selectAssistantMessage: (sessionId, messageId) => {
+        set((state) => ({
+          selectedAssistantMessageIds: messageId
+            ? {
+                ...state.selectedAssistantMessageIds,
+                [sessionId]: messageId
+              }
+            : Object.fromEntries(
+                Object.entries(state.selectedAssistantMessageIds).filter(([key]) => key !== sessionId)
+              )
+        }));
       }
     }),
     {
       name: STORAGE_KEY,
       partialize: (state) => ({
         sessions: state.sessions,
-        activeSessionId: state.activeSessionId
+        activeSessionId: state.activeSessionId,
+        selectedAssistantMessageIds: state.selectedAssistantMessageIds
       })
     }
   )

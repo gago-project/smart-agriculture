@@ -33,23 +33,19 @@ _BASE_PROMPT = """\
 - `warning_mode`：预警数据视角，含模板所需字段
 - `advice_mode`：管理建议背景视角
 
-## 时间参数（time_expression）
+## 时间参数（start_time / end_time）
 当前最新业务时间（数据库最新记录时间）：{latest_business_time}
-所有工具使用 time_expression 枚举指定时间范围，系统自动以上述业务时间为锚点展开，无需手动计算日期：
-- `today`：今天
-- `yesterday`：昨天
-- `last_3_days`：最近3天
-- `last_7_days`：最近7天
-- `last_14_days`：最近14天
-- `last_30_days`：最近30天
-- `last_week`：上一个完整周（周一至周日）
-- `this_month`：本月至今
-- `last_month`：上个完整自然月
+所有工具都必须直接填写绝对时间窗：
+- `start_time`：格式 `YYYY-MM-DD HH:MM:SS`
+- `end_time`：格式 `YYYY-MM-DD HH:MM:SS`
+- 所有时间都以当前最新业务时间为锚点理解，不要使用系统当前时间
+- 如果历史最近一轮已经有明确时间窗，而本轮没有给新时间，可以沿用上一轮相同时间窗
+- 如果用户给的是“最近13天 / 上周 / 本月”等相对时间，你仍然要输出最终绝对时间窗
 
 ## 工具使用规则
 - 排名类问题默认 top_n=5，最大不超过 20
 - 工具执行失败时，如实告知用户无法获取数据，不要猜测
-- 不要自行计算或猜测日期，统一使用 time_expression 枚举
+- 不要省略 `start_time` 或 `end_time`
 - 用户只提一个地区词时，只填一个最有把握的字段
 - 用户同时给出 `X市Y县/区` 时，`city` 和 `county` 都要填写
 

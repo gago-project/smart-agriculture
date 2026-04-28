@@ -13,6 +13,10 @@ const blockedPathFragments = [
   ['', 'Users', 'mac', 'Desktop', 'gago-cloud'].join('/'),
 ];
 const ignoredDirectories = new Set([
+  '.agents',
+  '.claude',
+  '.codex',
+  '.cursor',
   '.git',
   '.next',
   '.runtime',
@@ -23,6 +27,7 @@ const ignoredDirectories = new Set([
   'mysql-data',
   'node_modules',
   'output',
+  'outputs',
 ]);
 
 function listTextFiles(directory) {

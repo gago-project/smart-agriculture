@@ -1,30 +1,19 @@
-"""Four canonical soil-moisture Function Calling tool schemas.
-
-Tool contract:
-  query_soil_summary   – aggregated overview; anomaly/warning/advice modes via output_mode
-  query_soil_ranking   – sorted TopN by aggregation dimension
-  query_soil_detail    – single region or device detail with evidence fields
-
-Time is specified via time_expression (semantic enum). The Parameter Resolver
-expands it to absolute start_time/end_time before hitting the database.
-Empty-result diagnosis is handled automatically by the executor — no separate tool needed.
-"""
+"""Four canonical soil-moisture Function Calling tool schemas."""
 from __future__ import annotations
 
-_TIME_EXPRESSION_PROP = {
-    "time_expression": {
+_TIME_WINDOW_PROPS = {
+    "start_time": {
         "type": "string",
-        "enum": [
-            "today", "yesterday", "last_3_days", "last_7_days",
-            "last_14_days", "last_30_days", "last_week", "this_month", "last_month",
-        ],
         "description": (
-            "查询时间范围语义枚举。"
-            "today=今天，yesterday=昨天，last_3_days=最近3天，last_7_days=最近7天，"
-            "last_14_days=最近14天，last_30_days=最近30天，"
-            "last_week=上一个完整周（周一至周日），"
-            "this_month=本月至今，last_month=上个完整自然月。"
-            "所有时间以数据库最新业务时间为锚点计算，不使用系统当前时间。"
+            "查询开始时间，格式必须为 YYYY-MM-DD HH:MM:SS。"
+            "所有时间都以数据库最新业务时间为锚点理解，不要使用系统当前时间。"
+        ),
+    },
+    "end_time": {
+        "type": "string",
+        "description": (
+            "查询结束时间，格式必须为 YYYY-MM-DD HH:MM:SS。"
+            "结束时间不得晚于当前最新业务时间所在范围。"
         ),
     }
 }
@@ -61,8 +50,8 @@ SOIL_TOOLS = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_EXPRESSION_PROP, **_OUTPUT_MODE_PROP},
-                "required": ["time_expression"],
+                "properties": {**_REGION_PROPS, **_TIME_WINDOW_PROPS, **_OUTPUT_MODE_PROP},
+                "required": ["start_time", "end_time"],
             },
         },
         # internal metadata — not sent to the LLM, used by AgentLoopNode
@@ -85,7 +74,7 @@ SOIL_TOOLS = [
                 "type": "object",
                 "properties": {
                     **_REGION_PROPS,
-                    **_TIME_EXPRESSION_PROP,
+                    **_TIME_WINDOW_PROPS,
                     "top_n": {
                         "type": "integer",
                         "description": "返回前几名，最大 20，默认 5",
@@ -96,7 +85,7 @@ SOIL_TOOLS = [
                         "description": "排名维度：county=县区级，city=市级,device=设备级",
                     },
                 },
-                "required": ["time_expression", "aggregation"],
+                "required": ["start_time", "end_time", "aggregation"],
             },
         },
         "meta": {
@@ -116,8 +105,8 @@ SOIL_TOOLS = [
             ),
             "parameters": {
                 "type": "object",
-                "properties": {**_REGION_PROPS, **_TIME_EXPRESSION_PROP, **_OUTPUT_MODE_PROP},
-                "required": ["time_expression"],
+                "properties": {**_REGION_PROPS, **_TIME_WINDOW_PROPS, **_OUTPUT_MODE_PROP},
+                "required": ["start_time", "end_time"],
             },
         },
         "meta": {
@@ -150,9 +139,9 @@ SOIL_TOOLS = [
                         "enum": ["region", "device"],
                         "description": "对比对象类型：region=地区（city 或 county），device=设备 SN",
                     },
-                    **_TIME_EXPRESSION_PROP,
+                    **_TIME_WINDOW_PROPS,
                 },
-                "required": ["entities", "entity_type", "time_expression"],
+                "required": ["entities", "entity_type", "start_time", "end_time"],
             },
         },
         "meta": {

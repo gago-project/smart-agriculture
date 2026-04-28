@@ -47,6 +47,7 @@ const queryTypeOptions = [
   { value: '', label: '全部' },
   { value: 'recent_summary', label: 'recent_summary｜概览' },
   { value: 'severity_ranking', label: 'severity_ranking｜排名' },
+  { value: 'comparison', label: 'comparison｜对比' },
   { value: 'region_detail', label: 'region_detail｜地区详情' },
   { value: 'device_detail', label: 'device_detail｜设备详情' },
   { value: 'anomaly_list', label: 'anomaly_list｜异常列表' },

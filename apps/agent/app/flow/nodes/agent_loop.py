@@ -39,8 +39,8 @@ class AgentLoopNode(BaseNode):
     ) -> None:
         super().__init__(
             "agent_loop",
-            ("continue", "fallback"),
-            ("intent", "answer_type", "output_mode", "fallback_reason",
+            ("continue", "clarify", "fallback"),
+            ("intent", "answer_type", "output_mode", "fallback_reason", "guidance_reason",
              "answer_bundle", "query_result", "query_log_entries",
              "tool_trace", "answer_facts", "session_reset"),
         )
@@ -56,24 +56,31 @@ class AgentLoopNode(BaseNode):
         semantic_intent_hint: str | None = None
         if getattr(state, "input_type", None) and str(state.input_type or "").endswith("colloquial"):
             history = await self.service.history_store.load_history(state.session_id)
-            parse_result = await self.semantic_parser.parse(state.user_input, history)
+            parse_result = await self.semantic_parser.parse(
+                state.user_input,
+                history,
+                latest_business_time=latest_business_time,
+            )
             if parse_result.needs_clarify and parse_result.clarify_message:
                 patch: dict = {
                     "answer_bundle": {"final_answer": (
                         f"您的问题需要补充一些信息：{parse_result.clarify_message}。"
                         "请补充说明后重试。"
                     )},
-                    "answer_type": "fallback_answer",
-                    "fallback_reason": "clarification_needed",
+                    "answer_type": "guidance_answer",
+                    "guidance_reason": "clarification",
                     "session_reset": False,
                 }
-                return self.ensure_result(NodeResult(next_action="fallback", state_patch=patch))
+                return self.ensure_result(NodeResult(next_action="clarify", state_patch=patch))
             effective_input = parse_result.resolved_input
             semantic_intent_hint = _INTENT_HINT_MAP.get(parse_result.intent_hint)
-            if parse_result.entities or parse_result.time_hint:
+            if parse_result.entities or parse_result.start_time or parse_result.end_time:
                 logger.debug(
-                    "SemanticParser resolved: entities=%s time=%s input=%r",
-                    parse_result.entities, parse_result.time_hint, effective_input,
+                    "SemanticParser resolved: entities=%s start=%s end=%s input=%r",
+                    parse_result.entities,
+                    parse_result.start_time,
+                    parse_result.end_time,
+                    effective_input,
                 )
 
         result = await self.service.run(
@@ -88,6 +95,10 @@ class AgentLoopNode(BaseNode):
             "answer_bundle": {"final_answer": result.final_answer},
             "session_reset": result.session_reset,
         }
+        if result.needs_clarify:
+            patch["answer_type"] = "guidance_answer"
+            patch["guidance_reason"] = "clarification"
+            return self.ensure_result(NodeResult(next_action="clarify", state_patch=patch))
 
         # Derive answer_type from the final result structure (P1-9)
         # intent: prefer semantic_intent_hint (from SemanticParser); fall back to tool meta
@@ -145,21 +156,7 @@ class AgentLoopNode(BaseNode):
         if result.tool_results:
             patch["answer_facts"] = result.tool_results[0]
 
-        # query_log_entries: one entry per tool call
-        patch["query_log_entries"] = [
-            {
-                "tool_name": tc["tool_name"],
-                "tool_args": {k: v for k, v in tc.get("tool_args", {}).items()
-                              if k not in ("start_time", "end_time")},
-                "time_window": {
-                    "start_time": tc.get("tool_args", {}).get("start_time"),
-                    "end_time": tc.get("tool_args", {}).get("end_time"),
-                },
-                "result_summary": _summarize_result(tr),
-                "hit": _has_data(tr),
-            }
-            for tc, tr in zip(result.tool_calls_made, result.tool_results)
-        ]
+        patch["query_log_entries"] = result.query_log_entries
 
         if result.is_fallback:
             return self.ensure_result(NodeResult(next_action="fallback", state_patch=patch))
