@@ -23,6 +23,7 @@ from app.llm.qwen_client import QwenClient
 from app.llm.prompts.system_prompt import build_system_prompt
 from app.llm.tools import SOIL_TOOLS
 from app.repositories.session_context_repository import SessionContextRepository
+from app.services.parameter_resolver_service import ParameterResolverService
 from app.services.tool_executor_service import ToolExecutorService, ToolValidationError
 
 MAX_TOOL_ITERATIONS = 5
@@ -43,6 +44,12 @@ class AgentLoopResult:
     messages: list[dict[str, Any]] = field(default_factory=list)
     is_fallback: bool = False
     fallback_reason: str = "unknown"
+    # Resolver audit fields (populated per tool call)
+    entity_confidence: str = "high"
+    time_confidence: str = "high"
+    resolver_warnings: list[str] = field(default_factory=list)
+    # TTL awareness: True when turn_id > 1 but history was empty (session expired)
+    session_reset: bool = False
 
 
 class AgentLoopService:
@@ -54,10 +61,12 @@ class AgentLoopService:
         qwen_client: QwenClient,
         tool_executor: ToolExecutorService,
         history_store: SessionContextRepository,
+        resolver: ParameterResolverService | None = None,
     ) -> None:
         self.qwen_client = qwen_client
         self.tool_executor = tool_executor
         self.history_store = history_store
+        self.resolver = resolver or ParameterResolverService()
 
     async def run(
         self,
@@ -81,6 +90,8 @@ class AgentLoopService:
             )
 
         history = await self.history_store.load_history(session_id)
+        # Detect TTL expiry: user is continuing a conversation but context is gone
+        session_reset = turn_id > 1 and len(history) == 0
         system_prompt = build_system_prompt(latest_business_time=latest_business_time)
 
         messages: list[dict[str, Any]] = [
@@ -93,6 +104,9 @@ class AgentLoopService:
         tool_results: list[dict[str, Any]] = []
         history_tool_calls: list[dict[str, Any]] = []
         history_tool_results: list[dict[str, Any]] = []
+        all_resolver_warnings: list[str] = []
+        last_entity_confidence = "high"
+        last_time_confidence = "high"
 
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.qwen_client.call_with_tools(
@@ -107,6 +121,7 @@ class AgentLoopService:
                     messages=messages,
                     is_fallback=True,
                     fallback_reason="tool_missing",
+                    session_reset=session_reset,
                 )
 
             if response["type"] == "text":
@@ -128,6 +143,7 @@ class AgentLoopService:
                         messages=messages,
                         is_fallback=True,
                         fallback_reason="tool_missing",
+                        session_reset=session_reset,
                     )
 
                 await self.history_store.save_message_turn(
@@ -144,43 +160,125 @@ class AgentLoopService:
                     messages=messages,
                     is_fallback=False,
                     fallback_reason="",
+                    entity_confidence=last_entity_confidence,
+                    time_confidence=last_time_confidence,
+                    resolver_warnings=all_resolver_warnings,
+                    session_reset=session_reset,
                 )
 
-            # tool_call branch
-            tool_name = response["tool_name"]
-            tool_args = response["tool_args"]
-            call_id = response.get("call_id", "")
+            # tool_calls branch — process the full batch returned by the model
+            batch = response.get("calls") or []
+            batch_tool_calls: list[dict] = []  # assistant tool-call entries for this batch
 
-            # Append standard assistant tool-call message
-            assistant_tool_call = self._standard_tool_call(
-                tool_name=tool_name,
-                tool_args=tool_args,
-                call_id=call_id,
-            )
-            messages.append({
-                "role": "assistant",
-                "content": None,
-                "tool_calls": [assistant_tool_call],
-            })
-            history_tool_calls.append(assistant_tool_call)
+            clarify_triggered = False
+            clarify_answer = ""
 
-            try:
-                result = await self.tool_executor.execute(tool_name=tool_name, tool_args=tool_args)
-                tool_calls_made.append({"tool_name": tool_name, "tool_args": tool_args, "call_id": call_id})
-                tool_results.append(result)
-                history_tool_results.append(result)
-                tool_content = json.dumps(result, ensure_ascii=False, default=str)
-            except ToolValidationError as exc:
-                error_result = {"error": str(exc)}
-                history_tool_results.append(error_result)
-                tool_content = json.dumps(error_result, ensure_ascii=False)
+            for call in batch:
+                tool_name = call["tool_name"]
+                raw_args = call["tool_args"]
+                call_id = call.get("call_id", "")
 
-            # Append standard tool result message
-            messages.append({
-                "role": "tool",
-                "tool_call_id": call_id,
-                "content": tool_content,
-            })
+                # --- Parameter Resolver ---
+                resolved = await self.resolver.resolve(
+                    tool_name, raw_args, latest_business_time
+                )
+                last_entity_confidence = resolved.entity_confidence
+                last_time_confidence = resolved.time_confidence
+                all_resolver_warnings.extend(resolved.warning_trace)
+
+                if resolved.should_clarify:
+                    clarify_triggered = True
+                    clarify_answer = (
+                        f"您的问题中有些信息需要确认：{resolved.clarify_message}。"
+                        "请补充说明后重试。"
+                    )
+                    break
+
+                tool_args = resolved.resolved_args
+
+                assistant_tool_call = self._standard_tool_call(
+                    tool_name=tool_name,
+                    tool_args=raw_args,
+                    call_id=call_id,
+                )
+                batch_tool_calls.append(assistant_tool_call)
+
+                try:
+                    result = await self.tool_executor.execute(
+                        tool_name=tool_name,
+                        tool_args=tool_args,
+                        entity_confidence=resolved.entity_confidence,
+                    )
+                    tool_calls_made.append({
+                        "tool_name": tool_name,
+                        "raw_args": raw_args,
+                        "tool_args": tool_args,
+                        "call_id": call_id,
+                        "entity_confidence": resolved.entity_confidence,
+                        "time_confidence": resolved.time_confidence,
+                        "resolver_warnings": resolved.warning_trace,
+                    })
+                    tool_results.append(result)
+                    history_tool_results.append(result)
+                    tool_content = json.dumps(result, ensure_ascii=False, default=str)
+                except ToolValidationError as exc:
+                    # Validation failure short-circuits the whole batch
+                    error_result = {"error": str(exc)}
+                    history_tool_results.append(error_result)
+                    tool_content = json.dumps(error_result, ensure_ascii=False)
+                    messages.append({
+                        "role": "assistant",
+                        "content": None,
+                        "tool_calls": [assistant_tool_call],
+                    })
+                    messages.append({
+                        "role": "tool",
+                        "tool_call_id": call_id,
+                        "content": tool_content,
+                    })
+                    history_tool_calls.extend(batch_tool_calls)
+                    break
+
+                messages_tool_entry = {
+                    "role": "tool",
+                    "tool_call_id": call_id,
+                    "content": tool_content,
+                }
+                # Defer appending until after the loop so the assistant message comes first
+                call["_tool_msg"] = messages_tool_entry
+
+            if clarify_triggered:
+                await self.history_store.save_message_turn(
+                    session_id, turn_id,
+                    user_message=user_input,
+                    assistant_message=clarify_answer,
+                    tool_calls=history_tool_calls,
+                    tool_results=history_tool_results,
+                )
+                return AgentLoopResult(
+                    final_answer=clarify_answer,
+                    tool_calls_made=tool_calls_made,
+                    tool_results=tool_results,
+                    messages=messages,
+                    is_fallback=False,
+                    fallback_reason="",
+                    entity_confidence=last_entity_confidence,
+                    time_confidence=last_time_confidence,
+                    resolver_warnings=all_resolver_warnings,
+                    session_reset=session_reset,
+                )
+
+            # Append all batch messages: single assistant message with full tool_calls list, then tool results
+            if batch_tool_calls:
+                messages.append({
+                    "role": "assistant",
+                    "content": None,
+                    "tool_calls": batch_tool_calls,
+                })
+                history_tool_calls.extend(batch_tool_calls)
+                for call in batch:
+                    if "_tool_msg" in call:
+                        messages.append(call["_tool_msg"])
 
         # Exceeded MAX_TOOL_ITERATIONS
         await self.history_store.save_message_turn(
@@ -197,6 +295,7 @@ class AgentLoopService:
             messages=messages,
             is_fallback=True,
             fallback_reason="tool_blocked",
+            session_reset=session_reset,
         )
 
     @staticmethod

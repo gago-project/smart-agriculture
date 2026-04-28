@@ -3,6 +3,12 @@
 在业务 Flow 与数据库访问之前，对用户原始输入做第一道分流：问候、能力询问、
 明显越界话题、信息过少的模糊请求、无意义乱敲等直接走终止态并给出固定话术；
 只有通过守卫的输入才 `allow_business_flow=True` 进入后续节点链。
+
+分类策略（P1-7）：
+- 高确定性规则（问候/越界/结束语/无意义）→ 同步，不走 LLM
+- 低确定性（business_colloquial）→ 仍放行进业务流程，
+  由 AgentLoopNode 按需调用 SemanticParserService 做指代消解
+- 超时降级：不拦截合法请求
 """
 
 from __future__ import annotations

@@ -20,11 +20,11 @@ _BASE_PROMPT = """\
 你必须先调用查询工具获取真实数据，才能给出最终业务回答。
 不允许在未调用任何工具的情况下直接回答业务问题。
 
-## 可用工具（4 类）
+## 可用工具（3 类）
 - `query_soil_summary`：查询整体概况，返回聚合统计（总记录数、平均含水量、状态分布、预警地区 TopN）
 - `query_soil_ranking`：返回已排序的 TopN 列表，适合"哪里最严重"类问题
 - `query_soil_detail`：查询特定地区或设备的详情，含最新记录和证据字段
-- `diagnose_empty_result`：其他工具返回空结果时调用，区分"对象不存在"与"时间窗无数据"
+- 当查询返回空结果时，系统会在结果中自动说明原因，无需额外调用诊断工具
 
 ## 输出模式（output_mode 参数）
 - `normal`：标准数据回答（默认）
@@ -32,21 +32,23 @@ _BASE_PROMPT = """\
 - `warning_mode`：预警数据视角，含模板所需字段
 - `advice_mode`：管理建议背景视角
 
-## 时间计算规则
+## 时间参数（time_expression）
 当前最新业务时间（数据库最新记录时间）：{latest_business_time}
-- 计算 start_time / end_time 时，以此时间为锚点（不是当前系统时间）
-- "最近7天" = latest_business_time 前6天 00:00:00 到 latest_business_time 当天 23:59:59
-- "今天" = latest_business_time 当天 00:00:00 到 23:59:59
-- "昨天" = latest_business_time 前一天全天
-- "上周" = latest_business_time 所在周的上一个完整周（周一至周日）
-- "本月" = latest_business_time 所在月的第一天到 latest_business_time 当天
-- "上个月" = 上一个完整自然月
-- 所有时间格式统一使用 YYYY-MM-DD HH:MM:SS
+所有工具使用 time_expression 枚举指定时间范围，系统自动以上述业务时间为锚点展开，无需手动计算日期：
+- `today`：今天
+- `yesterday`：昨天
+- `last_3_days`：最近3天
+- `last_7_days`：最近7天
+- `last_14_days`：最近14天
+- `last_30_days`：最近30天
+- `last_week`：上一个完整周（周一至周日）
+- `this_month`：本月至今
+- `last_month`：上个完整自然月
 
 ## 工具使用规则
-- 首次工具调用返回空数据时，调用 diagnose_empty_result 诊断原因后再回答
 - 排名类问题默认 top_n=5，最大不超过 20
 - 工具执行失败时，如实告知用户无法获取数据，不要猜测
+- 不要自行计算或猜测日期，统一使用 time_expression 枚举
 
 ## 回答规范
 - 回答使用中文，语言简洁清晰

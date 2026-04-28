@@ -101,6 +101,12 @@ test('local start scripts source the shared root env loader', () => {
   assert.match(webSource, /load-root-env\.sh/);
 });
 
+test('local agent start script clears proxy env before launching uvicorn', () => {
+  const agentSource = readFileSync(startLocalAgentPath, 'utf8');
+
+  assert.match(agentSource, /env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy/);
+});
+
 test('root package local scripts source the shared root env loader', () => {
   const packageJson = JSON.parse(readFileSync(rootPackagePath, 'utf8'));
   const scripts = packageJson.scripts ?? {};

@@ -107,7 +107,7 @@ class QueryLogRepositoryTest(unittest.TestCase):
         self.assertEqual(params[4], "当前样本整体墒情概况")
         self.assertEqual(params[11], "SQL-01")
         self.assertEqual(params[12], "SELECT * FROM fact_soil_moisture LIMIT 1")
-        executed_result_json = json.loads(params[20])
+        executed_result_json = json.loads(params[26])
         self.assertEqual(executed_result_json, {"records": [{"water20cm": 41.2}]})
 
     def test_append_raises_and_does_not_keep_memory_log_when_mysql_write_fails(self) -> None:

@@ -6,7 +6,8 @@ from app.llm.qwen_client import QwenClient
 
 class ToolSchemaTest(unittest.TestCase):
     def test_tool_count(self):
-        self.assertEqual(len(SOIL_TOOLS), 4)
+        # diagnose_empty_result removed — now 3 tools exposed to LLM
+        self.assertEqual(len(SOIL_TOOLS), 3)
 
     def test_each_tool_has_required_keys(self):
         for tool in SOIL_TOOLS:
@@ -26,16 +27,14 @@ class ToolSchemaTest(unittest.TestCase):
             "query_soil_summary",
             "query_soil_ranking",
             "query_soil_detail",
-            "diagnose_empty_result",
         }
         self.assertEqual(names, expected)
 
-    def test_all_tools_require_time_params(self):
+    def test_all_tools_require_time_expression(self):
         for tool in SOIL_TOOLS:
             required = tool["function"]["parameters"]["required"]
             with self.subTest(tool=tool["function"]["name"]):
-                self.assertIn("start_time", required)
-                self.assertIn("end_time", required)
+                self.assertIn("time_expression", required)
 
 
 class QwenClientFunctionCallingTest(unittest.TestCase):
@@ -74,9 +73,12 @@ class QwenClientFunctionCallingTest(unittest.TestCase):
                 tools=SOIL_TOOLS,
             ))
         self.assertIsNotNone(result)
-        self.assertEqual(result["type"], "tool_call")
-        self.assertEqual(result["tool_name"], "query_soil_summary")
-        self.assertIn("start_time", result["tool_args"])
+        self.assertEqual(result["type"], "tool_calls")
+        self.assertIsInstance(result["calls"], list)
+        self.assertEqual(len(result["calls"]), 1)
+        first_call = result["calls"][0]
+        self.assertEqual(first_call["tool_name"], "query_soil_summary")
+        self.assertIn("start_time", first_call["tool_args"])
 
     def test_call_with_tools_parses_text_response(self):
         mock_response = {
@@ -115,20 +117,22 @@ class SystemPromptTest(unittest.TestCase):
         self.assertIn("不允许", prompt)
         self.assertIn("facts", prompt.lower())
 
-    def test_includes_time_calculation_instructions(self):
+    def test_includes_time_expression_instructions(self):
         prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
-        self.assertIn("start_time", prompt)
-        self.assertIn("end_time", prompt)
+        self.assertIn("time_expression", prompt)
+        self.assertIn("last_7_days", prompt)
 
     def test_returns_nonempty_string(self):
         prompt = build_system_prompt(latest_business_time=None)
         self.assertIsInstance(prompt, str)
         self.assertGreater(len(prompt), 100)
 
-    def test_lists_all_4_canonical_tools(self):
+    def test_lists_all_3_canonical_tools(self):
         prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")
-        for tool in ("query_soil_summary", "query_soil_ranking", "query_soil_detail", "diagnose_empty_result"):
+        for tool in ("query_soil_summary", "query_soil_ranking", "query_soil_detail"):
             self.assertIn(tool, prompt)
+        # diagnose_empty_result is internal — must not be exposed to LLM
+        self.assertNotIn("diagnose_empty_result", prompt)
 
     def test_includes_p0_rule(self):
         prompt = build_system_prompt(latest_business_time="2025-04-20 08:00:00")

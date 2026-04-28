@@ -35,4 +35,7 @@ printf '%s\n' "${AGENT_PORT}" > .runtime/local-agent-port
 
 echo "本地 agent 启动端口: ${AGENT_PORT}"
 
-exec env PYTHONPATH=apps/agent .venv/bin/python -m uvicorn app.main:app --app-dir apps/agent --host 0.0.0.0 --port "${AGENT_PORT}"
+# Avoid inheriting desktop SOCKS proxy settings into httpx, which would
+# otherwise require the optional socksio extra just to reach DashScope.
+exec env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  PYTHONPATH=apps/agent .venv/bin/python -m uvicorn app.main:app --app-dir apps/agent --host 0.0.0.0 --port "${AGENT_PORT}"

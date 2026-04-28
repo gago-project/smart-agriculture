@@ -100,6 +100,15 @@ class FlowState(BaseModel):
     tool_trace: list[dict[str, Any]] = Field(default_factory=list)
     answer_facts: dict[str, Any] = Field(default_factory=dict)
 
+    # Audit fields populated by ParameterResolverService / AgentLoopService
+    raw_tool_args: dict[str, Any] = Field(default_factory=dict)
+    resolved_tool_args: dict[str, Any] = Field(default_factory=dict)
+    entity_confidence: str = "high"
+    time_confidence: str = "high"
+    empty_result_path: str | None = None
+    # TTL awareness: True when TTL expired between turns
+    session_reset: bool = False
+
     node_trace: list[str] = Field(default_factory=list)
     errors: list[dict[str, Any]] = Field(default_factory=list)
     final_status: str | None = None

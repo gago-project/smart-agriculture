@@ -13,6 +13,7 @@ from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
+from app.repositories.rule_repository import RuleRepository
 from app.repositories.soil_repository import SoilRepository, _evaluate_record_status
 
 MAX_TOP_N = 20
@@ -36,28 +37,47 @@ class ToolValidationError(ValueError):
 class ToolExecutorService:
     """Validate and execute a single LLM tool call against SoilRepository."""
 
-    def __init__(self, repository: SoilRepository) -> None:
+    def __init__(self, repository: SoilRepository, rule_repository: RuleRepository | None = None) -> None:
         self.repository = repository
+        self._rule_repository = rule_repository or RuleRepository.from_env()
+        self._rule_profile_loaded = False
 
-    async def execute(self, *, tool_name: str, tool_args: dict[str, Any]) -> dict[str, Any]:
-        """Validate params and execute the named tool. Raises ToolValidationError on bad params."""
+    async def _ensure_rule_profile(self) -> None:
+        """Load rule profile once and inject into repository (lazy, called before first tool exec)."""
+        if not self._rule_profile_loaded:
+            profile = await self._rule_repository.get_active_rule_profile()
+            self.repository.rule_profile = profile
+            self._rule_profile_loaded = True
+
+    async def execute(
+        self,
+        *,
+        tool_name: str,
+        tool_args: dict[str, Any],
+        entity_confidence: str = "high",
+    ) -> dict[str, Any]:
+        """Validate params and execute the named tool. Raises ToolValidationError on bad params.
+
+        entity_confidence is passed from ParameterResolverService to inform empty-result diagnosis.
+        """
+        await self._ensure_rule_profile()
         if tool_name not in ALLOWED_TOOLS:
             raise ToolValidationError(f"Unknown tool: {tool_name!r}. Allowed: {sorted(ALLOWED_TOOLS)}")
         self._validate_time_params(tool_args)
         self._validate_tool_specific(tool_name, tool_args)
 
         if tool_name == "query_soil_summary":
-            return await self._execute_summary(tool_args)
+            return await self._execute_summary(tool_args, entity_confidence=entity_confidence)
         if tool_name == "query_soil_ranking":
-            return await self._execute_ranking(tool_args)
+            return await self._execute_ranking(tool_args, entity_confidence=entity_confidence)
         if tool_name == "query_soil_detail":
-            return await self._execute_detail(tool_args)
-        # diagnose_empty_result
+            return await self._execute_detail(tool_args, entity_confidence=entity_confidence)
+        # diagnose_empty_result (internal use only — not exposed in SOIL_TOOLS)
         return await self._execute_diagnose(tool_args)
 
     # ── per-tool executors ────────────────────────────────────────────────────
 
-    async def _execute_summary(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_summary(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
         """Return aggregated overview stats, not raw records."""
         city = args.get("city")
         county = args.get("county")
@@ -72,6 +92,7 @@ class ToolExecutorService:
         )
 
         if not records:
+            empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
                 "total_records": 0,
                 "output_mode": output_mode,
@@ -80,6 +101,7 @@ class ToolExecutorService:
                 "status_counts": {},
                 "alert_count": 0,
                 "top_alert_regions": [],
+                "empty_result_path": empty_path,
             }
 
         # Evaluate status for each record
@@ -122,7 +144,7 @@ class ToolExecutorService:
 
         return result
 
-    async def _execute_ranking(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_ranking(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
         """Return sorted TopN list, already aggregated and ranked."""
         city = args.get("city")
         county = args.get("county")
@@ -137,11 +159,13 @@ class ToolExecutorService:
         )
 
         if not records:
+            empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
                 "aggregation": aggregation,
                 "top_n": top_n,
                 "total_analyzed": 0,
                 "items": [],
+                "empty_result_path": empty_path,
             }
 
         enriched = [_evaluate_and_merge(r) for r in records]
@@ -167,10 +191,15 @@ class ToolExecutorService:
             alert_count = sum(v for k, v in status_counts.items() if k in _ALERT_STATUSES)
             dominant_status = max(status_counts.items(), key=lambda x: x[1])[0]
 
+            # Use rule-table risk_score as primary sort key (兼容重旱与涝渍)
+            risk_vals = [float(r["risk_score"]) for r in group_records if r.get("risk_score") is not None]
+            avg_risk = round(sum(risk_vals) / len(risk_vals), 2) if risk_vals else 0.0
+
             item: dict[str, Any] = {
                 "name": name,
                 "record_count": len(group_records),
                 "avg_water20cm": avg_water,
+                "avg_risk_score": avg_risk,
                 "alert_count": alert_count,
                 "status": dominant_status,
                 "status_counts": dict(status_counts),
@@ -185,8 +214,8 @@ class ToolExecutorService:
 
             items.append(item)
 
-        # Sort: more alerts first, then by avg_water ascending (drier = worse)
-        items.sort(key=lambda x: (-x["alert_count"], x["avg_water20cm"] or 999))
+        # Sort: highest avg risk_score first; alert_count as tiebreaker
+        items.sort(key=lambda x: (-x["avg_risk_score"], -x["alert_count"]))
 
         top_items = items[:top_n]
         for idx, item in enumerate(top_items, start=1):
@@ -199,7 +228,7 @@ class ToolExecutorService:
             "items": top_items,
         }
 
-    async def _execute_detail(self, args: dict[str, Any]) -> dict[str, Any]:
+    async def _execute_detail(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
         """Return single entity detail with evidence fields."""
         city = args.get("city")
         county = args.get("county")
@@ -214,6 +243,7 @@ class ToolExecutorService:
         )
 
         if not records:
+            empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
                 "entity_type": "device" if sn else "region",
                 "entity_name": sn or county or city or "未知",
@@ -223,6 +253,7 @@ class ToolExecutorService:
                 "latest_record": None,
                 "alert_records": [],
                 "status_summary": {},
+                "empty_result_path": empty_path,
             }
 
         enriched = [_evaluate_and_merge(r) for r in records]
@@ -317,6 +348,21 @@ class ToolExecutorService:
                 + (f"，共 {in_window} 条" if in_window else "，可以扩大时间范围或查询其他时段")
             ),
         }
+
+    # ── empty-result diagnosis ────────────────────────────────────────────────
+
+    async def _auto_diagnose_empty(self, args: dict[str, Any], entity_confidence: str) -> str:
+        """Return empty_result_path: normalize_failed / entity_not_found / no_data_in_window."""
+        if entity_confidence == "low":
+            return "normalize_failed"
+        sn = args.get("sn")
+        city = args.get("city")
+        county = args.get("county")
+        if sn:
+            count = await self.repository.device_record_count_async(sn)
+            return "entity_not_found" if count == 0 else "no_data_in_window"
+        count = await self.repository.region_record_count_async(city=city, county=county)
+        return "entity_not_found" if count == 0 else "no_data_in_window"
 
     # ── validation helpers ────────────────────────────────────────────────────
 
