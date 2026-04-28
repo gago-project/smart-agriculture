@@ -2,20 +2,20 @@
 name: soil-moisture-qa
 description: >
   Use when running QA, regression testing, or business review for the
-  soil-moisture Agent. Single source of truth is the 48-case formal
+  soil-moisture Agent. Single source of truth is the 56-case formal
   acceptance library at testdata/agent/soil-moisture/case-library.md.
 ---
 
 # Smart Agriculture — 墒情 Agent QA Skill
 
 > **架构版本**：LLM + Function Calling 5 节点。
-> 正式测试入口为一套 **48 条** 的正式验收库。
+> 正式测试入口为一套 **56 条** 的正式验收库。
 
 ## 权威入口
 
 | 资产 | 路径 | 说明 |
 |------|------|------|
-| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 48 条正式验收 Case，每次全量执行 |
+| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 56 条正式验收 Case，每次全量执行 |
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
 | Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
 
@@ -78,27 +78,31 @@ description: >
 
 ## 正式验收库结构
 
-正式库共 **48** 条，分布固定：
+正式库共 **56** 条，分布固定：
 
 | 一级 `answer_type` | 数量 | CaseID |
 |---|---:|---|
-| `guidance_answer` | 11 | `SM-CONV-001 ~ SM-CONV-011` |
+| `guidance_answer` | 15 | `SM-CONV-001 ~ SM-CONV-015` |
 | `soil_summary_answer` | 10 | `SM-SUM-001 ~ SM-SUM-010` |
 | `soil_ranking_answer` | 8 | `SM-RANK-001 ~ SM-RANK-008` |
-| `soil_detail_answer` | 11 | `SM-DETAIL-001 ~ SM-DETAIL-011` |
-| `fallback_answer` | 8 | `SM-FB-001 ~ SM-FB-008` |
+| `soil_detail_answer` | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
+| `fallback_answer` | 10 | `SM-FB-001 ~ SM-FB-010` |
 
 ### 必须覆盖的重点
 
-- guidance：四类 `guidance_reason` 各 ≥ 2 条；含 `domain_knowledge_question` 与多轮时间切换
+- guidance：四类 `guidance_reason` 全覆盖（含 `domain_knowledge_question`、多轮时间切换）
+  - **对抗性**：prompt injection（CONV-012）/ 空 / 纯标点（CONV-013）/ 超长输入（CONV-014）
+  - **上下文重置**：closing 后再开新业务（CONV-015）
 - summary：普通 / 地区 / latest / anomaly / warning / advice / `last_week` / `last_month` / `last_year` / `entity_confidence=medium`
 - ranking：TopN / 顺序 / 时间窗 / 维度（city/county/device）/ `top_n=10` 边界 / `this_month` / `query_soil_comparison` 横向对比
 - detail：地区 / 设备 / 别名 / 多轮 / anomaly / warning / advice / `entity_confidence=high`
-- fallback：六类 `fallback_reason` 全覆盖 → `no_data / entity_not_found / tool_missing / tool_blocked / fact_check_failed / unknown`
-  - `entity_not_found` 必须同时含 SN 不存在（FB-002）与 `entity_confidence=low` 阻断（FB-005）两种来源
-  - `tool_missing` 必须同时含 显式拒绝查库（FB-003）与 LLM 自行跳过工具（FB-006）两种触发
-  - `fact_check_failed` 必须同时含 有数据被错答成无（FB-004）与 数值偏差超容差（FB-007）两种类型
+  - **多轮深化**：3+ 轮上下文继承（DETAIL-012）/ 否定修正（DETAIL-013）
+- fallback：**六类 `fallback_reason` 全覆盖** → `no_data / entity_not_found / tool_missing / tool_blocked / fact_check_failed / unknown`
+  - `entity_not_found` 三种来源：SN 不存在（FB-002）/ `entity_confidence=low` 阻断（FB-005）/ 非法字符 SQL 注入风格（FB-010）
+  - `tool_missing` 两种触发：显式拒绝查库（FB-003）/ LLM 自行跳过工具（FB-006）
+  - `fact_check_failed` 两种类型：有数据被错答成无（FB-004）/ 数值偏差超容差（FB-007）
   - `tool_blocked`：DB 不可用 / 限流 / 权限拒绝（FB-008）
+  - `unknown`：catch-all 兜底，未分类异常 / 非法 JSON / 未捕获 panic（FB-009）
 
 ---
 
@@ -108,7 +112,7 @@ description: >
 
 正式要求是：
 - 只维护一套正式库
-- 每次都全量跑完 48 条
+- 每次都全量跑完 56 条
 - 测试以单元测试为主
 
 ### 长文本回答必须保留
@@ -136,7 +140,7 @@ description: >
 
 ### 标准详细测试报告
 
-当用户明确要求“正式测试报告”“逐条详细报告”“48 条 Case 全量验收报告”时，必须按统一报告标准输出。
+当用户明确要求“正式测试报告”“逐条详细报告”“56 条 Case 全量验收报告”时，必须按统一报告标准输出。
 
 推荐报告落点：
 
@@ -146,7 +150,7 @@ description: >
 
 #### 报告范围
 
-- 必须逐条覆盖全部 **48** 条正式 Case
+- 必须逐条覆盖全部 **56** 条正式 Case
 - 不允许抽样
 - 每条业务 Case 都必须包含数据库回查与事实校验
 - 每条业务 Case 都必须明确给出 `是否符合事实`
@@ -243,7 +247,7 @@ description: >
 - 测试范围
 - 正式库自检结果
 - Python / Node 测试结果
-- 48 条逐条测试结果
+- 56 条逐条测试结果
 - 数据库真实性校验汇总
 - 哪些 Case 的 `是否符合事实` 需要调整
 - 是否仍存在“未调 Tool 直接回答业务问题”的路径
