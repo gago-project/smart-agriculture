@@ -13,7 +13,12 @@ function read(relativePath) {
 test('docker mysql init contains only schema and business insert sql files', () => {
   const sqlFiles = readdirSync(initDir).filter((name) => name.endsWith('.sql')).sort();
 
-  assert.deepEqual(sqlFiles, ['001_init_tables.sql', '002_insert_data.sql', '003_insert_soil_data.sql']);
+  assert.deepEqual(sqlFiles, [
+    '001_init_tables.sql',
+    '002_insert_data.sql',
+    '003_insert_soil_data.sql',
+    '004_add_audit_columns.sql',
+  ]);
 });
 
 test('executable mysql init sql never contains real authentication seed hashes', () => {
@@ -74,6 +79,7 @@ test('local init script exists and reads mysql credentials from environment', ()
   assert.match(script, /001_init_tables\.sql/);
   assert.match(script, /002_insert_data\.sql/);
   assert.match(script, /003_insert_soil_data\.sql/);
+  assert.match(script, /004_add_audit_columns\.sql/);
 });
 
 test('local init script can optionally import external soil excel into localhost mysql', () => {

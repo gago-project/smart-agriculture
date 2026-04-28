@@ -59,6 +59,7 @@ echo "初始化本地 MySQL：host=${MYSQL_HOST_FOR_LOCAL} port=${MYSQL_PORT_FOR
 run_sql "infra/mysql/init/001_init_tables.sql"
 run_sql "infra/mysql/init/002_insert_data.sql"
 run_sql "infra/mysql/init/003_insert_soil_data.sql"
+run_sql "infra/mysql/init/004_add_audit_columns.sql"
 
 LOCAL_AUTH_USERS_JSON_PATH=${LOCAL_AUTH_USERS_JSON:-infra/mysql/local/auth_users.local.json}
 if [ -n "${LOCAL_AUTH_USERS_JSON:-}" ] || [ -f "$LOCAL_AUTH_USERS_JSON_PATH" ]; then
