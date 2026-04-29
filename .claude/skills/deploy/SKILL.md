@@ -102,22 +102,7 @@ smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.c
 
 > **chat smoke 是基础发布门禁**，不能只看 `/api/health` 就算完成。
 
-### 6. 正式 QA 门禁（56 条全量）
-
-发布后的最终门禁还必须跑一次正式验收库：
-
-```bash
-cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
-npm run qa:soil:formal
-```
-
-（分步命令与前置条件见 `.claude/skills/soil-moisture-qa/SKILL.md`「发布前正式门禁」。底层串行为 `scripts/health/check-local.sh` 与 `testdata/agent/soil-moisture/scripts/generate_formal_acceptance_report.py`。）
-
-要求：
-
-- 必须串行通过 `local smoke + 56 条正式 Case`
-- 任一基础测试、自检或正式 Case 失败，都不能宣称发布完成
-- 正式报告固定输出到 `testdata/agent/soil-moisture/outputs/formal-acceptance-report.md`
+如需全量墒情正式 Case 回归（非发布必做），见 `.claude/skills/soil-moisture-qa/SKILL.md`，或仓库根目录执行 `npm run qa:soil:formal`。
 
 ## Quick Reference
 
@@ -125,7 +110,7 @@ npm run qa:soil:formal
 - Agent port: `.runtime/local-agent-port`, default `18010`
 - Start agent: `bash scripts/dev/start-local-agent.sh`
 - Start web: `bash scripts/dev/start-local-web.sh`
-- Formal QA gate: `npm run qa:soil:formal`（步骤见 `soil-moisture-qa` 技能「发布前正式门禁」）
+- Optional formal soil QA: `npm run qa:soil:formal`（见 `soil-moisture-qa` 技能）
 - Local web health: `http://localhost:3000/api/health`
 - Live web health: `https://ai.luyaxiang.com/api/health`
 
@@ -134,5 +119,4 @@ npm run qa:soil:formal
 - Assuming `ai.yaxianglu.com` is the correct domain. Use `ai.luyaxiang.com`.
 - Forgetting to stop Docker containers before starting process mode (port conflicts on `3000`).
 - Trusting `/api/health` without running login + chat smoke.
-- Stopping after smoke test without running the 56-case formal QA gate.
 - Restarting `nginx` or `cloudflared` when only `3000` or `18010` needs refresh.

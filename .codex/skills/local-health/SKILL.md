@@ -53,7 +53,7 @@ echo "BASE_AGENT = $BASE_AGENT"
 
 ---
 
-## 本地三步验活
+## 三步验活
 
 ### 步骤一：Web 健康检查
 
@@ -74,7 +74,7 @@ echo "[2/3] agent health"
 curl -fsS "$BASE_AGENT/health" | python3 -m json.tool
 ```
 
-期望：`{"status":"ok"}` 或包含 `ok` 的 JSON。仅适用于**本地或直连 agent 地址**。  
+期望：`{"status":"ok"}` 或包含 `ok` 的 JSON。  
 失败：进程模式检查 `lsof -nP -iTCP -sTCP:LISTEN | grep 18010`；Docker 模式检查 `docker compose --env-file .env -f infra/docker/docker-compose.yml ps agent`。
 
 ---
@@ -111,52 +111,9 @@ curl -fsS -X POST "$BASE_WEB/api/agent/chat" \
 
 ---
 
-## 域名验活（实际对外链路）
-
-`ai.luyaxiang.com` 当前**不直接暴露** agent `/health`。
-因此验证域名时，**不要**请求 `https://ai.luyaxiang.com/health`，也**不要**把域名当作 `BASE_AGENT` 传给 `scripts/health/check-local.sh`。
-
-域名验活固定使用这三步：
-
-```bash
-cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
-source scripts/dev/load-root-env.sh
-
-BASE_WEB="https://ai.luyaxiang.com"
-HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
-
-echo "[1/3] web health"
-curl -fsS "$BASE_WEB/api/health" | python3 -m json.tool
-
-echo "[2/3] login"
-AUTH_RESPONSE=$(curl -fsS -X POST "$BASE_WEB/api/auth/login" \
-  -H 'Content-Type: application/json' \
-  -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}")
-AUTH_TOKEN=$(echo "$AUTH_RESPONSE" | python3 -c \
-  'import json,sys; print(json.load(sys.stdin).get("token",""))')
-
-if [ -z "$AUTH_TOKEN" ]; then
-  echo "❌ 登录失败，未获取到 token"
-  echo "   响应内容: $AUTH_RESPONSE"
-  exit 1
-fi
-
-echo "[3/3] chat smoke"
-curl -fsS -X POST "$BASE_WEB/api/agent/chat" \
-  -H 'Content-Type: application/json' \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d '{"question":"最近墒情怎么样","thread_id":"health-check-domain","history":[]}' \
-  | python3 -m json.tool
-```
-
-只要这三步通过，就说明域名对外访问链路 `web -> BFF -> agent` 是通的。
-如果返回 404 的是 `/health`，不要误判成服务挂了。
-
----
-
 ## 一键执行（快捷方式）
 
-`scripts/health/check-local.sh` 只用于**本地 / 直连 agent** 验活，可直接运行：
+以上三步已封装在 `scripts/health/check-local.sh`，可直接运行：
 
 ```bash
 # 进程模式（自动检测 .runtime/local-agent-port）
@@ -165,9 +122,12 @@ HEALTH_PASSWORD="xxx" bash scripts/health/check-local.sh
 # Docker 模式（明确指定 agent 端口）
 HEALTH_PASSWORD="xxx" BASE_AGENT="http://localhost:8000" bash scripts/health/check-local.sh
 
+# 指向线上域名
+HEALTH_PASSWORD="xxx" \
+BASE_WEB="https://ai.luyaxiang.com" \
+BASE_AGENT="https://ai.luyaxiang.com" \
+bash scripts/health/check-local.sh
 ```
-
-域名验活请使用上面的“实际对外链路”命令，不要复用这个脚本。
 
 ---
 
@@ -177,7 +137,6 @@ HEALTH_PASSWORD="xxx" BASE_AGENT="http://localhost:8000" bash scripts/health/che
 |------|------|------|
 | `curl: (7) Failed to connect` | 服务未启动 | 检查 `docker ps` 或 `lsof` 端口 |
 | `curl: (22) 502 Bad Gateway` | nginx 代理失败 | 检查 web 容器/进程是否在跑 |
-| 域名 `/health` 返回 404 | 域名未直出 agent health | 改用 `/api/health + 登录 + /api/agent/chat` 验证真实对外链路 |
 | `登录失败，未获取到 token` | 密码错 / auth 表没用户 | 检查 `HEALTH_PASSWORD`，运行 db-sync `--auth` |
 | agent health 返回 500 | agent 启动异常 | 查 agent 日志，检查 DB/Redis 连接 |
 | chat smoke 返回空 answer | LLM API key 失效 | 检查 `QWEN_API_KEY` |
@@ -187,7 +146,6 @@ HEALTH_PASSWORD="xxx" BASE_AGENT="http://localhost:8000" bash scripts/health/che
 ## 提示
 
 - **步骤三（chat smoke）是真正的发布门禁**，不能只看步骤一二就算验活完成。
-- **域名验活和本地验活不是同一条链路**：本地可以查 agent `/health`，域名必须走 `web health + 登录 + chat`。
-- 对 `soil-moisture` 正式发布来说，这个 smoke test 只解决“服务可用”，不替代 56 条正式 Case 门禁；发布后还要按 `.claude/skills/soil-moisture-qa/SKILL.md` 的「发布前正式门禁」执行，或在仓库根目录执行 `npm run qa:soil:formal`。
+- 全量 56 条正式 Case 回归为可选：需要时见 `.claude/skills/soil-moisture-qa/SKILL.md`，或仓库根目录执行 `npm run qa:soil:formal`。
 - 进程模式 agent 端口不固定，始终从 `.runtime/local-agent-port` 读取，不要硬编码 18010。
 - 不要重启 `nginx` 或 `cloudflared`，这两个服务与本项目无关。

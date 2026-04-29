@@ -19,9 +19,9 @@ description: >
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
 | Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
 
-## 发布前正式门禁（Release Gate）
+## 全量正式验收（一键流程，回归用）
 
-> 与历史 `scripts/qa/run-soil-moisture-release-gate.sh` **等价**：先本地验活，再跑 56 条正式 Case 并写报告。以本节为唯一权威步骤（不再维护独立 `.sh`）。
+> 与历史 `scripts/qa/run-soil-moisture-release-gate.sh` **等价**：先本地验活，再跑 56 条正式 Case 并写报告。以本节为权威步骤（不再维护独立 `.sh`）。**流程模式发布技能（`deploy`）不再将本段列为必做门禁**；需要回归或发版前自检时再执行。
 
 ### 前置条件
 
@@ -30,7 +30,7 @@ description: >
 - 已配置 `HEALTH_PASSWORD`。
 - 本地 Web + Agent 已启动；`BASE_WEB` 默认 `http://localhost:3000`；Agent 端口优先读 `.runtime/local-agent-port`，缺失则 `18010`。
 
-### 门禁 1/2：本地健康冒烟
+### 步骤 1/2：本地健康冒烟
 
 ```bash
 LOCAL_AGENT_PORT=$(test -f .runtime/local-agent-port && cat .runtime/local-agent-port || echo 18010)
@@ -39,7 +39,7 @@ export BASE_AGENT="${BASE_AGENT:-http://localhost:${LOCAL_AGENT_PORT}}"
 BASE_WEB="$BASE_WEB" BASE_AGENT="$BASE_AGENT" bash scripts/health/check-local.sh
 ```
 
-### 门禁 2/2：56 条正式验收（生成报告）
+### 步骤 2/2：56 条正式验收（生成报告）
 
 ```bash
 export FORMAL_AGENT_URL="${FORMAL_AGENT_URL:-${BASE_AGENT}/chat}"

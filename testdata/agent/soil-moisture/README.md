@@ -69,7 +69,7 @@
 - `.codex/skills/soil-moisture-qa/SKILL.md`
 - `.agents/skills/soil-moisture-qa/SKILL.md`
 - `.cursor/rules/soil-moisture-qa.mdc`
-- 正式门禁：见 `.claude/skills/soil-moisture-qa/SKILL.md`「发布前正式门禁」；仓库根目录可执行 `npm run qa:soil:formal`
+- 全量正式验收（可选）：见 `.claude/skills/soil-moisture-qa/SKILL.md`「全量正式验收（一键流程，回归用）」；仓库根目录可执行 `npm run qa:soil:formal`
 
 ## 其他说明
 

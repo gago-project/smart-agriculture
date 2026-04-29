@@ -46,31 +46,23 @@ test('workspace app renders neutral loading while redirecting guarded routes', (
   assert.match(appSource, /auth-loading/);
 });
 
-test('agent chat route proxies to configured AGENT_BASE_URL', () => {
+test('agent chat route forwards the server-backed session contract to executeChatTurn', () => {
   const source = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
-  const evidenceSource = readFileSync(new URL('../lib/server/agentChatEvidence.mjs', import.meta.url), 'utf8');
+
   assert.match(source, /AGENT_BASE_URL/);
-  assert.match(source, /\/chat/);
-  assert.match(source, /output_mode/);
-  assert.match(source, /guidance_reason/);
-  assert.match(source, /fallback_reason/);
-  assert.match(source, /tool_trace/);
-  assert.match(source, /answer_facts/);
-  assert.match(source, /conversation_closed/);
-  assert.match(source, /buildAnalysisContext/);
-  assert.match(source, /buildRequestUnderstanding/);
-  assert.match(source, /queryLogEntries/);
-  assert.doesNotMatch(source, /mergedSlots/);
-  assert.doesNotMatch(source, /inheritanceMode/);
-  assert.doesNotMatch(source, /closing_answer/);
-  assert.doesNotMatch(source, /region_level:\s*'county'/);
-  assert.doesNotMatch(source, /window_type:\s*'all'/);
-  assert.doesNotMatch(source, /used_context:\s*false/);
-  assert.doesNotMatch(source, /used_context:\s*history\.length > 0/);
-  assert.doesNotMatch(source, /memory:\s*history\.length > 0/);
-  assert.match(evidenceSource, /start_time/);
-  assert.match(evidenceSource, /end_time/);
-  assert.match(evidenceSource, /usedContext/);
+  assert.match(source, /executeChatTurn/);
+  assert.match(source, /session_id/);
+  assert.match(source, /client_message_id/);
+  assert.match(source, /timezone/);
+  assert.match(source, /message is required/);
+  assert.doesNotMatch(source, /thread_id/);
+  assert.doesNotMatch(source, /history/);
+  assert.doesNotMatch(source, /output_mode/);
+  assert.doesNotMatch(source, /guidance_reason/);
+  assert.doesNotMatch(source, /fallback_reason/);
+  assert.doesNotMatch(source, /tool_trace/);
+  assert.doesNotMatch(source, /buildAnalysisContext/);
+  assert.doesNotMatch(source, /buildRequestUnderstanding/);
 });
 
 test('admin routes for records upload and rules exist', () => {
@@ -345,7 +337,7 @@ test('soil moisture testing docs use testdata case library as the single formal 
   assert.doesNotMatch(cursorRuleSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
 });
 
-test('deploy skills require the formal 56-case gate after smoke checks', () => {
+test('deploy skills treat chat smoke as publish gate; formal 56-case QA is optional', () => {
   const deploySkillSource = readFileSync(
     new URL('../../../.claude/skills/deploy/SKILL.md', import.meta.url),
     'utf8',
@@ -359,10 +351,11 @@ test('deploy skills require the formal 56-case gate after smoke checks', () => {
     'utf8',
   );
 
-  assert.match(deploySkillSource, /正式 QA 门禁（56 条全量）/);
-  assert.match(deploySkillSource, /generate_formal_acceptance_report\.py/);
-  assert.match(deploySkillSource, /56 条正式 Case/);
-  assert.match(localHealthSkillSource, /不替代 56 条正式 Case 门禁/);
+  assert.match(deploySkillSource, /chat smoke 是基础发布门禁/);
+  assert.doesNotMatch(deploySkillSource, /正式 QA 门禁（56 条全量）/);
+  assert.match(deploySkillSource, /qa:soil:formal/);
+  assert.match(localHealthSkillSource, /全量 56 条正式 Case 回归为可选/);
+  assert.doesNotMatch(localHealthSkillSource, /不替代 56 条正式 Case 门禁/);
   assert.match(rootPackageSource, /"qa:soil:formal"/);
   assert.match(rootPackageSource, /generate_formal_acceptance_report\.py/);
   assert.match(rootPackageSource, /check-local\.sh/);

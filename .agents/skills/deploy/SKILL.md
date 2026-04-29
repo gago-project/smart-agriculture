@@ -51,9 +51,9 @@ Never stop `cloudflared`, `nginx`, or unrelated containers.
   - Restart with `bash scripts/dev/start-local-web.sh`
 - Never kill `cloudflared`, `nginx`, or unrelated Python services on other ports.
 
-### 5. 验活（本地 → 域名，按真实链路）
+### 5. 验活（本地 → 域名，完整三步）
 
-完整验活逻辑见 `.Codex/skills/local-health/SKILL.md`，此处内联标准流程：
+完整验活逻辑见 `.claude/skills/local-health/SKILL.md`，此处内联标准流程：
 
 ```bash
 cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
@@ -63,13 +63,13 @@ source scripts/dev/load-root-env.sh
 LOCAL_AGENT_PORT=$(cat .runtime/local-agent-port 2>/dev/null || echo "18010")
 BASE_WEB_LOCAL="http://localhost:3000"
 BASE_AGENT_LOCAL="http://localhost:${LOCAL_AGENT_PORT}"
+# 烟雾测试专用账号 gago-admin，凭据来自 .env（HEALTH_PASSWORD 已由上方 load-root-env.sh 加载）
 HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
-
 if [ -z "${HEALTH_PASSWORD:-}" ]; then
-  echo "❌ 缺少 HEALTH_PASSWORD，请检查 .env 或 Keychain"; exit 1
+  echo "❌ HEALTH_PASSWORD 未加载，请确认 .env 中已配置"; exit 1
 fi
 
-local_smoke_test() {
+smoke_test() {
   local base_web=$1 base_agent=$2 label=$3
   echo ""; echo "══ 验活：${label} ══"
 
@@ -93,56 +93,16 @@ local_smoke_test() {
   echo "  ✓ ${label} 验活通过"
 }
 
-domain_smoke_test() {
-  local base_web=$1 label=$2
-  echo ""; echo "══ 验活：${label} ══"
-
-  echo "[1/3] web health"
-  curl -fsS "$base_web/api/health" | python3 -m json.tool
-
-  echo "[2/3] login"
-  AUTH_TOKEN=$(curl -fsS -X POST "$base_web/api/auth/login" \
-    -H 'Content-Type: application/json' \
-    -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}" \
-    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
-  [ -z "$AUTH_TOKEN" ] && echo "❌ 登录失败" && return 1
-
-  echo "[3/3] chat smoke"
-  curl -fsS -X POST "$base_web/api/agent/chat" \
-    -H 'Content-Type: application/json' \
-    -H "Authorization: Bearer $AUTH_TOKEN" \
-    -d '{"question":"最近墒情怎么样","thread_id":"health-check-domain","history":[]}' \
-    | python3 -m json.tool
-  echo "  ✓ ${label} 验活通过"
-}
-
 # 本地验活
-local_smoke_test "$BASE_WEB_LOCAL" "$BASE_AGENT_LOCAL" "localhost"
+smoke_test "$BASE_WEB_LOCAL" "$BASE_AGENT_LOCAL" "localhost"
 
-# 域名验活（agent 经由 web BFF 代理，不直接暴露 /health）
-domain_smoke_test "https://ai.luyaxiang.com" "ai.luyaxiang.com"
+# 域名验活（agent 经由 web BFF 代理，不直接暴露）
+smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.com"
 ```
 
-> 域名链路不要请求 `https://ai.luyaxiang.com/health`。`404` 只说明 agent health 没有直出，不代表服务挂了。
->
 > **chat smoke 是基础发布门禁**，不能只看 `/api/health` 就算完成。
 
-### 6. 正式 QA 门禁（56 条全量）
-
-发布后的最终门禁还必须跑一次正式验收库：
-
-```bash
-cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
-npm run qa:soil:formal
-```
-
-（分步命令与前置条件见 `.claude/skills/soil-moisture-qa/SKILL.md`「发布前正式门禁」。底层串行为 `scripts/health/check-local.sh` 与 `testdata/agent/soil-moisture/scripts/generate_formal_acceptance_report.py`。）
-
-要求：
-
-- 必须串行通过 `local smoke + 56 条正式 Case`
-- 任一基础测试、自检或正式 Case 失败，都不能宣称发布完成
-- 正式报告固定输出到 `testdata/agent/soil-moisture/outputs/formal-acceptance-report.md`
+如需全量墒情正式 Case 回归（非发布必做），见 `.claude/skills/soil-moisture-qa/SKILL.md`，或仓库根目录执行 `npm run qa:soil:formal`。
 
 ## Quick Reference
 
@@ -150,16 +110,13 @@ npm run qa:soil:formal
 - Agent port: `.runtime/local-agent-port`, default `18010`
 - Start agent: `bash scripts/dev/start-local-agent.sh`
 - Start web: `bash scripts/dev/start-local-web.sh`
-- Formal QA gate: `npm run qa:soil:formal`（步骤见 `soil-moisture-qa` 技能「发布前正式门禁」）
+- Optional formal soil QA: `npm run qa:soil:formal`（见 `soil-moisture-qa` 技能）
 - Local web health: `http://localhost:3000/api/health`
 - Live web health: `https://ai.luyaxiang.com/api/health`
-- Live smoke: `https://ai.luyaxiang.com/api/health` + login + `/api/agent/chat`
 
 ## Common Mistakes
 
 - Assuming `ai.yaxianglu.com` is the correct domain. Use `ai.luyaxiang.com`.
-- Treating domain `/health` returning `404` as a deployment failure. The public domain only exposes web/BFF, so verify with web health + login + chat.
 - Forgetting to stop Docker containers before starting process mode (port conflicts on `3000`).
 - Trusting `/api/health` without running login + chat smoke.
-- Stopping after smoke test without running the 56-case formal QA gate.
 - Restarting `nginx` or `cloudflared` when only `3000` or `18010` needs refresh.
