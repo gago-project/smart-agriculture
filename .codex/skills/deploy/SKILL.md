@@ -51,7 +51,7 @@ Never stop `cloudflared`, `nginx`, or unrelated containers.
   - Restart with `bash scripts/dev/start-local-web.sh`
 - Never kill `cloudflared`, `nginx`, or unrelated Python services on other ports.
 
-### 5. 验活（本地 → 域名，完整三步）
+### 5. 验活（本地 → 域名，按真实链路）
 
 完整验活逻辑见 `.claude/skills/local-health/SKILL.md`，此处内联标准流程：
 
@@ -69,7 +69,7 @@ if [ -z "${HEALTH_PASSWORD:-}" ]; then
   echo "❌ HEALTH_PASSWORD 未加载，请确认 .env 中已配置"; exit 1
 fi
 
-smoke_test() {
+local_smoke_test() {
   local base_web=$1 base_agent=$2 label=$3
   echo ""; echo "══ 验活：${label} ══"
 
@@ -93,13 +93,38 @@ smoke_test() {
   echo "  ✓ ${label} 验活通过"
 }
 
-# 本地验活
-smoke_test "$BASE_WEB_LOCAL" "$BASE_AGENT_LOCAL" "localhost"
+domain_smoke_test() {
+  local base_web=$1 label=$2
+  echo ""; echo "══ 验活：${label} ══"
 
-# 域名验活（agent 经由 web BFF 代理，不直接暴露）
-smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.com"
+  echo "[1/3] web health"
+  curl -fsS "$base_web/api/health" | python3 -m json.tool
+
+  echo "[2/3] login"
+  AUTH_TOKEN=$(curl -fsS -X POST "$base_web/api/auth/login" \
+    -H 'Content-Type: application/json' \
+    -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}" \
+    | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
+  [ -z "$AUTH_TOKEN" ] && echo "❌ 登录失败" && return 1
+
+  echo "[3/3] chat smoke"
+  curl -fsS -X POST "$base_web/api/agent/chat" \
+    -H 'Content-Type: application/json' \
+    -H "Authorization: Bearer $AUTH_TOKEN" \
+    -d '{"question":"最近墒情怎么样","thread_id":"health-check-domain","history":[]}' \
+    | python3 -m json.tool
+  echo "  ✓ ${label} 验活通过"
+}
+
+# 本地验活
+local_smoke_test "$BASE_WEB_LOCAL" "$BASE_AGENT_LOCAL" "localhost"
+
+# 域名验活（agent 经由 web BFF 代理，不直接暴露 /health）
+domain_smoke_test "https://ai.luyaxiang.com" "ai.luyaxiang.com"
 ```
 
+> 域名链路不要请求 `https://ai.luyaxiang.com/health`。`404` 只说明 agent health 没有直出，不代表服务挂了。
+>
 > **chat smoke 是基础发布门禁**，不能只看 `/api/health` 就算完成。
 
 ### 6. 正式 QA 门禁（56 条全量）
@@ -128,10 +153,12 @@ npm run qa:soil:formal
 - Formal QA gate: `npm run qa:soil:formal`（步骤见 `soil-moisture-qa` 技能「发布前正式门禁」）
 - Local web health: `http://localhost:3000/api/health`
 - Live web health: `https://ai.luyaxiang.com/api/health`
+- Live smoke: `https://ai.luyaxiang.com/api/health` + login + `/api/agent/chat`
 
 ## Common Mistakes
 
 - Assuming `ai.yaxianglu.com` is the correct domain. Use `ai.luyaxiang.com`.
+- Treating domain `/health` returning `404` as a deployment failure. The public domain only exposes web/BFF, so verify with web health + login + chat.
 - Forgetting to stop Docker containers before starting process mode (port conflicts on `3000`).
 - Trusting `/api/health` without running login + chat smoke.
 - Stopping after smoke test without running the 56-case formal QA gate.
