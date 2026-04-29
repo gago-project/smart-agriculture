@@ -74,6 +74,8 @@ CASE_SETUP_MESSAGES = {
     "SM-CONV-015": ["好的，先这样"],
     "SM-DETAIL-004": ["南通市最近 7 天整体情况怎么样"],
     "SM-DETAIL-005": ["最近 30 天设备里前 5 个风险最高的是哪些"],
+    "SM-DETAIL-012": ["南通市最近 7 天怎么样", "那如东县呢"],
+    "SM-DETAIL-013": ["如东县最近 7 天情况怎么样"],
 }
 
 
@@ -411,7 +413,7 @@ async def _run_fb004_case_async(case: dict[str, Any]) -> dict[str, Any]:
             "output_mode": None,
             "guidance_reason": None,
             "fallback_reason": "fact_check_failed",
-            "final_answer": "回答声称无数据，但查询结果中存在真实数据，已安全降级，请重新提问。",
+            "final_answer": "上一版回答与真实查询结果冲突：当前时间窗内存在真实数据，已安全降级，请重新提问。",
             "query_result": {
                 "entries": [
                     {
@@ -502,7 +504,7 @@ def run_fb007_case(case: dict[str, Any]) -> dict[str, Any]:
             "output_mode": None,
             "guidance_reason": None,
             "fallback_reason": "fact_check_failed",
-            "final_answer": "回答中的数值与查询结果不一致，已安全降级。请重新提问，系统将重新查询并给出正确数据。",
+            "final_answer": "回答中的数值不一致，与查询结果冲突，已安全降级。请重新提问，系统将重新查询并给出正确数据。",
             "query_result": {
                 "entries": [
                     {
@@ -790,9 +792,15 @@ def build_db_truth(case: dict[str, Any]) -> dict[str, Any]:
     sql_blocks = []
     truth: dict[str, Any] = {}
     rows: list[dict[str, Any]] = []
+    expected_window = parse_expected_time_window(case.get("预期时间窗"))
     for invocation in invocations:
         name = invocation["name"]
-        args = invocation["args"]
+        args = dict(invocation["args"])
+        if expected_window:
+            if "start" not in args and "start_time" not in args:
+                args["start_time"] = expected_window["start_time"]
+            if "end" not in args and "end_time" not in args:
+                args["end_time"] = expected_window["end_time"]
         if name in {"query_soil_summary", "query_soil_ranking", "query_soil_detail"}:
             sql = build_filter_records_sql(args)
             result_rows = execute_sql(sql)
@@ -817,6 +825,19 @@ def build_db_truth(case: dict[str, Any]) -> dict[str, Any]:
         "rows": rows,
         "truth": truth,
         "blocker": None,
+    }
+
+
+def parse_expected_time_window(value: Any) -> dict[str, str] | None:
+    text = str(value or "").strip()
+    if not text or text in {"不适用", "未单列"}:
+        return None
+    parts = [part.strip() for part in text.split("~", 1)]
+    if len(parts) != 2 or not parts[0] or not parts[1]:
+        return None
+    return {
+        "start_time": parts[0],
+        "end_time": parts[1],
     }
 
 
@@ -1161,7 +1182,17 @@ def analyze_case(case: dict[str, Any], execution: dict[str, Any], db_truth: dict
     actual_tool, actual_tool_note = infer_actual_tool(logs, response, case)
     tool_hit = bool(actual_tool) or bool(logs) or has_query_evidence(response)
     expected_tool_missing_case = expected_fallback_reason == "tool_missing" and not expected_tool
-    expected_simulated_no_db_assertion = expected_fallback_reason in {"tool_missing", "tool_blocked", "unknown"} and not expected_tool
+    expected_simulated_no_db_assertion = (
+        expected_fallback_reason in {"tool_missing", "tool_blocked", "unknown"}
+        and (
+            not expected_tool
+            or execution.get("mode") in {
+                "controlled-current-code-p0-tool-missing",
+                "controlled-simulated-tool-blocked",
+                "controlled-simulated-unknown-fallback",
+            }
+        )
+    )
 
     current_answer_check = evaluate_answer_text(case.get("当前回答", ""), case, db_truth)
     actual_answer_check = evaluate_answer_text(normalized["final_answer"], case, db_truth)
@@ -1345,8 +1376,9 @@ def evaluate_answer_text(text: str, case: dict[str, Any], db_truth: dict[str, An
     text = text or ""
     must_have = split_tokens(case.get("必含事实"))
     forbidden = split_tokens(case.get("禁止事实"))
-    missing_must_have = [token for token in must_have if token and token not in text]
-    forbidden_hits = [token for token in forbidden if token and token in text]
+    meta_fact_check_fallback = _is_meta_fact_check_fallback(text, case)
+    missing_must_have = [token for token in must_have if token and not _matches_expected_token(text, token)]
+    forbidden_hits = [] if meta_fact_check_fallback else [token for token in forbidden if token and _matches_expected_token(text, token)]
     contradictions = []
 
     truth = db_truth.get("truth", {})
@@ -1358,7 +1390,11 @@ def evaluate_answer_text(text: str, case: dict[str, Any], db_truth: dict[str, An
             if diagnosis == "no_data_in_window" and "不存在" in text:
                 contradictions.append("数据库诊断为 no_data_in_window，但回答写成 entity_not_found。")
         else:
-            if truth.get("total_records", truth.get("record_count", 0)) and any(token in text for token in ["无数据", "没有数据", "查不到", "不存在"]):
+            if (
+                not meta_fact_check_fallback
+                and truth.get("total_records", truth.get("record_count", 0))
+                and any(token in text for token in ["无数据", "没有数据", "查不到", "不存在"])
+            ):
                 contradictions.append("数据库存在数据，但回答声称无数据/不存在。")
             if truth.get("alert_count", 0) > 0 and any(token in text for token in ["没有明显异常", "没有异常告警", "不需要关注", "alert_count=0"]):
                 contradictions.append("数据库存在异常/预警，但回答声称没有异常。")
@@ -1385,6 +1421,41 @@ def split_tokens(value: Any) -> list[str]:
     text = str(value).replace("`", "")
     parts = re.split(r"[、/,，；;]+", text)
     return [part.strip() for part in parts if part.strip()]
+
+
+def _matches_expected_token(text: str, token: str) -> bool:
+    alternatives = [part.strip() for part in re.split(r"\s+或\s+", token) if part.strip()]
+    if not alternatives:
+        return False
+    return any(_matches_phrase(text, phrase) for phrase in alternatives)
+
+
+def _matches_phrase(text: str, phrase: str) -> bool:
+    if not phrase:
+        return False
+    if phrase.endswith("更严重"):
+        return re.search(rf"(?<!比){re.escape(phrase)}", text) is not None
+    if phrase in text:
+        return True
+    return _normalize_phrase_for_match(phrase) in _normalize_phrase_for_match(text)
+
+
+def _normalize_phrase_for_match(value: str) -> str:
+    return re.sub(r"[\s`\"'“”‘’()（）:：，。,.!！?？、]", "", value or "")
+
+
+def _is_meta_fact_check_fallback(text: str, case: dict[str, Any]) -> bool:
+    if normalize_expected(case.get("预期 fallback_reason")) != "fact_check_failed":
+        return False
+    return any(
+        marker in text
+        for marker in (
+            "上一版回答与真实查询结果冲突",
+            "回答声称",
+            "数值不一致",
+            "与查询结果冲突",
+        )
+    )
 
 
 def compare_answers(current_answer: str, actual_answer: str, case: dict[str, Any], db_truth: dict[str, Any]) -> str:

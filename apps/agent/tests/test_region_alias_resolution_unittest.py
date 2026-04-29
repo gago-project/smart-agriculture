@@ -256,6 +256,21 @@ class TestResolverLevelAwareNormalization:
         assert result.entity_confidence == CONFIDENCE_LOW
         assert "sn" not in result.resolved_args
 
+    @pytest.mark.asyncio
+    async def test_safe_but_nonstandard_sn_keeps_query_as_medium_confidence(self):
+        repo = FakeAliasRepository(versions=["v1"], rows_by_version={"v1": []})
+        svc = ParameterResolverService(repository=repo)
+
+        result = await svc.resolve(
+            "query_soil_detail",
+            {"sn": "SNS-UNKNOWN", **_WINDOW},
+            _LBT,
+        )
+
+        assert result.should_clarify is False
+        assert result.entity_confidence == CONFIDENCE_MEDIUM
+        assert result.resolved_args["sn"] == "SNS-UNKNOWN"
+
 
 class TestAliasVersionedCache:
     @pytest.mark.asyncio
@@ -349,7 +364,7 @@ class TestComparisonStructuredEntities:
         )
 
         assert result.should_clarify is False
-        assert result.entity_confidence == CONFIDENCE_HIGH
+        assert result.entity_confidence == CONFIDENCE_MEDIUM
         assert result.resolved_args["entities"] == [
             {
                 "raw_name": "南通",

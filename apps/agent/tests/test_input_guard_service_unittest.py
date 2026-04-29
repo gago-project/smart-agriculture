@@ -85,6 +85,20 @@ class InputGuardServiceTest(unittest.TestCase):
         self.assertTrue(result.allow_business_flow)
         self.assertEqual(result.terminal_action, "continue")
 
+    def test_negative_correction_is_business_colloquial(self) -> None:
+        result = self.service.classify("不是如东县，是如皋市")
+
+        self.assertTrue(result.allow_business_flow)
+        self.assertEqual(result.input_type, "business_colloquial")
+        self.assertEqual(result.terminal_action, "continue")
+
+    def test_self_contained_status_query_without_time_is_business_colloquial(self) -> None:
+        result = self.service.classify("查一下南通的情况")
+
+        self.assertTrue(result.allow_business_flow)
+        self.assertEqual(result.input_type, "business_colloquial")
+        self.assertEqual(result.terminal_action, "continue")
+
     def test_non_business_suggested_answer_type_is_always_guidance_answer(self) -> None:
         """Every non-business path must return guidance_answer, never old type names."""
         non_business_inputs = ["谢谢", "你好", "查一下明天天气", "看看", "hello"]

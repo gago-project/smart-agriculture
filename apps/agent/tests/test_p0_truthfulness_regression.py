@@ -127,13 +127,13 @@ class TestEntityNormalization:
         svc = self._resolver()
         canon, conf = svc._normalize_name("南通", svc._alias_index, expected_level="city")
         assert canon == "南通市"
-        assert conf == CONFIDENCE_HIGH
+        assert conf == CONFIDENCE_MEDIUM
 
     def test_county_alias_normalized(self):
         svc = self._resolver()
         canon, conf = svc._normalize_name("如东", svc._alias_index, expected_level="county")
         assert canon == "如东县"
-        assert conf == CONFIDENCE_HIGH
+        assert conf == CONFIDENCE_MEDIUM
 
     def test_known_canonical_name_is_high_confidence(self):
         svc = self._resolver()
@@ -159,7 +159,8 @@ class TestEntityNormalization:
         svc = self._resolver()
         raw_args = {"sn": "BADFORMAT123", **_WINDOW}
         outcome = await svc._resolve_entities(raw_args, svc._alias_index)
-        assert outcome.confidence == CONFIDENCE_LOW
+        assert outcome.confidence == CONFIDENCE_MEDIUM
+        assert outcome.should_clarify is False
         assert any("格式不符" in w for w in outcome.warnings)
 
 

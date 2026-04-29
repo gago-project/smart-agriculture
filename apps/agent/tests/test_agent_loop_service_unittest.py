@@ -49,18 +49,19 @@ class AgentLoopServiceTest(unittest.TestCase):
     def test_single_tool_call_then_text_returns_final_answer(self):
         svc = self._make_service([
             {"type": "tool_call", "tool_name": "query_soil_summary",
-             "tool_args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"},
+             "tool_args": {"city": "南通市", "start_time": "2026-04-07 00:00:00", "end_time": "2026-04-13 23:59:59"},
              "call_id": "c1"},
             {"type": "text", "content": "延安市整体墒情偏干，平均含水量 55%。"},
         ])
         result: AgentLoopResult = asyncio.run(svc.run(
-            user_input="查延安市最近7天墒情",
+            user_input="查南通市最近7天墒情",
             session_id="test1",
             turn_id=1,
-            latest_business_time="2025-04-20 08:00:00",
+            latest_business_time="2026-04-13 23:59:17",
         ))
         self.assertIsInstance(result.final_answer, str)
-        self.assertIn("55", result.final_answer)
+        self.assertIn("南通市", result.final_answer)
+        self.assertIn("95.39", result.final_answer)
         self.assertEqual(len(result.tool_calls_made), 1)
         self.assertEqual(result.tool_calls_made[0]["tool_name"], "query_soil_summary")
 
@@ -137,17 +138,17 @@ class AgentLoopServiceTest(unittest.TestCase):
             {
                 "type": "tool_call",
                 "tool_name": "query_soil_summary",
-                "tool_args": {"start_time": "2025-04-14 00:00:00", "end_time": "2025-04-20 23:59:59"},
+                "tool_args": {"city": "南通市", "start_time": "2026-04-07 00:00:00", "end_time": "2026-04-13 23:59:59"},
                 "call_id": "call_1",
             },
             {"type": "text", "content": "延安市最近7天整体偏干。"},
         ])
 
         asyncio.run(svc.run(
-            user_input="查延安市最近7天墒情",
+            user_input="查南通市最近7天墒情",
             session_id="persist_history",
             turn_id=1,
-            latest_business_time="2025-04-20 08:00:00",
+            latest_business_time="2026-04-13 23:59:17",
         ))
 
         history = asyncio.run(self.history_store.load_history("persist_history"))
@@ -159,7 +160,8 @@ class AgentLoopServiceTest(unittest.TestCase):
         self.assertEqual(history[2]["role"], "tool")
         self.assertEqual(history[2]["tool_call_id"], "call_1")
         self.assertEqual(history[3]["role"], "assistant")
-        self.assertEqual(history[3]["content"], "延安市最近7天整体偏干。")
+        self.assertIn("南通市", history[3]["content"])
+        self.assertIn("95.39", history[3]["content"])
 
     def test_history_persists_resolved_tool_args_instead_of_raw_args(self):
         resolver = MagicMock()
@@ -387,3 +389,43 @@ class AgentLoopServiceTest(unittest.TestCase):
         self.assertIn("city = '南通市'", entry["executed_sql_text"])
         self.assertIn("county = '如东县'", entry["executed_sql_text"])
         self.assertEqual(entry["row_count"], 2)
+
+    def test_semantic_seed_args_fill_missing_tool_args_before_resolution(self):
+        resolver = MagicMock()
+        resolver.resolve = AsyncMock(return_value=ResolvedParams(
+            tool_name="query_soil_summary",
+            raw_args={"city": "南通"},
+            resolved_args={
+                "city": "南通市",
+                "start_time": "2026-04-07 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
+            },
+        ))
+        svc = AgentLoopService(
+            qwen_client=_mock_qwen([
+                {
+                    "type": "tool_call",
+                    "tool_name": "query_soil_summary",
+                    "tool_args": {"city": "南通市"},
+                    "call_id": "call_seed",
+                },
+                {"type": "text", "content": "南通市最近情况正常。"},
+            ]),
+            tool_executor=self.executor,
+            history_store=self.history_store,
+            resolver=resolver,
+        )
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="查一下南通的情况",
+            session_id="seed-args",
+            turn_id=1,
+            latest_business_time="2026-04-13 23:59:17",
+            semantic_seed_args={"city": "南通"},
+        ))
+
+        resolver_call = resolver.resolve.await_args
+        self.assertEqual(resolver_call.args[1]["city"], "南通")
+        self.assertEqual(result.tool_calls_made[0]["tool_args"]["city"], "南通市")
+        self.assertEqual(result.tool_calls_made[0]["tool_args"]["start_time"], "2026-04-07 00:00:00")
+        self.assertEqual(result.tool_calls_made[0]["tool_args"]["end_time"], "2026-04-13 23:59:59")

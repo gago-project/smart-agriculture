@@ -214,6 +214,45 @@ class AgentLoopNodeContractTest(unittest.TestCase):
         self.assertIn("continue", node.allowed_next_actions)
         self.assertIn("fallback", node.allowed_next_actions)
 
+    def test_colloquial_follow_up_does_not_treat_semantic_expanded_time_as_new_time_signal(self):
+        from unittest.mock import AsyncMock, MagicMock
+
+        from app.flow.nodes.agent_loop import AgentLoopNode
+        from app.flow.state_builder import build_flow_state
+        from app.repositories.session_context_repository import SessionContextRepository
+        from app.services.agent_loop_service import AgentLoopResult
+        from app.services.semantic_parser_service import SemanticParseResult
+        from tests.support_repositories import SeedSoilRepository
+
+        repo = SeedSoilRepository()
+        service = MagicMock()
+        service.history_store = SessionContextRepository()
+        service.history_store.load_history = AsyncMock(return_value=[{"role": "assistant", "content": "上一轮已查询"}])
+        service.run = AsyncMock(
+            return_value=AgentLoopResult(
+                final_answer="如东县最近 7 天共有 42 条记录。",
+            )
+        )
+        semantic_parser = MagicMock()
+        semantic_parser.parse = AsyncMock(
+            return_value=SemanticParseResult(
+                resolved_input="如东县最近 7 天情况怎么样",
+                intent_hint="soil_detail",
+                entities={"county": "如东县"},
+                start_time="2026-04-07 00:00:00",
+                end_time="2026-04-13 23:59:59",
+            )
+        )
+        node = AgentLoopNode(service, repository=repo, semantic_parser=semantic_parser)
+        state = build_flow_state(user_input="那如东县呢", session_id="ctx-follow-up", turn_id=2)
+        state.input_type = "business_colloquial"
+
+        asyncio.run(node.run(state))
+
+        kwargs = service.run.await_args.kwargs
+        self.assertEqual(kwargs["user_input"], "那如东县呢")
+        self.assertEqual(kwargs["semantic_seed_args"], {"county": "如东县"})
+
 
 if __name__ == "__main__":
     unittest.main()

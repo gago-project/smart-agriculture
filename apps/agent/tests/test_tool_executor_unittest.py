@@ -84,8 +84,8 @@ class ToolExecutorServiceTest(unittest.TestCase):
             self.assertIn("rank", result["items"][0])
             self.assertEqual(result["items"][0]["rank"], 1)
 
-    def test_query_soil_ranking_items_follow_risk_then_alert_sort_order(self):
-        """Items must be sorted by avg_risk_score desc, then alert_count desc."""
+    def test_query_soil_ranking_items_follow_alert_then_risk_sort_order(self):
+        """Items must be sorted by alert_count desc, then avg_risk_score desc."""
         result = asyncio.run(self.executor.execute(
             tool_name="query_soil_ranking",
             tool_args={
@@ -100,16 +100,36 @@ class ToolExecutorServiceTest(unittest.TestCase):
             left = items[i]
             right = items[i + 1]
             self.assertGreaterEqual(
-                left["avg_risk_score"],
-                right["avg_risk_score"],
-                "Items must be sorted by avg_risk_score descending",
+                left["alert_count"],
+                right["alert_count"],
+                "Items must be sorted by alert_count descending",
             )
-            if left["avg_risk_score"] == right["avg_risk_score"]:
+            if left["alert_count"] == right["alert_count"]:
                 self.assertGreaterEqual(
-                    left["alert_count"],
-                    right["alert_count"],
-                    "Items with equal risk must be sorted by alert_count descending",
+                    left["avg_risk_score"],
+                    right["avg_risk_score"],
+                    "Items with equal alert_count must be sorted by avg_risk_score descending",
                 )
+
+    def test_query_soil_comparison_prefers_alert_count_before_avg_risk(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_comparison",
+            tool_args={
+                "entities": [
+                    {"raw_name": "睢宁县", "canonical_name": "睢宁县", "level": "county", "parent_city_name": "徐州市"},
+                    {"raw_name": "沛县", "canonical_name": "沛县", "level": "county", "parent_city_name": "徐州市"},
+                ],
+                "entity_type": "region",
+                "start_time": "2026-03-15 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
+            },
+        ))
+
+        self.assertEqual(result["items"][0]["name"], "睢宁县")
+        self.assertEqual(result["winner"], "睢宁县")
+        self.assertEqual(result["winner_basis"], "alert_count")
+        self.assertEqual(result["items"][0]["alert_count"], 39)
+        self.assertEqual(result["items"][1]["alert_count"], 36)
 
     def test_query_soil_detail_returns_entity_evidence(self):
         result = asyncio.run(self.executor.execute(
@@ -156,6 +176,35 @@ class ToolExecutorServiceTest(unittest.TestCase):
         ))
 
         self.assertEqual(result["latest_record"]["sn"], "SNS00204333")
+
+    def test_query_soil_detail_auto_promotes_high_risk_device_to_anomaly_focus(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_detail",
+            tool_args={
+                "sn": "SNS00213276",
+                "start_time": "2026-03-15 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
+            },
+        ))
+
+        self.assertEqual(result["output_mode"], "anomaly_focus")
+        self.assertEqual(result["record_count"], 30)
+        self.assertEqual(result["status_summary"].get("waterlogging"), 30)
+
+    def test_query_soil_detail_returns_total_alert_count_and_period_summary(self):
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_detail",
+            tool_args={
+                "county": "睢宁县",
+                "output_mode": "anomaly_focus",
+                "start_time": "2026-03-15 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
+            },
+        ))
+
+        self.assertEqual(result["alert_count"], 39)
+        self.assertEqual(result["alert_period_summary"]["alert_count"], 39)
+        self.assertEqual(result["alert_period_summary"]["representative_record"]["sn"], "SNS00213891")
 
     def test_diagnose_empty_result_returns_diagnosis(self):
         result = asyncio.run(self.executor.execute(

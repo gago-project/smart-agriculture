@@ -291,10 +291,20 @@ class ParameterResolverService:
             allowed_levels = set(_REGION_LEVELS)
             cross_levels = set()
 
+        exact_candidates = self._filter_exact_candidates(name, alias_index, allowed_levels)
         exact = self._make_region_resolution(
             raw_name=name,
-            candidates=self._filter_exact_candidates(name, alias_index, allowed_levels),
-            confidence=CONFIDENCE_HIGH,
+            candidates=exact_candidates,
+            confidence=(
+                CONFIDENCE_HIGH
+                if all(candidate.canonical_name == name for candidate in exact_candidates)
+                else CONFIDENCE_MEDIUM
+            ),
+            warning=(
+                ""
+                if all(candidate.canonical_name == name for candidate in exact_candidates)
+                else f"{label} '{name}' 近似匹配为候选标准名，请确认"
+            ),
         )
         if exact is not None:
             return exact
@@ -453,11 +463,12 @@ class ParameterResolverService:
                 confidences.append(CONFIDENCE_HIGH)
             else:
                 normalized_sn = str(sn).strip()
-                confidences.append(CONFIDENCE_LOW)
                 warnings.append(f"设备编号 '{normalized_sn}' 格式不符合 SNSxxxxxxxx，请核对")
                 if re.fullmatch(r"[A-Za-z0-9_-]+", normalized_sn):
-                    clarify_parts.append(f"设备编号 '{normalized_sn}' 格式不符合 SNSxxxxxxxx，请核对")
+                    resolved["sn"] = normalized_sn.upper()
+                    confidences.append(CONFIDENCE_MEDIUM)
                 else:
+                    confidences.append(CONFIDENCE_LOW)
                     clarify_parts.append(
                         f"设备编号 '{normalized_sn}' 包含非法字符，请使用标准设备编号重新查询"
                     )
@@ -482,11 +493,19 @@ class ParameterResolverService:
                         )
                         confidences.append(CONFIDENCE_HIGH)
                     else:
-                        confidences.append(CONFIDENCE_LOW)
                         warnings.append(f"设备编号 '{entity}' 格式不符合 SNSxxxxxxxx，请核对")
                         if re.fullmatch(r"[A-Za-z0-9_-]+", entity):
-                            clarify_parts.append(f"设备编号 '{entity}' 格式不符合 SNSxxxxxxxx，请核对")
+                            normalized_entities.append(
+                                {
+                                    "raw_name": entity,
+                                    "canonical_name": entity.upper(),
+                                    "level": "device",
+                                    "parent_city_name": None,
+                                }
+                            )
+                            confidences.append(CONFIDENCE_MEDIUM)
                         else:
+                            confidences.append(CONFIDENCE_LOW)
                             clarify_parts.append(
                                 f"设备编号 '{entity}' 包含非法字符，请使用标准设备编号重新查询"
                             )
@@ -631,6 +650,7 @@ class ParameterResolverService:
 
     def _resolve_time(
         self,
+        tool_name: str,
         raw_args: dict[str, Any],
         latest_business_time: str | None,
         *,
@@ -659,6 +679,46 @@ class ParameterResolverService:
                 time_source=evidence.time_source or "rule_relative",
             )
 
+        if not evidence.has_time_signal and inherited_time_window:
+            inherited_start = inherited_time_window.get("start_time")
+            inherited_end = inherited_time_window.get("end_time")
+            if inherited_start and inherited_end:
+                if raw_start and raw_end and (raw_start != inherited_start or raw_end != inherited_end):
+                    warnings.append("当前轮未提供新时间，已沿用上一轮最终生效的时间窗")
+                return self._validate_time_window(
+                    {"start_time": inherited_start, "end_time": inherited_end},
+                    latest_business_time=lbt,
+                    warnings=warnings,
+                    time_source="history_inherited",
+                )
+
+        default_time_window = self._default_time_window(
+            tool_name=tool_name,
+            raw_args=raw_args,
+            latest_business_time=lbt,
+        )
+        if raw_start and raw_end and time_evidence is None:
+            return self._validate_time_window(
+                {"start_time": str(raw_start), "end_time": str(raw_end)},
+                latest_business_time=lbt,
+                warnings=warnings,
+                time_source="llm_absolute",
+            )
+
+        if not evidence.has_time_signal and default_time_window is not None:
+            if raw_start and raw_end:
+                warnings.append("当前轮未识别到新的时间信号，已忽略模型猜测的绝对时间窗并采用默认时间窗")
+            return self._validate_time_window(
+                default_time_window["time_args"],
+                latest_business_time=lbt,
+                warnings=warnings,
+                time_source=str(default_time_window["time_source"]),
+            )
+
+        if raw_start and raw_end and not evidence.has_time_signal:
+            warnings.append("当前轮未识别到新的时间信号，忽略模型猜测的绝对时间窗")
+            return {}, CONFIDENCE_LOW, warnings, True, self._base_time_clarify_message(), None
+
         if raw_start and raw_end:
             return self._validate_time_window(
                 {"start_time": str(raw_start), "end_time": str(raw_end)},
@@ -667,20 +727,59 @@ class ParameterResolverService:
                 time_source="llm_absolute",
             )
 
-        if not evidence.has_time_signal and inherited_time_window:
-            inherited_start = inherited_time_window.get("start_time")
-            inherited_end = inherited_time_window.get("end_time")
-            if inherited_start and inherited_end:
-                return self._validate_time_window(
-                    {"start_time": inherited_start, "end_time": inherited_end},
-                    latest_business_time=lbt,
-                    warnings=warnings,
-                    time_source="history_inherited",
-                )
-
         if evidence.has_time_signal:
             return {}, CONFIDENCE_LOW, warnings, True, self._base_time_clarify_message(), evidence.time_source
         return {}, CONFIDENCE_LOW, warnings, True, self._base_time_clarify_message(), None
+
+    def _default_time_window(
+        self,
+        *,
+        tool_name: str,
+        raw_args: dict[str, Any],
+        latest_business_time: datetime | None,
+    ) -> dict[str, Any] | None:
+        if latest_business_time is None:
+            return None
+
+        has_entity = bool(
+            raw_args.get("sn")
+            or raw_args.get("city")
+            or raw_args.get("county")
+            or raw_args.get("entities")
+        )
+        if not has_entity:
+            return None
+
+        output_mode = str(raw_args.get("output_mode") or "normal")
+        latest_day_end = datetime(
+            latest_business_time.year,
+            latest_business_time.month,
+            latest_business_time.day,
+            23,
+            59,
+            59,
+        )
+
+        if tool_name == "query_soil_detail" and output_mode == "advice_mode":
+            return {
+                "time_source": "default_current_year",
+                "time_args": {
+                    "start_time": datetime(latest_business_time.year, 1, 1, 0, 0, 0).strftime("%Y-%m-%d %H:%M:%S"),
+                    "end_time": latest_day_end.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            }
+
+        if tool_name in {"query_soil_summary", "query_soil_detail"}:
+            start = latest_day_end - timedelta(days=6)
+            return {
+                "time_source": "default_recent_7d",
+                "time_args": {
+                    "start_time": datetime(start.year, start.month, start.day, 0, 0, 0).strftime("%Y-%m-%d %H:%M:%S"),
+                    "end_time": latest_day_end.strftime("%Y-%m-%d %H:%M:%S"),
+                },
+            }
+
+        return None
 
     def _validate_time_window(
         self,
@@ -731,6 +830,7 @@ class ParameterResolverService:
 
         # --- time resolution ---
         time_resolved, time_conf, time_warnings, time_should_clarify, time_clarify_message, time_source = self._resolve_time(
+            tool_name,
             raw_args,
             latest_business_time,
             time_evidence=time_evidence,

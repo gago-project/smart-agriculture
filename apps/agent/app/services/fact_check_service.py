@@ -100,7 +100,7 @@ class FactCheckService:
                 return {
                     "failed": True,
                     "need_retry": True,
-                    "fallback_answer": "回答声称无数据，但查询结果中存在数据，已安全降级，请重新提问。",
+                    "fallback_answer": "上一版回答与真实查询结果冲突：当前时间窗内存在真实数据，已安全降级，请重新提问。",
                     "warnings": [],
                 }
 

@@ -24,6 +24,7 @@ from app.llm.qwen_client import QwenClient
 from app.llm.prompts.system_prompt import build_system_prompt
 from app.llm.tools import get_tool_meta, get_tools_for_llm
 from app.repositories.session_context_repository import SessionContextRepository
+from app.services.business_answer_renderer import BusinessAnswerRenderer
 from app.services.parameter_resolver_service import ParameterResolverService
 from app.services.time_window_service import TimeWindowService
 from app.services.tool_executor_service import ToolExecutorService, ToolValidationError
@@ -68,12 +69,14 @@ class AgentLoopService:
         history_store: SessionContextRepository,
         resolver: ParameterResolverService | None = None,
         time_window_service: TimeWindowService | None = None,
+        answer_renderer: BusinessAnswerRenderer | None = None,
     ) -> None:
         self.qwen_client = qwen_client
         self.tool_executor = tool_executor
         self.history_store = history_store
         self.resolver = resolver or ParameterResolverService()
         self.time_window_service = time_window_service or TimeWindowService()
+        self.answer_renderer = answer_renderer or BusinessAnswerRenderer()
 
     async def run(
         self,
@@ -83,6 +86,7 @@ class AgentLoopService:
         turn_id: int,
         latest_business_time: str | None,
         is_business_query: bool = True,
+        semantic_seed_args: dict[str, Any] | None = None,
     ) -> AgentLoopResult:
         """Run the agent loop and return the final answer with execution trace.
 
@@ -100,9 +104,10 @@ class AgentLoopService:
         # Detect TTL expiry: user is continuing a conversation but context is gone
         session_reset = turn_id > 1 and len(history) == 0
         inherited_time_window = self._latest_history_time_window(history)
+        history_tool_context = self._latest_history_tool_context(history)
         time_evidence = self.time_window_service.resolve(user_input, latest_business_time)
         system_prompt = build_system_prompt(latest_business_time=latest_business_time)
-        suggested_tool_name = self._suggest_tool_name(user_input)
+        suggested_tool_name = self._suggest_tool_name(user_input, history_context=history_tool_context)
         suggested_output_mode = self._suggest_output_mode(user_input, suggested_tool_name)
         turn_hint = self._build_turn_hint(user_input)
 
@@ -161,6 +166,14 @@ class AgentLoopService:
                         session_reset=session_reset,
                     )
 
+                rendered_answer = self._render_final_answer(
+                    user_input=user_input,
+                    tool_calls_made=tool_calls_made,
+                    tool_results=tool_results,
+                )
+                if rendered_answer:
+                    final_answer = rendered_answer
+
                 await self.history_store.save_message_turn(
                     session_id, turn_id,
                     user_message=user_input,
@@ -191,13 +204,17 @@ class AgentLoopService:
 
             for call in batch:
                 tool_name = call["tool_name"]
-                raw_args = dict(call["tool_args"] or {})
+                raw_args = self._merge_semantic_seed_args(
+                    dict(call["tool_args"] or {}),
+                    semantic_seed_args,
+                )
                 call_id = call.get("call_id", "")
                 tool_name, raw_args = self._coerce_tool_call(
                     tool_name=tool_name,
                     raw_args=raw_args,
                     suggested_tool_name=suggested_tool_name,
                     suggested_output_mode=suggested_output_mode,
+                    history_context=history_tool_context,
                 )
 
                 # --- Parameter Resolver ---
@@ -402,16 +419,23 @@ class AgentLoopService:
             lines.append("- “有没有异常/哪里需要关注”类问题，必须走 query_soil_summary 且 output_mode=anomaly_focus。")
         return "\n".join(lines)
 
-    def _suggest_tool_name(self, user_input: str) -> str | None:
+    def _suggest_tool_name(self, user_input: str, *, history_context: dict[str, Any] | None = None) -> str | None:
         text = user_input.strip()
         if not text:
             return None
         summary_markers = ("预警角度", "预警视角", "整体", "概况")
+        last_tool_name = str((history_context or {}).get("tool_name") or "")
         if _SN_IN_TEXT.search(text) or any(keyword in text for keyword in ("详细", "详情")):
             return "query_soil_detail"
-        if text.startswith("那") and text.endswith("呢"):
-            return "query_soil_detail"
         if text.startswith("不是") and "是" in text:
+            if last_tool_name in {"query_soil_detail", "query_soil_summary"}:
+                return last_tool_name
+            return "query_soil_detail"
+        if text.startswith("那") and text.endswith("呢"):
+            if last_tool_name == "query_soil_ranking":
+                return "query_soil_detail"
+            if last_tool_name == "query_soil_summary":
+                return "query_soil_summary"
             return "query_soil_detail"
         if any(keyword in text for keyword in ("最近怎么样", "情况怎么样", "异常情况怎么样", "异常具体怎么回事", "需要发预警吗")) and not any(
             marker in text for marker in summary_markers
@@ -448,16 +472,26 @@ class AgentLoopService:
         raw_args: dict[str, Any],
         suggested_tool_name: str | None,
         suggested_output_mode: str | None,
+        history_context: dict[str, Any] | None,
     ) -> tuple[str, dict[str, Any]]:
         normalized_args = dict(raw_args)
         normalized_tool_name = tool_name
 
         if (
             suggested_tool_name == "query_soil_detail"
-            and tool_name == "query_soil_summary"
+            and normalized_tool_name == "query_soil_summary"
             and self._can_promote_summary_to_detail(normalized_args)
         ):
             normalized_tool_name = "query_soil_detail"
+
+        should_promote_to_detail = self._should_promote_summary_to_detail(
+            normalized_args=normalized_args,
+            history_context=history_context,
+        )
+        if normalized_tool_name == "query_soil_summary" and should_promote_to_detail:
+            normalized_tool_name = "query_soil_detail"
+        elif suggested_tool_name == "query_soil_summary" and normalized_tool_name == "query_soil_detail" and not should_promote_to_detail:
+            normalized_tool_name = "query_soil_summary"
 
         if suggested_output_mode and normalized_tool_name in {"query_soil_summary", "query_soil_detail"}:
             current_output_mode = normalized_args.get("output_mode")
@@ -465,6 +499,27 @@ class AgentLoopService:
                 normalized_args["output_mode"] = suggested_output_mode
 
         return normalized_tool_name, normalized_args
+
+    def _should_promote_summary_to_detail(
+        self,
+        *,
+        normalized_args: dict[str, Any],
+        history_context: dict[str, Any] | None,
+    ) -> bool:
+        if normalized_args.get("sn"):
+            return True
+        if not history_context:
+            return False
+        last_tool_name = str(history_context.get("tool_name") or "")
+        last_args = history_context.get("tool_args") or {}
+        if last_tool_name in {"query_soil_detail", "query_soil_ranking"}:
+            return self._can_promote_summary_to_detail(normalized_args)
+        if last_tool_name == "query_soil_summary":
+            current_city = normalized_args.get("city")
+            current_county = normalized_args.get("county")
+            if current_city and current_county and current_city == last_args.get("city"):
+                return True
+        return False
 
     @staticmethod
     def _entity_not_found_fallback_answer(*, raw_args: dict[str, Any], clarify_message: str) -> str:
@@ -505,7 +560,7 @@ class AgentLoopService:
             "tool_name": tool_name,
             "intent": meta.get("intent", ""),
             "answer_type": meta.get("answer_type", ""),
-            "output_mode": resolved_args.get("output_mode"),
+            "output_mode": result.get("output_mode") or resolved_args.get("output_mode"),
             "aggregation": resolved_args.get("aggregation"),
             "entity_type": resolved_args.get("entity_type"),
             "top_n": resolved_args.get("top_n"),
@@ -686,6 +741,8 @@ class AgentLoopService:
     @staticmethod
     def _order_by_for_tool(tool_name: str, resolved_args: dict[str, Any]) -> list[str] | None:
         if tool_name in {"query_soil_ranking", "query_soil_comparison"}:
+            if tool_name == "query_soil_comparison":
+                return ["alert_count DESC", "avg_risk_score DESC", "avg_water20cm DESC"]
             return ["avg_risk_score DESC", "alert_count DESC", f"limit={resolved_args.get('top_n') or 5}"]
         return None
 
@@ -696,6 +753,63 @@ class AgentLoopService:
         if tool_name == "query_soil_comparison":
             entities = resolved_args.get("entities")
             return len(entities) if isinstance(entities, list) else None
+        return None
+
+    def _render_final_answer(
+        self,
+        *,
+        user_input: str,
+        tool_calls_made: list[dict[str, Any]],
+        tool_results: list[dict[str, Any]],
+    ) -> str | None:
+        if not tool_calls_made or not tool_results:
+            return None
+        first_call = tool_calls_made[0]
+        first_result = tool_results[0]
+        return self.answer_renderer.render(
+            tool_name=str(first_call.get("tool_name") or ""),
+            result=first_result,
+            resolved_args=dict(first_call.get("tool_args") or {}),
+            entity_confidence=str(first_call.get("entity_confidence") or "high"),
+            time_source=first_call.get("time_source"),
+            used_context=bool(first_call.get("used_context")),
+            context_correction=self._is_context_correction(user_input),
+        )
+
+    @staticmethod
+    def _is_context_correction(user_input: str) -> bool:
+        text = (user_input or "").strip()
+        return text.startswith("不是") and "是" in text
+
+    @staticmethod
+    def _merge_semantic_seed_args(
+        raw_args: dict[str, Any],
+        semantic_seed_args: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        if not semantic_seed_args:
+            return raw_args
+        merged = dict(raw_args)
+        for key, value in semantic_seed_args.items():
+            if key in {"city", "county", "sn"}:
+                merged[key] = value
+            elif merged.get(key) in (None, "", []):
+                merged[key] = value
+        return merged
+
+    @staticmethod
+    def _latest_history_tool_context(history: list[dict[str, Any]]) -> dict[str, Any] | None:
+        for message in reversed(history):
+            tool_calls = message.get("tool_calls") or []
+            for tool_call in reversed(tool_calls):
+                function = (tool_call or {}).get("function") or {}
+                tool_name = function.get("name")
+                arguments = function.get("arguments")
+                try:
+                    args = json.loads(arguments) if isinstance(arguments, str) else (arguments or {})
+                except Exception:
+                    args = {}
+                if tool_name:
+                    return {"tool_name": str(tool_name), "tool_args": args}
         return None
 
 

@@ -288,6 +288,198 @@ class FormalAcceptanceReportTest(unittest.TestCase):
 
         self.assertNotIn("业务 case 缺少 SQL / 等效 SQL。", analysis["failure_reasons"])
 
+    def test_build_db_truth_fills_missing_time_window_from_case_expectation(self) -> None:
+        case = {
+            "数据库校验断言": 'Resolver 将"南通"近似匹配为"南通市"（medium confidence），调用 `query_soil_summary(city=南通市,...)`；`total_records=259`',
+            "预期时间窗": "2026-04-07 00:00:00 ~ 2026-04-13 23:59:59",
+        }
+        helper = self.helper
+        original_execute_sql = helper.execute_sql
+
+        try:
+            helper.execute_sql = lambda sql: []
+            result = helper.build_db_truth(case)
+        finally:
+            helper.execute_sql = original_execute_sql
+
+        self.assertTrue(result["applicable"])
+        self.assertIn("create_time >= '2026-04-07 00:00:00'", result["sql_blocks"][0]["sql"])
+        self.assertIn("create_time <= '2026-04-13 23:59:59'", result["sql_blocks"][0]["sql"])
+        self.assertEqual(result["truth"]["time_window"]["start_time"], "2026-04-07 00:00:00")
+        self.assertEqual(result["truth"]["time_window"]["end_time"], "2026-04-13 23:59:59")
+
+    def test_fact_check_failed_meta_fallback_is_not_treated_as_business_contradiction(self) -> None:
+        response = {
+            "answer": "回答声称无数据，但查询结果中存在真实数据，已安全降级，请重新提问。",
+            "mode": "fallback",
+            "data": {
+                "answer_type": "fallback_answer",
+                "output_mode": None,
+                "fallback_reason": "fact_check_failed",
+                "guidance_reason": None,
+                "input_type": "business_direct",
+            },
+            "evidence": {
+                "tool_trace": [{"tool_name": "query_soil_detail"}],
+                "query_result": {
+                    "entries": [
+                        {
+                            "tool_name": "query_soil_detail",
+                            "result": {"entity_name": "SNS00204333", "record_count": 7},
+                        }
+                    ]
+                },
+            },
+        }
+        case = {
+            "预期 Tool": "query_soil_detail",
+            "预期 answer_type": "fallback_answer",
+            "预期 output_mode": "无",
+            "预期 guidance_reason": "无",
+            "预期 fallback_reason": "fact_check_failed",
+            "是否域内业务问题": "是",
+            "是否必须命中 Tool": "是",
+            "当前回答": "回答声称无数据，但查询结果中存在数据，已安全降级，请重新提问。",
+            "必含事实": "存在真实数据",
+            "禁止事实": "无数据",
+        }
+        db_truth = {
+            "applicable": True,
+            "blocker": None,
+            "truth": {"record_count": 7},
+            "sql_blocks": [{"sql_type": "等效 SQL", "tool": "query_soil_detail", "sql": "SELECT 1"}],
+        }
+
+        analysis = self.helper.analyze_case(case, {"response": response, "logs": []}, db_truth)
+
+        self.assertEqual(analysis["actual_answer_check"]["fact_status"], "是")
+        self.assertNotIn("实际回答与数据库事实不一致。", analysis["failure_reasons"])
+        self.assertNotIn("实际回答命中禁止事实：无数据。", analysis["failure_reasons"])
+
+    def test_tool_blocked_simulation_does_not_fail_for_missing_db_assertion_sql(self) -> None:
+        response = {
+            "answer": "抱歉，当前查询服务暂时不可用，请稍后重试。",
+            "mode": "fallback",
+            "data": {
+                "answer_type": "fallback_answer",
+                "output_mode": None,
+                "fallback_reason": "tool_blocked",
+                "guidance_reason": None,
+                "input_type": "business_direct",
+            },
+            "evidence": {
+                "tool_trace": [{"tool_name": "query_soil_summary", "status": "blocked"}],
+                "query_result": {"entries": [{"tool_name": "query_soil_summary", "error_code": "TOOL_BLOCKED"}]},
+            },
+        }
+        case = {
+            "预期 Tool": "query_soil_summary",
+            "预期 answer_type": "fallback_answer",
+            "预期 output_mode": "无",
+            "预期 guidance_reason": "无",
+            "预期 fallback_reason": "tool_blocked",
+            "是否域内业务问题": "是",
+            "是否必须命中 Tool": "是",
+            "当前回答": "抱歉，当前查询服务暂时不可用，请稍后重试。",
+        }
+        execution = {"response": response, "logs": [], "mode": "controlled-simulated-tool-blocked"}
+        db_truth = {"applicable": False, "blocker": "数据库校验断言中没有可解析的 tool 调用。", "truth": {}, "sql_blocks": []}
+
+        analysis = self.helper.analyze_case(case, execution, db_truth)
+
+        self.assertNotIn("数据库回查阻塞：数据库校验断言中没有可解析的 tool 调用。", analysis["failure_reasons"])
+
+    def test_unknown_simulation_does_not_fail_for_missing_db_assertion_sql(self) -> None:
+        response = {
+            "answer": "抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试。",
+            "mode": "fallback",
+            "data": {
+                "answer_type": "fallback_answer",
+                "output_mode": None,
+                "fallback_reason": "unknown",
+                "guidance_reason": None,
+                "input_type": "business_direct",
+            },
+            "evidence": {
+                "tool_trace": [{"tool_name": "query_soil_summary", "status": "error"}],
+                "query_result": {"entries": [{"tool_name": "query_soil_summary", "error_code": "UNKNOWN"}]},
+            },
+        }
+        case = {
+            "预期 Tool": "query_soil_summary",
+            "预期 answer_type": "fallback_answer",
+            "预期 output_mode": "无",
+            "预期 guidance_reason": "无",
+            "预期 fallback_reason": "unknown",
+            "是否域内业务问题": "是",
+            "是否必须命中 Tool": "是",
+            "当前回答": "抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试。",
+        }
+        execution = {"response": response, "logs": [], "mode": "controlled-simulated-unknown-fallback"}
+        db_truth = {"applicable": False, "blocker": "数据库校验断言中没有可解析的 tool 调用。", "truth": {}, "sql_blocks": []}
+
+        analysis = self.helper.analyze_case(case, execution, db_truth)
+
+        self.assertNotIn("数据库回查阻塞：数据库校验断言中没有可解析的 tool 调用。", analysis["failure_reasons"])
+
+    def test_evaluate_answer_text_accepts_or_must_have_tokens(self) -> None:
+        case = {
+            "必含事实": "80% 或 80、排水",
+            "禁止事实": "编造阈值",
+            "是否域内业务问题": "否",
+            "预期 fallback_reason": "无",
+        }
+
+        result = self.helper.evaluate_answer_text(
+            "通常表示 20cm 含水量达到或超过 80%，需要及时排水。",
+            case,
+            {"applicable": False, "truth": {}},
+        )
+
+        self.assertEqual(result["missing_must_have"], [])
+
+    def test_evaluate_answer_text_tolerates_spacing_differences_in_must_have_tokens(self) -> None:
+        case = {
+            "必含事实": "沿用最近7天",
+            "禁止事实": "重新澄清时间窗",
+            "是否域内业务问题": "是",
+            "预期 fallback_reason": "无",
+        }
+
+        result = self.helper.evaluate_answer_text(
+            "沿用最近 7 天的时间窗。如东县在 2026-04-07 ~ 2026-04-13 这段时间内共有 42 条记录。",
+            case,
+            {"applicable": False, "truth": {}},
+        )
+
+        self.assertEqual(result["missing_must_have"], [])
+
+    def test_evaluate_answer_text_does_not_false_hit_comparison_forbidden_phrase(self) -> None:
+        case = {
+            "必含事实": "39、36、睢宁县",
+            "禁止事实": "沛县更严重",
+            "是否域内业务问题": "是",
+            "预期 fallback_reason": "无",
+        }
+
+        result = self.helper.evaluate_answer_text(
+            "最近30天横向对比，睢宁县比沛县更严重。睢宁县预警相关记录 39 条，沛县为 36 条。",
+            case,
+            {"applicable": True, "truth": {"alert_count": 39}},
+        )
+
+        self.assertEqual(result["forbidden_hits"], [])
+
+    def test_multi_turn_detail_cases_have_required_setup_messages(self) -> None:
+        self.assertEqual(
+            self.helper.CASE_SETUP_MESSAGES["SM-DETAIL-012"],
+            ["南通市最近 7 天怎么样", "那如东县呢"],
+        )
+        self.assertEqual(
+            self.helper.CASE_SETUP_MESSAGES["SM-DETAIL-013"],
+            ["如东县最近 7 天情况怎么样"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

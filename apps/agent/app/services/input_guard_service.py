@@ -61,7 +61,7 @@ class InputGuardService:
     # 短句但明显在问墒情现状，仍走业务 Flow，由后续节点解析。
     colloquial_texts = {"有没有问题", "现在的墒情", "当前的墒情"}
     # 指代型口语（那/这个/换成…），通常需要结合上下文，仍视为业务相关。
-    colloquial_markers = ("那", "这个", "这种情况", "换成")
+    colloquial_markers = ("那", "这个", "这种情况", "换成", "不是")
     pure_closing_texts = {
         "谢谢",
         "谢谢了",
@@ -187,6 +187,11 @@ class InputGuardService:
             return True
         if compact in {"那个情况呢", "这种情况呢"}:
             return True
+        if (
+            re.search(r"^(查一下|查下|看一下|看下|帮我查一下|帮我看一下).+情况", compact)
+            and not self._has_explicit_time_signal(normalized)
+        ):
+            return True
         if "什么意思" in normalized:
             return True
         if normalized.endswith("呢") and self._contains_business_signal(normalized):
@@ -263,6 +268,31 @@ class InputGuardService:
                 "近",
                 "过去",
             ]
+        )
+
+    @staticmethod
+    def _has_explicit_time_signal(text: str) -> bool:
+        return any(
+            token in text
+            for token in (
+                "今天",
+                "昨天",
+                "前天",
+                "上周",
+                "这周",
+                "本周",
+                "这个月",
+                "本月",
+                "上个月",
+                "今年",
+                "最近",
+                "过去",
+                "近",
+                "月",
+                "天",
+                "周",
+                "年",
+            )
         )
 
 

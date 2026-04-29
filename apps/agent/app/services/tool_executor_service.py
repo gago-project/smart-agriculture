@@ -98,6 +98,8 @@ class ToolExecutorService:
         if not records:
             empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
+                "entity_type": "device" if sn else "region",
+                "entity_name": sn or county or city or "全局",
                 "total_records": 0,
                 "output_mode": output_mode,
                 "time_window": {"start_time": start_time, "end_time": end_time},
@@ -133,6 +135,8 @@ class ToolExecutorService:
         ]
 
         result: dict[str, Any] = {
+            "entity_type": "device" if sn else "region",
+            "entity_name": sn or county or city or "全局",
             "total_records": len(enriched),
             "output_mode": output_mode,
             "time_window": {"start_time": start_time, "end_time": end_time},
@@ -218,8 +222,17 @@ class ToolExecutorService:
 
             items.append(item)
 
-        # Sort: highest avg risk_score first; alert_count as tiebreaker
-        items.sort(key=lambda x: (-x["avg_risk_score"], -x["alert_count"]))
+        # Ranking answers follow formal acceptance semantics: alert volume first,
+        # then risk score depth, then moisture severity as a stable tiebreaker.
+        items.sort(
+            key=lambda x: (
+                -(x["alert_count"] or 0),
+                -(x["avg_risk_score"] or 0.0),
+                -(x["avg_water20cm"] or 0.0),
+                -(x["record_count"] or 0),
+                str(x.get("name") or ""),
+            )
+        )
 
         top_items = items[:top_n]
         for idx, item in enumerate(top_items, start=1):
@@ -272,6 +285,9 @@ class ToolExecutorService:
             status_summary[r.get("soil_status", "unknown")] += 1
 
         alert_records = [r for r in enriched if r.get("soil_status") in _ALERT_STATUSES]
+        effective_output_mode = output_mode
+        if sn and output_mode == "normal" and alert_records:
+            effective_output_mode = "anomaly_focus"
 
         entity_type = "device" if sn else "region"
         entity_name = sn or county or city or "未知"
@@ -279,16 +295,26 @@ class ToolExecutorService:
         result: dict[str, Any] = {
             "entity_type": entity_type,
             "entity_name": entity_name,
-            "output_mode": output_mode,
+            "output_mode": effective_output_mode,
             "record_count": len(enriched),
             "time_window": {"start_time": start_time, "end_time": end_time},
             "latest_record": _slim_record(latest),
             "alert_records": _slim_records(alert_records[:5]),
             "status_summary": dict(status_summary),
+            "alert_count": len(alert_records),
         }
 
-        if output_mode == "warning_mode" and alert_records:
+        if effective_output_mode == "warning_mode" and alert_records:
             result["warning_data"] = _warning_fields(alert_records[0])
+        if alert_records:
+            alert_start = min((record.get("create_time") or "") for record in alert_records)
+            alert_end = max((record.get("create_time") or "") for record in alert_records)
+            result["alert_period_summary"] = {
+                "start_time": alert_start or None,
+                "end_time": alert_end or None,
+                "alert_count": len(alert_records),
+                "representative_record": _slim_record(alert_records[0]),
+            }
 
         return result
 
@@ -380,17 +406,43 @@ class ToolExecutorService:
                 "status_counts": dict(status_counts),
             })
 
-        # Rank: highest avg_risk_score first; alert_count is the tiebreaker
-        items.sort(key=lambda x: (-(x["avg_risk_score"] or 0.0), -(x["alert_count"] or 0)))
+        # Comparison emphasizes alert volume first, then risk score, then severity depth.
+        items.sort(
+            key=lambda x: (
+                -(x["alert_count"] or 0),
+                -(x["avg_risk_score"] or 0.0),
+                -(x["avg_water20cm"] or 0.0),
+                -(x["record_count"] or 0),
+            )
+        )
         for idx, item in enumerate(items, start=1):
             item["rank"] = idx
+        winner = str(items[0].get("name") or "") if items else ""
+        winner_basis = self._comparison_winner_basis(items)
 
         return {
             "entity_type": entity_type,
             "time_window": {"start_time": start_time, "end_time": end_time},
             "total_entities": len(entities),
             "items": items,
+            "comparison": items,
+            "winner": winner,
+            "winner_basis": winner_basis,
         }
+
+    @staticmethod
+    def _comparison_winner_basis(items: list[dict[str, Any]]) -> str:
+        if len(items) < 2:
+            return "alert_count"
+        left = items[0]
+        right = items[1]
+        if (left.get("alert_count") or 0) != (right.get("alert_count") or 0):
+            return "alert_count"
+        if (left.get("avg_risk_score") or 0.0) != (right.get("avg_risk_score") or 0.0):
+            return "avg_risk_score"
+        if (left.get("avg_water20cm") or 0.0) != (right.get("avg_water20cm") or 0.0):
+            return "avg_water20cm"
+        return "record_count"
 
     async def _execute_diagnose(self, args: dict[str, Any]) -> dict[str, Any]:
         """Return structured diagnosis: entity_not_found / no_data_in_window / data_exists."""
@@ -569,6 +621,7 @@ def _warning_fields(r: dict[str, Any]) -> dict[str, Any]:
         "year": year, "month": month, "day": day, "hour": hour,
         "city": r.get("city"), "county": r.get("county"),
         "sn": r.get("sn"),
+        "create_time": r.get("create_time"),
         "water20cm": r.get("water20cm"),
         "warning_level": r.get("warning_level"),
         "display_label": r.get("display_label"),

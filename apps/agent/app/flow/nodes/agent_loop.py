@@ -10,15 +10,20 @@ The resolved_input (coreference-expanded) is passed to AgentLoopService.
 from __future__ import annotations
 
 import logging
+import re
 
 from app.flow.nodes.base import BaseNode
 from app.llm.tools import get_tool_meta
 from app.repositories.soil_repository import SoilRepository
 from app.schemas.state import FlowState, NodeResult
 from app.services.agent_loop_service import AgentLoopService
-from app.services.semantic_parser_service import SemanticParserService
+from app.services.semantic_parser_service import SemanticParseResult, SemanticParserService
+from app.services.time_window_service import TimeWindowService
 
 logger = logging.getLogger(__name__)
+
+_EXPLICIT_SN_PATTERN = re.compile(r"SNS[\w-]+", re.IGNORECASE)
+_SELF_CONTAINED_QUERY_PATTERN = re.compile(r"(查一下|查下|看一下|看下|帮我查一下|帮我看一下).+的情况")
 
 _INTENT_HINT_MAP = {
     "soil_summary": "soil_recent_summary",
@@ -47,13 +52,16 @@ class AgentLoopNode(BaseNode):
         self.service = service
         self.repository = repository
         self.semantic_parser = semantic_parser or SemanticParserService()
+        self.time_window_service = TimeWindowService()
 
     async def run(self, state: FlowState) -> NodeResult:
         latest_business_time = await self.repository.latest_business_time_async()
+        original_time_evidence = self.time_window_service.resolve(state.user_input, latest_business_time)
 
         # P1-8/9: For colloquial business inputs, resolve coreferences and get intent_hint
         effective_input = state.user_input
         semantic_intent_hint: str | None = None
+        semantic_seed_args: dict[str, str] | None = None
         if getattr(state, "input_type", None) and str(state.input_type or "").endswith("colloquial"):
             history = await self.service.history_store.load_history(state.session_id)
             if state.turn_id > 1 and not history:
@@ -74,17 +82,28 @@ class AgentLoopNode(BaseNode):
                 latest_business_time=latest_business_time,
             )
             if parse_result.needs_clarify and parse_result.clarify_message:
-                patch: dict = {
-                    "answer_bundle": {"final_answer": (
-                        f"您的问题需要补充一些信息：{parse_result.clarify_message}。"
-                        "请补充说明后重试。"
-                    )},
-                    "answer_type": "guidance_answer",
-                    "guidance_reason": "clarification",
-                    "session_reset": False,
-                }
-                return self.ensure_result(NodeResult(next_action="clarify", state_patch=patch))
+                if _should_defer_semantic_clarify(parse_result) or _can_bypass_semantic_clarify(state.user_input):
+                    parse_result = SemanticParseResult(resolved_input=state.user_input)
+                else:
+                    patch: dict = {
+                        "answer_bundle": {"final_answer": (
+                            f"您的问题需要补充一些信息：{parse_result.clarify_message}。"
+                            "请补充说明后重试。"
+                        )},
+                        "answer_type": "guidance_answer",
+                        "guidance_reason": "clarification",
+                        "session_reset": False,
+                    }
+                    return self.ensure_result(NodeResult(next_action="clarify", state_patch=patch))
             effective_input = parse_result.resolved_input
+            if (
+                parse_result.start_time
+                and parse_result.end_time
+                and not original_time_evidence.has_time_signal
+            ):
+                # Keep colloquial follow-ups on the original utterance so time inheritance
+                # stays owned by the resolver instead of a semantic rewrite.
+                effective_input = state.user_input
             semantic_intent_hint = _INTENT_HINT_MAP.get(parse_result.intent_hint)
             if parse_result.entities or parse_result.start_time or parse_result.end_time:
                 logger.debug(
@@ -94,6 +113,16 @@ class AgentLoopNode(BaseNode):
                     parse_result.end_time,
                     effective_input,
                 )
+            semantic_seed_args = dict(parse_result.entities or {})
+            if (
+                parse_result.start_time
+                and parse_result.end_time
+                and original_time_evidence.has_time_signal
+            ):
+                semantic_seed_args.setdefault("start_time", parse_result.start_time)
+                semantic_seed_args.setdefault("end_time", parse_result.end_time)
+            if not semantic_seed_args:
+                semantic_seed_args = None
 
         result = await self.service.run(
             user_input=effective_input,
@@ -101,6 +130,7 @@ class AgentLoopNode(BaseNode):
             turn_id=state.turn_id,
             latest_business_time=latest_business_time,
             is_business_query=True,
+            semantic_seed_args=semantic_seed_args,
         )
 
         patch: dict = {
@@ -152,7 +182,8 @@ class AgentLoopNode(BaseNode):
         # output_mode from first tool's args
         if result.tool_calls_made and patch.get("answer_type") != "fallback_answer":
             first_args = result.tool_calls_made[0].get("tool_args", {})
-            output_mode = first_args.get("output_mode")
+            first_result = result.tool_results[0] if result.tool_results else {}
+            output_mode = first_result.get("output_mode") or first_args.get("output_mode")
             if output_mode:
                 patch["output_mode"] = output_mode
 
@@ -178,7 +209,22 @@ class AgentLoopNode(BaseNode):
 
         # answer_facts: structured evidence from tool results
         if result.tool_results:
-            patch["answer_facts"] = result.tool_results[0]
+            first_result = dict(result.tool_results[0])
+            first_call = result.tool_calls_made[0] if result.tool_calls_made else {}
+            if result.tool_calls_made and result.tool_calls_made[0].get("tool_name") == "query_soil_comparison":
+                first_result.setdefault("comparison", first_result.get("items") or [])
+            if result.tool_calls_made and result.tool_calls_made[0].get("tool_name") == "query_soil_summary":
+                tool_args = first_call.get("tool_args", {})
+                first_result.setdefault("entity_type", "device" if tool_args.get("sn") else "region")
+                first_result.setdefault(
+                    "entity_name",
+                    tool_args.get("sn") or tool_args.get("county") or tool_args.get("city") or "全局",
+                )
+            first_result["entity_confidence"] = first_call.get("entity_confidence", result.entity_confidence)
+            first_result["used_context"] = bool(first_call.get("used_context"))
+            first_result["time_source"] = first_call.get("time_source")
+            first_result["context_correction"] = state.user_input.strip().startswith("不是") and "是" in state.user_input
+            patch["answer_facts"] = first_result
 
         patch["query_log_entries"] = result.query_log_entries
 
@@ -224,3 +270,18 @@ def _fallback_reason_from_empty_result_path(path: str) -> str | None:
     if path == "normalize_failed":
         return "entity_not_found"
     return None
+
+
+def _should_defer_semantic_clarify(parse_result: SemanticParseResult) -> bool:
+    if parse_result.intent_hint in _INTENT_HINT_MAP:
+        return True
+    if parse_result.entities:
+        return True
+    return bool(parse_result.start_time or parse_result.end_time)
+
+
+def _can_bypass_semantic_clarify(user_input: str) -> bool:
+    compact = "".join((user_input or "").split())
+    if _EXPLICIT_SN_PATTERN.search(compact):
+        return True
+    return bool(_SELF_CONTAINED_QUERY_PATTERN.search(compact))

@@ -11,11 +11,13 @@ import asyncio
 import unittest
 from unittest.mock import AsyncMock, MagicMock
 
+from app.flow.nodes.agent_loop import _can_bypass_semantic_clarify, _should_defer_semantic_clarify
 from app.llm.qwen_client import QwenClient
 from app.schemas.enums import AnswerType, GuidanceReason, FallbackReason
 from app.services.agent_service import SoilAgentService
 from app.services.agent_loop_service import AgentLoopService, AgentLoopResult
 from app.services.parameter_resolver_service import ParameterResolverService
+from app.services.semantic_parser_service import SemanticParseResult
 from tests.support_repositories import SeedSoilRepository
 
 _VALID_ANSWER_TYPES = {v.value for v in AnswerType} | {None}
@@ -101,6 +103,37 @@ class InputGuardBehaviorTest(unittest.TestCase):
         self.assertEqual(result["guidance_reason"], "clarification")
         self.assertFalse(result["should_query"])
         self.assertIn("时间", result["final_answer"])
+
+    def test_semantic_clarification_is_deferred_when_parser_already_found_structure(self):
+        deferred = _should_defer_semantic_clarify(
+            SemanticParseResult(
+                resolved_input="查一下南通的情况",
+                intent_hint="soil_summary",
+                entities={"city": "南通"},
+                needs_clarify=True,
+                clarify_message="缺少具体的时间范围",
+            )
+        )
+
+        self.assertTrue(deferred)
+
+    def test_semantic_clarification_is_not_deferred_when_structure_is_missing(self):
+        deferred = _should_defer_semantic_clarify(
+            SemanticParseResult(
+                resolved_input="帮我看一下",
+                intent_hint="unclear",
+                entities={},
+                needs_clarify=True,
+                clarify_message="请提供更多信息",
+            )
+        )
+
+        self.assertFalse(deferred)
+
+    def test_self_contained_query_can_bypass_semantic_clarification(self):
+        self.assertTrue(_can_bypass_semantic_clarify("查一下南通的情况"))
+        self.assertTrue(_can_bypass_semantic_clarify("SNS00204334 这种情况需要注意什么"))
+        self.assertFalse(_can_bypass_semantic_clarify("帮我看一下"))
 
 
 class P0RedLineTest(unittest.TestCase):
