@@ -12,6 +12,11 @@ export interface AgentQueryEvidenceEntry {
   filters_json?: unknown;
   executed_sql_text?: string | null;
   executed_result_json?: unknown;
+  result_preview?: unknown;
+  preview_columns?: string[];
+  result_truncated?: boolean;
+  result_chars?: number;
+  has_full_result?: boolean;
   missing_fields: string[];
 }
 
@@ -20,6 +25,12 @@ export interface AgentQueryEvidencePayload {
   turn_id: number;
   has_query: boolean;
   entries: AgentQueryEvidenceEntry[];
+}
+
+export interface AgentQueryEvidenceResultPayload {
+  query_id: string;
+  executed_result_json?: unknown;
+  result_chars?: number;
 }
 
 function authHeaders(): Record<string, string> {
@@ -64,4 +75,24 @@ export async function fetchAdminQueryEvidence(sessionId: string, turnId: number)
     throw new Error(extractError(payload));
   }
   return payload as AgentQueryEvidencePayload;
+}
+
+export async function fetchAdminQueryEvidenceResult(queryId: string): Promise<AgentQueryEvidenceResultPayload> {
+  const params = new URLSearchParams({
+    query_id: queryId,
+  });
+  const response = await fetch(`/api/admin/agent/query-evidence/result?${params.toString()}`, {
+    method: 'GET',
+    headers: authHeaders(),
+    cache: 'no-store',
+  });
+  const payload = await parseJson(response);
+  if (!response.ok) {
+    if (response.status === 401) {
+      useAuthStore.getState().clearSession();
+      throw new Error('登录已失效，请重新登录');
+    }
+    throw new Error(extractError(payload));
+  }
+  return payload as AgentQueryEvidenceResultPayload;
 }

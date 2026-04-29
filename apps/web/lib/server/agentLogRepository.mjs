@@ -1,5 +1,12 @@
 import { withMysqlConnection } from './mysql.mjs';
 
+const MAX_INLINE_EVIDENCE_RESULT_CHARS = 200_000;
+const RESULT_PREVIEW_ROW_LIMIT = 10;
+const RECORD_PREVIEW_COLUMNS = ['create_time', 'city', 'county', 'sn', 'water20cm', 'soil_status', 'warning_level', 'display_label'];
+const REGION_ALERT_PREVIEW_COLUMNS = ['region', 'alert_count'];
+const RANKING_PREVIEW_COLUMNS = ['rank', 'name', 'city', 'county', 'alert_count', 'avg_risk_score', 'avg_water20cm', 'record_count', 'status'];
+const WARNING_PREVIEW_COLUMNS = ['year', 'month', 'day', 'hour', 'city', 'county', 'sn', 'water20cm', 'warning_level', 'display_label'];
+
 function parseJsonValue(value) {
   if (value === null || value === undefined || value === '') {
     return null;
@@ -19,6 +26,112 @@ function appendFilter(filters, params, condition, value) {
   if (!normalized) return;
   filters.push(condition);
   params.push(normalized);
+}
+
+function toPositiveNumber(value) {
+  const numeric = Number(value || 0);
+  return Number.isFinite(numeric) && numeric > 0 ? numeric : 0;
+}
+
+function pickDefinedColumns(sample, candidates) {
+  return candidates.filter((column) => Object.prototype.hasOwnProperty.call(sample, column));
+}
+
+function inferPreviewColumns(rows) {
+  const sample = rows.find((row) => row && typeof row === 'object' && !Array.isArray(row));
+  if (!sample) {
+    return [];
+  }
+  if ('region' in sample && 'alert_count' in sample) {
+    return pickDefinedColumns(sample, REGION_ALERT_PREVIEW_COLUMNS);
+  }
+  if ('name' in sample && ('avg_risk_score' in sample || 'rank' in sample)) {
+    return pickDefinedColumns(sample, RANKING_PREVIEW_COLUMNS);
+  }
+  if ('year' in sample && 'warning_level' in sample) {
+    return pickDefinedColumns(sample, WARNING_PREVIEW_COLUMNS);
+  }
+  if ('sn' in sample && ('water20cm' in sample || 'create_time' in sample)) {
+    return pickDefinedColumns(sample, RECORD_PREVIEW_COLUMNS);
+  }
+  return Object.keys(sample).slice(0, 6);
+}
+
+function compactPreviewRows(rows, columns) {
+  return rows.slice(0, RESULT_PREVIEW_ROW_LIMIT).map((row) => {
+    if (!row || typeof row !== 'object' || Array.isArray(row)) {
+      return row;
+    }
+    return Object.fromEntries(columns.map((column) => [column, row[column] ?? null]));
+  });
+}
+
+function buildPreviewMeta({ totalRows, shownRows, sourceKey, columns }) {
+  return {
+    truncated: totalRows > shownRows,
+    source_key: sourceKey || '',
+    total_rows: totalRows,
+    shown_rows: shownRows,
+    hidden_columns: Array.isArray(columns) ? columns.length : 0,
+  };
+}
+
+function buildResultPreview(value) {
+  if (value === null || value === undefined) {
+    return null;
+  }
+  if (Array.isArray(value)) {
+    const previewColumns = inferPreviewColumns(value);
+    return {
+      rows: compactPreviewRows(value, previewColumns),
+      preview_columns: previewColumns,
+      _preview: buildPreviewMeta({
+        totalRows: value.length,
+        shownRows: Math.min(value.length, RESULT_PREVIEW_ROW_LIMIT),
+        sourceKey: 'rows',
+        columns: previewColumns,
+      }),
+    };
+  }
+  if (!value || typeof value !== 'object') {
+    return value;
+  }
+
+  const record = value;
+  const candidateKeys = ['records', 'items', 'comparison', 'alert_records', 'top_alert_regions'];
+  for (const key of candidateKeys) {
+    const rows = Array.isArray(record[key]) ? record[key] : null;
+    if (!rows) continue;
+    const previewColumns = inferPreviewColumns(rows);
+    return {
+      ...record,
+      [key]: compactPreviewRows(rows, previewColumns),
+      preview_columns: previewColumns,
+      _preview: buildPreviewMeta({
+        totalRows: rows.length,
+        shownRows: Math.min(rows.length, RESULT_PREVIEW_ROW_LIMIT),
+        sourceKey: key,
+        columns: previewColumns,
+      }),
+    };
+  }
+
+  if (record.latest_record && typeof record.latest_record === 'object' && !Array.isArray(record.latest_record)) {
+    const previewColumns = inferPreviewColumns([record.latest_record]);
+    return {
+      ...record,
+      latest_record: compactPreviewRows([record.latest_record], previewColumns)[0],
+      preview_columns: previewColumns,
+      _preview: buildPreviewMeta({
+        totalRows: 1,
+        shownRows: 1,
+        sourceKey: 'latest_record',
+        columns: previewColumns,
+      }),
+    };
+  }
+
+  return record;
 }
 
 function fromDbSummaryLog(row) {
@@ -72,6 +185,10 @@ function fromDbDetailLog(row) {
 }
 
 function fromDbEvidenceEntry(row, entryIndex) {
+  const resultChars = toPositiveNumber(row.result_chars);
+  const rawResult = parseJsonValue(row.executed_result_json);
+  const inlineResultAllowed = rawResult !== null && resultChars <= MAX_INLINE_EVIDENCE_RESULT_CHARS;
+  const previewResult = rawResult === null ? null : (inlineResultAllowed ? rawResult : buildResultPreview(rawResult));
   const missingFields = [];
   if (!row.executed_sql_text) {
     missingFields.push('executed_sql_text');
@@ -90,7 +207,12 @@ function fromDbEvidenceEntry(row, entryIndex) {
     time_range_json: parseJsonValue(row.time_range_json),
     filters_json: parseJsonValue(row.filters_json),
     executed_sql_text: row.executed_sql_text || null,
-    executed_result_json: parseJsonValue(row.executed_result_json),
+    executed_result_json: inlineResultAllowed ? rawResult : null,
+    result_preview: previewResult,
+    preview_columns: Array.isArray(previewResult?.preview_columns) ? previewResult.preview_columns : [],
+    result_truncated: rawResult !== null && !inlineResultAllowed,
+    result_chars: resultChars,
+    has_full_result: rawResult !== null,
     missing_fields: missingFields,
   };
 }
@@ -228,7 +350,30 @@ export async function getAgentQueryEvidenceByTurn({ session_id, turn_id }) {
       throw new Error('session_id and turn_id are required');
     }
 
-    const [rows] = await connection.query(
+    const [orderRows] = await connection.query(
+      `SELECT
+         query_id,
+         DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at
+       FROM agent_query_log
+       FORCE INDEX (idx_aql_session_turn)
+       WHERE session_id = ?
+         AND turn_id = ?
+       ORDER BY created_at ASC, query_id ASC`,
+      [sessionId, turnId],
+    );
+
+    const orderedIds = orderRows.map((row) => row.query_id).filter(Boolean);
+    if (orderedIds.length === 0) {
+      return {
+        session_id: sessionId,
+        turn_id: turnId,
+        has_query: false,
+        entries: [],
+      };
+    }
+
+    const detailPlaceholders = orderedIds.map(() => '?').join(', ');
+    const [detailRows] = await connection.query(
       `SELECT
          query_id,
          query_type,
@@ -239,19 +384,56 @@ export async function getAgentQueryEvidenceByTurn({ session_id, turn_id }) {
          time_range_json,
          filters_json,
          executed_sql_text,
-         executed_result_json
+         executed_result_json,
+         CHAR_LENGTH(CAST(executed_result_json AS CHAR)) AS result_chars
        FROM agent_query_log
-       WHERE session_id = ?
-         AND turn_id = ?
-       ORDER BY created_at ASC, query_id ASC`,
-      [sessionId, turnId],
+       WHERE query_id IN (${detailPlaceholders})`,
+      orderedIds,
     );
+
+    const rowsById = new Map(detailRows.map((row) => [row.query_id, row]));
 
     return {
       session_id: sessionId,
       turn_id: turnId,
-      has_query: rows.length > 0,
-      entries: rows.map((row, index) => fromDbEvidenceEntry(row, index + 1)),
+      has_query: orderedIds.length > 0,
+      entries: orderedIds
+        .map((queryId, index) => {
+          const row = rowsById.get(queryId);
+          return row ? fromDbEvidenceEntry(row, index + 1) : null;
+        })
+        .filter(Boolean),
+    };
+  });
+}
+
+export async function getAgentQueryEvidenceResultByQueryId(query_id) {
+  return await withMysqlConnection(async (connection) => {
+    const queryId = String(query_id || '').trim();
+    if (!queryId) {
+      throw new Error('query_id is required');
+    }
+
+    const [rows] = await connection.query(
+      `SELECT
+         query_id,
+         executed_result_json,
+         CHAR_LENGTH(CAST(executed_result_json AS CHAR)) AS result_chars
+       FROM agent_query_log
+       WHERE query_id = ?
+       LIMIT 1`,
+      [queryId],
+    );
+
+    const row = rows[0];
+    if (!row) {
+      throw new Error('查询证据不存在');
+    }
+
+    return {
+      query_id: row.query_id,
+      executed_result_json: parseJsonValue(row.executed_result_json),
+      result_chars: toPositiveNumber(row.result_chars),
     };
   });
 }

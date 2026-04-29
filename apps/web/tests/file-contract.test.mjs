@@ -191,6 +191,27 @@ test('query log repository pages ids before loading wide log fields', () => {
   assert.match(source, /SELECT[\s\S]*executed_result_json[\s\S]*FROM agent_query_log[\s\S]*WHERE query_id = \?/);
 });
 
+test('query evidence repository loads ordering keys before fetching wide evidence payloads', () => {
+  const source = readFileSync(new URL('../lib/server/agentLogRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(source, /export async function getAgentQueryEvidenceByTurn/);
+  assert.match(source, /SELECT\s+query_id,\s+DATE_FORMAT\(created_at/);
+  assert.match(source, /FORCE INDEX \(idx_aql_session_turn\)/);
+  assert.match(source, /WHERE query_id IN \(\$\{detailPlaceholders\}\)/);
+  assert.match(source, /const \[orderRows\] = await connection\.query/);
+  assert.match(source, /const \[detailRows\] = await connection\.query/);
+});
+
+test('query evidence sidebar keeps raw JSON behind an explicit expand action', () => {
+  const source = readFileSync(new URL('../workspace/components/AdminQueryEvidenceSidebar.tsx', import.meta.url), 'utf8');
+
+  assert.match(source, /const \[detailsOpen, setDetailsOpen\] = useState\(false\)/);
+  assert.match(source, /fetchAdminQueryEvidenceResult/);
+  assert.match(source, /result_truncated/);
+  assert.match(source, /onToggle=/);
+  assert.doesNotMatch(source, /<pre>\{prettyJson\(value\)\}<\/pre>/);
+});
+
 test('query log page loads wide SQL and result payloads on demand', () => {
   const apiSource = readFileSync(new URL('../workspace/services/agentLogApi.ts', import.meta.url), 'utf8');
   const pageSource = readFileSync(new URL('../workspace/components/AgentLogPage.tsx', import.meta.url), 'utf8');

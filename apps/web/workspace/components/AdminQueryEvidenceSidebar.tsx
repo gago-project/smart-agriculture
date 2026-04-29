@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 
-import { fetchAdminQueryEvidence, type AgentQueryEvidenceEntry, type AgentQueryEvidencePayload } from '../services/queryEvidenceApi';
+import { fetchAdminQueryEvidence, fetchAdminQueryEvidenceResult, type AgentQueryEvidencePayload } from '../services/queryEvidenceApi';
 import type { ChatMessageData, Message } from '../types/chat';
 
 interface AdminQueryEvidenceSidebarProps {
@@ -10,6 +10,12 @@ interface AdminQueryEvidenceSidebarProps {
 interface EvidenceState {
   loading: boolean;
   data?: AgentQueryEvidencePayload;
+  error?: string | null;
+}
+
+interface RawResultState {
+  loading: boolean;
+  data?: unknown;
   error?: string | null;
 }
 
@@ -104,12 +110,103 @@ function tableColumns(rows: Array<Record<string, unknown>>): string[] {
   return Array.from(columns).slice(0, 8);
 }
 
-function ResultPreview({ value }: { value: unknown }) {
+function resolvePreviewColumns(result: unknown, rows: Array<Record<string, unknown>>): string[] {
+  const record = asObject(result);
+  const preferred = Array.isArray(record?.preview_columns)
+    ? record.preview_columns.filter((column): column is string => typeof column === 'string' && column.trim().length > 0)
+    : [];
+  if (preferred.length > 0) {
+    return preferred;
+  }
+  return tableColumns(rows);
+}
+
+function formatResultChars(resultChars?: number): string {
+  const size = Number(resultChars || 0);
+  if (!Number.isFinite(size) || size <= 0) return '未知大小';
+  if (size < 1024) return `${size} 字符`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+}
+
+function ResultPreview({
+  value,
+  queryId,
+  rawValue,
+  resultTruncated,
+  resultChars,
+  canLoadRaw,
+}: {
+  value: unknown;
+  queryId: string;
+  rawValue?: unknown;
+  resultTruncated?: boolean;
+  resultChars?: number;
+  canLoadRaw?: boolean;
+}) {
   const rows = useMemo(() => pickResultRows(value).slice(0, 10), [value]);
-  const columns = useMemo(() => tableColumns(rows), [rows]);
+  const columns = useMemo(() => resolvePreviewColumns(value, rows), [rows, value]);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const [rawState, setRawState] = useState<RawResultState>({
+    loading: false,
+    data: rawValue ?? (!resultTruncated ? value : undefined),
+    error: null,
+  });
+
+  useEffect(() => {
+    setDetailsOpen(false);
+    setRawState({
+      loading: false,
+      data: rawValue ?? (!resultTruncated ? value : undefined),
+      error: null,
+    });
+  }, [queryId, rawValue, resultTruncated, value]);
+
+  useEffect(() => {
+    if (!detailsOpen || !resultTruncated || !canLoadRaw || !queryId || rawState.loading || rawState.data !== undefined) {
+      return;
+    }
+
+    let cancelled = false;
+    setRawState((current) => ({
+      ...current,
+      loading: true,
+      error: null,
+    }));
+
+    void fetchAdminQueryEvidenceResult(queryId)
+      .then((payload) => {
+        if (cancelled) return;
+        setRawState({
+          loading: false,
+          data: payload.executed_result_json,
+          error: null,
+        });
+      })
+      .catch((caughtError) => {
+        if (cancelled) return;
+        setRawState({
+          loading: false,
+          data: undefined,
+          error: caughtError instanceof Error ? caughtError.message : '原始 JSON 加载失败',
+        });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canLoadRaw, detailsOpen, queryId, rawState.data, rawState.loading, resultTruncated]);
 
   return (
     <>
+      {resultTruncated ? (
+        <div className="query-evidence-warning">
+          结果较大（{formatResultChars(resultChars)}），默认只展示预览；展开时再按需加载完整 JSON。
+        </div>
+      ) : null}
+      {columns.length > 0 ? (
+        <div className="query-evidence-empty small">仅展示关键字段：{columns.join(' / ')}</div>
+      ) : null}
       {rows.length > 0 && columns.length > 0 ? (
         <div className="query-evidence-table-wrap">
           <table className="query-evidence-table">
@@ -132,9 +229,18 @@ function ResultPreview({ value }: { value: unknown }) {
           </table>
         </div>
       ) : null}
-      <details className="query-evidence-json">
-        <summary>查看原始 JSON</summary>
-        <pre>{prettyJson(value)}</pre>
+      <details
+        className="query-evidence-json"
+        onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+      >
+        <summary>{resultTruncated ? '查看原始 JSON（按需加载）' : '查看原始 JSON'}</summary>
+        {!detailsOpen ? null : rawState.loading ? (
+          <div className="query-evidence-empty small">原始 JSON 加载中...</div>
+        ) : rawState.error ? (
+          <div className="admin-message error">{rawState.error}</div>
+        ) : (
+          <pre>{prettyJson(rawState.data ?? value)}</pre>
+        )}
       </details>
     </>
   );
@@ -145,12 +251,10 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
   const [selectedEntryIndex, setSelectedEntryIndex] = useState(0);
 
   const messageData = toMessageData(message);
-  const evidenceMeta = asObject(message?.meta?.evidence);
   const sessionId = typeof messageData?.session_id === 'string' ? messageData.session_id : '';
   const turnId = typeof messageData?.turn_id === 'number' ? messageData.turn_id : 0;
   const shouldQuery = Boolean(messageData?.should_query);
   const cacheKey = sessionId && turnId > 0 ? `${sessionId}:${turnId}` : '';
-  const fallbackQueryResult = evidenceMeta?.query_result;
 
   useEffect(() => {
     setSelectedEntryIndex(0);
@@ -203,7 +307,8 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
   const evidenceState = cacheKey ? evidenceCache[cacheKey] : undefined;
   const entries = evidenceState?.data?.entries ?? [];
   const activeEntry = entries[selectedEntryIndex] ?? entries[0] ?? null;
-  const resultSource = activeEntry?.executed_result_json ?? fallbackQueryResult;
+  const resultSource = activeEntry?.result_preview ?? activeEntry?.executed_result_json;
+  const rawResultSource = activeEntry?.executed_result_json;
   const isHistoricalGap = Boolean(activeEntry?.missing_fields?.length);
 
   return (
@@ -279,7 +384,7 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
 
           {isHistoricalGap ? (
             <div className="query-evidence-warning">
-              历史日志不完整：缺少 {activeEntry?.missing_fields.join('、')}，结果区已尽量回退到当前消息里的结构化数据。
+              历史日志不完整：缺少 {activeEntry?.missing_fields.join('、')}，当前仅展示接口还能还原出的真实证据。
             </div>
           ) : null}
 
@@ -295,7 +400,14 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
           <section className="query-evidence-section">
             <div className="query-evidence-section-title">结果数据</div>
             {resultSource ? (
-              <ResultPreview value={resultSource} />
+              <ResultPreview
+                value={resultSource}
+                queryId={activeEntry?.query_id || ''}
+                rawValue={rawResultSource}
+                resultTruncated={Boolean(activeEntry?.result_truncated)}
+                resultChars={activeEntry?.result_chars}
+                canLoadRaw={Boolean(activeEntry?.result_truncated && activeEntry?.has_full_result)}
+              />
             ) : (
               <div className="query-evidence-empty small">当前日志没有保存结果数据。</div>
             )}

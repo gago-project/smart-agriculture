@@ -123,9 +123,7 @@ export function useChatActions() {
           status: 'done',
           meta: {
             mode: result.mode,
-            data: result.data,
-            evidence: result.evidence,
-            processing: result.processing ?? null
+            data: result.data
           }
         });
         selectAssistantMessageInStore(sessionId, assistantMessageId);

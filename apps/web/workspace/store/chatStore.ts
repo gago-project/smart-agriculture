@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { Message, MessageMeta, MessageRole, MessageStatus, Session } from '../types/chat';
+import type { ChatMessageData, Message, MessageMeta, MessageRole, MessageStatus, Session } from '../types/chat';
 
 interface AddMessageInput {
   role: MessageRole;
@@ -29,6 +29,7 @@ interface ChatState {
 }
 
 const STORAGE_KEY = 'doc-frontend-chat-v2';
+const STORAGE_VERSION = 1;
 
 function id() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -48,6 +49,78 @@ function withSessionUpdate(sessions: Session[], sessionId: string, fn: (session:
     if (session.id !== sessionId) return session;
     return fn(session);
   });
+}
+
+function compactMessageData(data?: ChatMessageData | null): ChatMessageData | null {
+  if (!data || typeof data !== 'object') {
+    return null;
+  }
+
+  const next: ChatMessageData = {};
+  if (typeof data.session_id === 'string' && data.session_id.trim()) {
+    next.session_id = data.session_id.trim();
+  }
+  if (typeof data.turn_id === 'number' && Number.isInteger(data.turn_id) && data.turn_id > 0) {
+    next.turn_id = data.turn_id;
+  }
+  if (typeof data.should_query === 'boolean') {
+    next.should_query = data.should_query;
+  }
+
+  return Object.keys(next).length > 0 ? next : null;
+}
+
+function compactMessageMeta(meta?: MessageMeta): MessageMeta | undefined {
+  if (!meta || typeof meta !== 'object') {
+    return undefined;
+  }
+
+  const next: MessageMeta = {};
+  if (typeof meta.mode === 'string' && meta.mode.trim()) {
+    next.mode = meta.mode.trim();
+  }
+
+  const compactData = compactMessageData(meta.data ?? null);
+  if (compactData) {
+    next.data = compactData;
+  }
+
+  return Object.keys(next).length > 0 ? next : undefined;
+}
+
+function compactPersistedMessage(message: Message): Message {
+  return {
+    id: String(message.id || ''),
+    role: message.role,
+    content: String(message.content || ''),
+    status: message.status,
+    createdAt: Number(message.createdAt || 0),
+    meta: compactMessageMeta(message.meta),
+  };
+}
+
+function compactPersistedSessions(sessions: Session[]): Session[] {
+  return Array.isArray(sessions)
+    ? sessions.map((session) => ({
+        id: String(session.id || ''),
+        title: String(session.title || '新会话'),
+        createdAt: Number(session.createdAt || 0),
+        updatedAt: Number(session.updatedAt || 0),
+        messages: Array.isArray(session.messages) ? session.messages.map(compactPersistedMessage) : [],
+      }))
+    : [];
+}
+
+function compactSelectedAssistantMessageIds(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object') {
+    return {};
+  }
+
+  return Object.fromEntries(
+    Object.entries(value)
+      .filter(([sessionId, messageId]) => Boolean(sessionId) && typeof messageId === 'string' && messageId.trim())
+      .map(([sessionId, messageId]) => [sessionId, messageId.trim()])
+  );
 }
 
 const initialState = {
@@ -163,10 +236,20 @@ export const useChatStore = create<ChatState>()(
     }),
     {
       name: STORAGE_KEY,
+      version: STORAGE_VERSION,
+      migrate: (persistedState) => {
+        const state = persistedState as Partial<ChatState> | undefined;
+        return {
+          ...initialState,
+          sessions: compactPersistedSessions(state?.sessions ?? []),
+          activeSessionId: typeof state?.activeSessionId === 'string' ? state.activeSessionId : null,
+          selectedAssistantMessageIds: compactSelectedAssistantMessageIds(state?.selectedAssistantMessageIds),
+        };
+      },
       partialize: (state) => ({
-        sessions: state.sessions,
+        sessions: compactPersistedSessions(state.sessions),
         activeSessionId: state.activeSessionId,
-        selectedAssistantMessageIds: state.selectedAssistantMessageIds
+        selectedAssistantMessageIds: compactSelectedAssistantMessageIds(state.selectedAssistantMessageIds)
       })
     }
   )
