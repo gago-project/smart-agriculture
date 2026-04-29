@@ -574,6 +574,90 @@ class SoilRepository:
             "latest_create_time": latest_create_time or await self.latest_business_time_async(),
         }
 
+    @staticmethod
+    def build_warning_rule_audit_sql(rule_code: str = "soil_warning_v1") -> str:
+        """Return the fixed SQL used to read the active warning rule."""
+        normalized = SoilRepository._normalize_sql_literal(rule_code)
+        return (
+            "SELECT rule_code, rule_name, rule_scope, rule_definition_json, enabled,\n"
+            "       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at\n"
+            "FROM metric_rule\n"
+            f"WHERE enabled = 1 AND rule_code = {normalized}\n"
+            "ORDER BY updated_at DESC\n"
+            "LIMIT 1"
+        )
+
+    def warning_rule_row(self, rule_code: str = "soil_warning_v1") -> dict[str, Any] | None:
+        """Return the active warning-rule row from `metric_rule` without hardcoded fallback."""
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT rule_code, rule_name, rule_scope, rule_definition_json, enabled,
+                           DATE_FORMAT(updated_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS updated_at
+                    FROM metric_rule
+                    WHERE enabled = 1 AND rule_code = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (rule_code,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as exc:
+            raise DatabaseQueryError(f"MySQL 查询预警规则失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def warning_rule_row_async(self, rule_code: str = "soil_warning_v1") -> dict[str, Any] | None:
+        """Async wrapper for warning-rule lookup."""
+        return await asyncio.to_thread(self.warning_rule_row, rule_code)
+
+    @staticmethod
+    def build_warning_template_audit_sql(domain: str = "soil") -> str:
+        """Return the fixed SQL used to read the latest enabled warning template."""
+        normalized = SoilRepository._normalize_sql_literal(domain)
+        return (
+            "SELECT template_id, domain, warning_type, audience, template_name, template_text,\n"
+            "       required_fields_json, version, enabled,\n"
+            "       DATE_FORMAT(created_at, '%Y-%m-%d %H:%i:%s') AS created_at,\n"
+            "       DATE_FORMAT(updated_at, '%Y-%m-%d %H:%i:%s') AS updated_at\n"
+            "FROM warning_template\n"
+            f"WHERE enabled = 1 AND domain = {normalized}\n"
+            "ORDER BY updated_at DESC\n"
+            "LIMIT 1"
+        )
+
+    def warning_template_row(self, domain: str = "soil") -> dict[str, Any] | None:
+        """Return the latest enabled warning template row from `warning_template`."""
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    """
+                    SELECT template_id, domain, warning_type, audience, template_name, template_text,
+                           required_fields_json, version, enabled,
+                           DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at,
+                           DATE_FORMAT(updated_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS updated_at
+                    FROM warning_template
+                    WHERE enabled = 1 AND domain = %s
+                    ORDER BY updated_at DESC
+                    LIMIT 1
+                    """,
+                    (domain,),
+                )
+                row = cursor.fetchone()
+                return dict(row) if row else None
+        except Exception as exc:
+            raise DatabaseQueryError(f"MySQL 查询预警模板失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def warning_template_row_async(self, domain: str = "soil") -> dict[str, Any] | None:
+        """Async wrapper for warning-template lookup."""
+        return await asyncio.to_thread(self.warning_template_row, domain)
+
     def warning_template_text(self) -> str:
         """Return the default warning template text for rendering services."""
         return DEFAULT_WARNING_TEMPLATE_TEXT

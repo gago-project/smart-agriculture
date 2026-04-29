@@ -28,6 +28,10 @@ test('mysql core tables strictly follow current soil domain contract', () => {
     'admin_change_log',
     'warning_template',
     'region_alias',
+    'agent_chat_session',
+    'agent_chat_turn',
+    'agent_result_snapshot',
+    'agent_result_snapshot_item',
     'agent_query_log',
     'auth_user',
     'auth_session',
@@ -120,7 +124,60 @@ test('region_alias only keeps city and county disambiguation fields', () => {
   assert.match(sql, /KEY idx_region_alias_lookup/i);
 });
 
-test('warning_template and agent_query_log retain current runtime fields', () => {
+test('chat session and snapshot tables keep the server-backed conversation contract', () => {
+  assert.deepEqual(extractColumns('agent_chat_session'), [
+    'session_id',
+    'owner_user_id',
+    'title',
+    'last_turn_id',
+    'current_context_json',
+    'created_at',
+    'updated_at',
+    'archived_at',
+  ]);
+  assert.deepEqual(extractColumns('agent_chat_turn'), [
+    'id',
+    'session_id',
+    'turn_id',
+    'client_message_id',
+    'user_text',
+    'answer_kind',
+    'capability',
+    'final_text',
+    'blocks_json',
+    'primary_block_id',
+    'query_ref_json',
+    'created_at',
+  ]);
+  assert.deepEqual(extractColumns('agent_result_snapshot'), [
+    'snapshot_id',
+    'session_id',
+    'source_turn_id',
+    'source_block_id',
+    'snapshot_kind',
+    'query_spec_json',
+    'query_spec_hash',
+    'rule_version',
+    'total_count',
+    'expires_at',
+    'created_at',
+  ]);
+  assert.deepEqual(extractColumns('agent_result_snapshot_item'), [
+    'snapshot_id',
+    'row_index',
+    'entity_key',
+    'city',
+    'county',
+    'sn',
+    'soil_status',
+    'warning_level',
+    'risk_score',
+    'latest_create_time',
+    'payload_json',
+  ]);
+});
+
+test('warning_template and agent_query_log retain current runtime fields plus new answer audit fields', () => {
   assert.deepEqual(extractColumns('warning_template'), [
     'template_id',
     'domain',
@@ -146,6 +203,7 @@ test('warning_template and agent_query_log retain current runtime fields', () =>
     'final_status',
     'query_type',
     'query_plan_json',
+    'query_spec_json',
     'sql_fingerprint',
     'executed_sql_text',
     'time_range_json',
@@ -155,7 +213,9 @@ test('warning_template and agent_query_log retain current runtime fields', () =>
     'order_by_json',
     'limit_size',
     'row_count',
+    'snapshot_id',
     'executed_result_json',
+    'result_digest_json',
     'source_files_json',
     'status',
     'error_message',

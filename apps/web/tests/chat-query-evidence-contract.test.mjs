@@ -31,18 +31,20 @@ test('chat store persists only lightweight query references instead of full evid
 
   assert.match(chatStoreSource, /function compactMessageData/);
   assert.match(chatStoreSource, /function compactMessageMeta/);
-  assert.match(chatStoreSource, /function compactPersistedSessions/);
   assert.match(chatStoreSource, /session_id/);
   assert.match(chatStoreSource, /turn_id/);
   assert.match(chatStoreSource, /should_query/);
   assert.match(chatStoreSource, /migrate:/);
-  assert.match(chatStoreSource, /sessions: compactPersistedSessions/);
+  assert.match(chatStoreSource, /selectedAssistantMessageIds/);
+  assert.doesNotMatch(chatStoreSource, /sessions:\s*compactPersistedSessions/);
 });
 
 test('chat actions stop storing intermediate evidence and processing blobs in message meta', () => {
   const actionsSource = readFileSync(new URL('../workspace/hooks/useChatActions.ts', import.meta.url), 'utf8');
 
-  assert.match(actionsSource, /meta:\s*{\s*mode: result\.mode,\s*data: result\.data\s*}/);
+  assert.match(actionsSource, /responseToAssistantMeta/);
+  assert.match(actionsSource, /query_ref\?\.has_query/);
+  assert.match(actionsSource, /turn:/);
   assert.doesNotMatch(actionsSource, /evidence: result\.evidence/);
   assert.doesNotMatch(actionsSource, /processing: result\.processing/);
 });

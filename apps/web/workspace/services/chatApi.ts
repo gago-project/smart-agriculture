@@ -1,7 +1,18 @@
-import type { ChatResponse, ChatApiErrorPayload, ChatHistoryTurn } from '../types/chat';
+import type {
+  ChatApiErrorPayload,
+  ChatBlockResponse,
+  ChatResponse,
+  ChatSessionDetailResponse,
+  ChatSessionListResponse,
+} from '../types/chat';
 import { useAuthStore } from '../store/authStore';
 
 const DEFAULT_TIMEOUT_MS = 30000;
+
+function authHeaders(): Record<string, string> {
+  const token = useAuthStore.getState().token;
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
 
 function extractError(payload: unknown): string {
   if (payload && typeof payload === 'object' && 'error' in payload) {
@@ -24,52 +35,82 @@ async function parseJson(response: Response): Promise<unknown> {
   }
 }
 
+async function requestJson<T>(input: string, init: RequestInit): Promise<T> {
+  const response = await fetch(input, {
+    ...init,
+    headers: {
+      ...authHeaders(),
+      ...(init.headers || {}),
+    },
+    cache: 'no-store',
+  });
+  const payload = await parseJson(response);
+  if (!response.ok) {
+    if (response.status === 401) {
+      useAuthStore.getState().clearSession();
+      throw new Error('登录已失效，请重新登录');
+    }
+    throw new Error(extractError(payload));
+  }
+  return payload as T;
+}
+
+export async function createChatSession(title = '新会话'): Promise<{ session_id: string; title: string }> {
+  return await requestJson('/api/agent/sessions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+}
+
+export async function fetchChatSessions(): Promise<ChatSessionListResponse> {
+  return await requestJson('/api/agent/sessions', { method: 'GET' });
+}
+
+export async function fetchChatSession(sessionId: string): Promise<ChatSessionDetailResponse> {
+  return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
+}
+
+export async function archiveChatSession(sessionId: string): Promise<{ session_id: string; archived: boolean }> {
+  return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' });
+}
+
+export async function fetchChatBlock(
+  sessionId: string,
+  turnId: number,
+  blockId: string,
+  page: number,
+): Promise<ChatBlockResponse> {
+  const params = new URLSearchParams({
+    session_id: sessionId,
+    turn_id: String(turnId),
+    block_id: blockId,
+    page: String(page),
+  });
+  return await requestJson(`/api/agent/chat-block?${params.toString()}`, { method: 'GET' });
+}
+
 export async function sendChat(
-  question: string,
-  history: ChatHistoryTurn[] = [],
-  threadId?: string,
-  timeoutMs = DEFAULT_TIMEOUT_MS
+  sessionId: string,
+  clientMessageId: string,
+  message: string,
+  timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<ChatResponse> {
-  const token = useAuthStore.getState().token;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
-    const response = await fetch('/api/agent/chat', {
+    return await requestJson('/api/agent/chat', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token ? { Authorization: `Bearer ${token}` } : {})
-      },
-      body: JSON.stringify({ question, history, thread_id: threadId }),
-      signal: controller.signal
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        session_id: sessionId,
+        client_message_id: clientMessageId,
+        message,
+        timezone: 'Asia/Shanghai',
+      }),
+      signal: controller.signal,
     });
-
-    const json = await parseJson(response);
-
-    if (!response.ok) {
-      if (response.status === 401) {
-        useAuthStore.getState().clearSession();
-        throw new Error('登录已失效，请重新登录');
-      }
-      throw new Error(extractError(json));
-    }
-
-    if (!json || typeof json !== 'object') {
-      throw new Error('响应格式不正确');
-    }
-
-    const parsed = json as Partial<ChatResponse>;
-    return {
-      answer: typeof parsed.answer === 'string' ? parsed.answer : '',
-      mode: typeof parsed.mode === 'string' ? parsed.mode : 'unknown',
-      data: parsed.data ?? null,
-      evidence: parsed.evidence ?? null,
-      processing:
-        parsed.processing && typeof parsed.processing === 'object'
-          ? parsed.processing
-          : null
-    };
   } catch (error) {
     if (error instanceof DOMException && error.name === 'AbortError') {
       throw new Error('请求超时，请稍后重试');

@@ -76,6 +76,17 @@ class InputGuardService:
         "就这样",
     }
 
+    capability_markers = (
+        "能做什么",
+        "可以做什么",
+        "可以帮我做什么",
+        "可以为我做点什么",
+        "能帮我做什么",
+        "会什么",
+        "支持什么",
+        "你是谁",
+    )
+
     def classify(self, text: str) -> InputGuardResult:
         """对单条用户消息做分类；若不应进业务流，则附带建议回复与终态动作。"""
         normalized = text.strip()
@@ -101,7 +112,7 @@ class InputGuardService:
                 guidance_reason="safe_hint",
             )
         # 能力/身份询问：用固定话术概括支持范围。
-        if "能做什么" in normalized or "你是谁" in normalized:
+        if any(marker in normalized for marker in self.capability_markers):
             return InputGuardResult(
                 allow_business_flow=False,
                 input_type="capability_question",

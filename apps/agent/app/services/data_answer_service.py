@@ -1,0 +1,1404 @@
+"""Deterministic soil-data answer service for server-backed chat sessions."""
+
+from __future__ import annotations
+
+
+import asyncio
+import json
+import math
+import re
+from collections import defaultdict
+from datetime import datetime, timedelta
+from typing import Any
+
+from app.repositories.result_snapshot_repository import ResultSnapshotRepository
+from app.repositories.soil_repository import DatabaseQueryError, SoilRepository
+from app.services.input_guard_service import InputGuardService
+from app.services.parameter_resolver_service import (
+    CONFIDENCE_MEDIUM,
+    CONFIDENCE_LOW,
+    ParameterResolverService,
+)
+from app.services.time_window_service import TimeWindowService
+
+
+ALERT_STATUSES = {"heavy_drought", "waterlogging", "device_fault"}
+SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
+
+
+def _safe_float(value: Any) -> float | None:
+    """Convert numbers into float when possible."""
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+class DataAnswerService:
+    """Render stable business answers from soil records, snapshots, rules, and templates."""
+
+    def __init__(
+        self,
+        repository: SoilRepository | Any | None = None,
+        snapshot_repository: ResultSnapshotRepository | None = None,
+        input_guard: InputGuardService | None = None,
+        time_window_service: TimeWindowService | None = None,
+        parameter_resolver: ParameterResolverService | None = None,
+    ) -> None:
+        self.repository = repository or SoilRepository.from_env()
+        self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
+        self.input_guard = input_guard or InputGuardService()
+        self.time_window_service = time_window_service or TimeWindowService()
+        self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
+
+    async def reply(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any] | None,
+        timezone: str = "Asia/Shanghai",
+    ) -> dict[str, Any]:
+        """Handle one deterministic data-answer turn."""
+        del timezone
+        text = (message or "").strip()
+        context = self._normalize_context(current_context)
+        guard = self.input_guard.classify(text)
+        if not guard.allow_business_flow:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=guard.suggested_answer,
+                current_context=context if guard.guidance_reason != "closing" else {**context, "closed": True},
+                guidance_reason=guard.guidance_reason or "safe_hint",
+                conversation_closed=guard.guidance_reason == "closing",
+            )
+
+        if self._is_rule_request(text):
+            return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if self._is_template_request(text):
+            return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        if self._is_list_request(text):
+            return await self._reply_list(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if self._is_group_request(text):
+            return await self._reply_group(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        if self._is_compare_request(text):
+            return await self._reply_compare(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        if self._is_detail_request(text, context):
+            return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        return await self._reply_summary(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+    def _normalize_context(self, current_context: dict[str, Any] | None) -> dict[str, Any]:
+        context = current_context if isinstance(current_context, dict) else {}
+        return {
+            "topic_family": context.get("topic_family"),
+            "active_topic_turn_id": context.get("active_topic_turn_id"),
+            "primary_block_id": context.get("primary_block_id"),
+            "primary_query_spec": context.get("primary_query_spec") or {},
+            "time_window": context.get("time_window") or {},
+            "resolved_entities": context.get("resolved_entities") or [],
+            "derived_sets": context.get("derived_sets") or {},
+            "compare_winner_entity": context.get("compare_winner_entity"),
+            "closed": bool(context.get("closed")),
+        }
+
+    @staticmethod
+    def _topic_payload(turn_context: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "topic_family": turn_context.get("topic_family"),
+            "active_topic_turn_id": turn_context.get("active_topic_turn_id"),
+            "primary_block_id": turn_context.get("primary_block_id"),
+        }
+
+    def _build_guidance_response(
+        self,
+        *,
+        turn_id: int,
+        text: str,
+        current_context: dict[str, Any],
+        guidance_reason: str,
+        conversation_closed: bool = False,
+    ) -> dict[str, Any]:
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "guidance",
+            "capability": "none",
+            "final_text": text,
+            "blocks": [
+                {
+                    "block_id": f"block_guidance_{turn_id}",
+                    "block_type": "guidance_card",
+                    "text": text,
+                    "guidance_reason": guidance_reason,
+                }
+            ],
+            "topic": self._topic_payload(current_context),
+            "turn_context": current_context,
+            "query_ref": {"has_query": False, "snapshot_ids": []},
+            "conversation_closed": conversation_closed,
+            "session_reset": False,
+            "query_log_entries": [],
+        }
+
+    @staticmethod
+    def _default_recent_window(latest_business_time: str) -> dict[str, str]:
+        latest_dt = datetime.strptime(latest_business_time[:19], "%Y-%m-%d %H:%M:%S")
+        end_dt = datetime(latest_dt.year, latest_dt.month, latest_dt.day, 23, 59, 59)
+        start_dt = end_dt - timedelta(days=6)
+        start_dt = datetime(start_dt.year, start_dt.month, start_dt.day, 0, 0, 0)
+        return {
+            "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "source": "default_recent_7d",
+        }
+
+    @staticmethod
+    def _is_rule_request(text: str) -> bool:
+        return "规则" in text and "模板" not in text
+
+    @staticmethod
+    def _is_template_request(text: str) -> bool:
+        return "模板" in text
+
+    @staticmethod
+    def _is_list_request(text: str) -> bool:
+        return any(token in text for token in ("列出", "这些点位", "重点关注的点位", "设备名单"))
+
+    @staticmethod
+    def _is_group_request(text: str) -> bool:
+        return "归类" in text or "汇总" in text
+
+    @staticmethod
+    def _is_compare_request(text: str) -> bool:
+        return "谁更" in text or ("和" in text and any(token in text for token in ("对比", "比较", "更差")))
+
+    def _is_detail_request(self, text: str, context: dict[str, Any]) -> bool:
+        if SN_PATTERN.search(text):
+            return True
+        if context.get("topic_family") == "data" and text.endswith("呢"):
+            return True
+        return "详情" in text or "明细" in text
+
+    async def _latest_business_time(self) -> str:
+        latest = await self.repository.latest_business_time_async()
+        return str(latest or "1970-01-01 00:00:00")
+
+    async def _load_alias_rows(self) -> list[dict[str, Any]]:
+        try:
+            rows = await self.repository.region_alias_rows_async()
+            return [row for row in rows if isinstance(row, dict)]
+        except Exception:
+            return []
+
+    async def _extract_entities(self, text: str) -> dict[str, Any]:
+        alias_rows = await self._load_alias_rows()
+        region_matches: list[dict[str, Any]] = []
+        for row in sorted(alias_rows, key=lambda item: len(str(item.get("alias_name") or "")), reverse=True):
+            alias_name = str(row.get("alias_name") or "").strip()
+            if not alias_name or alias_name not in text:
+                continue
+            region_level = str(row.get("region_level") or "").strip()
+            region_matches.append(
+                {
+                    "alias_name": alias_name,
+                    "canonical_name": str(row.get("canonical_name") or "").strip(),
+                    "region_level": region_level,
+                    "parent_city_name": row.get("parent_city_name"),
+                }
+            )
+        deduped: list[dict[str, Any]] = []
+        seen = set()
+        for item in region_matches:
+            key = (item["canonical_name"], item["region_level"], item.get("parent_city_name"))
+            if key in seen:
+                continue
+            seen.add(key)
+            deduped.append(item)
+
+        if "江苏省" in text or "江苏" in text:
+            province_alias = "江苏省" if "江苏省" in text else "江苏"
+            province_key = ("江苏省", "province", None)
+            if province_key not in seen:
+                deduped.append(
+                    {
+                        "alias_name": province_alias,
+                        "canonical_name": "江苏省",
+                        "region_level": "province",
+                        "parent_city_name": None,
+                    }
+                )
+                seen.add(province_key)
+
+        cities = [item["alias_name"] for item in deduped if item["region_level"] == "city"]
+        counties = [item["alias_name"] for item in deduped if item["region_level"] == "county"]
+        provinces = [item["canonical_name"] for item in deduped if item["region_level"] == "province"]
+        sns = [match.group(0).upper() for match in SN_PATTERN.finditer(text)]
+        return {
+            "province": provinces,
+            "city": cities,
+            "county": counties,
+            "sn": sns,
+            "resolved": deduped,
+        }
+
+    async def _resolve_filters(
+        self,
+        *,
+        message: str,
+        tool_name: str,
+        current_context: dict[str, Any],
+        allow_inherit_entities: bool = True,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], str]:
+        latest_business_time = await self._latest_business_time()
+        entities = await self._extract_entities(message)
+        raw_args: dict[str, Any] = {}
+        if entities["sn"]:
+            raw_args["sn"] = entities["sn"][0]
+        if entities["province"]:
+            raw_args["province"] = entities["province"][0]
+        if entities["county"]:
+            raw_args["county"] = entities["county"][0]
+        elif entities["city"]:
+            raw_args["city"] = entities["city"][0]
+        elif allow_inherit_entities and current_context.get("topic_family") == "data":
+            for entity in current_context.get("resolved_entities") or []:
+                if entity.get("kind") == "province" and not raw_args.get("province"):
+                    raw_args["province"] = entity.get("canonical_name")
+                if entity.get("kind") == "county" and not raw_args.get("county"):
+                    raw_args["county"] = entity.get("canonical_name")
+                if entity.get("kind") == "city" and not raw_args.get("county") and not raw_args.get("city"):
+                    raw_args["city"] = entity.get("canonical_name")
+                if entity.get("kind") == "device" and not raw_args.get("sn"):
+                    raw_args["sn"] = entity.get("canonical_name")
+
+        inherited_time_window = None
+        if current_context.get("topic_family") == "data":
+            time_window = current_context.get("time_window") or {}
+            if time_window.get("start_time") and time_window.get("end_time"):
+                inherited_time_window = {
+                    "start_time": time_window["start_time"],
+                    "end_time": time_window["end_time"],
+                }
+
+        time_evidence = self.time_window_service.resolve(message, latest_business_time)
+        resolved = await self.parameter_resolver.resolve(
+            tool_name=tool_name,
+            raw_args=raw_args,
+            latest_business_time=latest_business_time,
+            user_input=message,
+            time_evidence=time_evidence,
+            inherited_time_window=inherited_time_window,
+        )
+        if resolved.should_clarify:
+            raise ValueError(resolved.clarify_message or "当前查询条件还不够明确，请补充后再试。")
+
+        time_window = {
+            "start_time": resolved.resolved_args["start_time"],
+            "end_time": resolved.resolved_args["end_time"],
+            "source": resolved.time_source or "default_recent_7d",
+        }
+        resolved_entities: list[dict[str, Any]] = []
+        if raw_args.get("province") and not resolved.resolved_args.get("city") and not resolved.resolved_args.get("county") and not resolved.resolved_args.get("sn"):
+            resolved_entities.append({"kind": "province", "canonical_name": raw_args["province"]})
+        if resolved.resolved_args.get("city"):
+            resolved_entities.append({"kind": "city", "canonical_name": resolved.resolved_args["city"]})
+        if resolved.resolved_args.get("county"):
+            if resolved.resolved_args.get("city") and not any(item["kind"] == "city" for item in resolved_entities):
+                resolved_entities.append({"kind": "city", "canonical_name": resolved.resolved_args["city"]})
+            resolved_entities.append({"kind": "county", "canonical_name": resolved.resolved_args["county"]})
+        if resolved.resolved_args.get("sn"):
+            resolved_entities.append({"kind": "device", "canonical_name": resolved.resolved_args["sn"]})
+        entity_confidence = resolved.entity_confidence
+        return resolved.resolved_args, time_window, resolved_entities, entity_confidence
+
+    @staticmethod
+    def _query_filters_from_args(resolved_args: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "city": resolved_args.get("city"),
+            "county": resolved_args.get("county"),
+            "sn": resolved_args.get("sn"),
+            "start_time": resolved_args.get("start_time"),
+            "end_time": resolved_args.get("end_time"),
+        }
+
+    async def _query_records(self, resolved_args: dict[str, Any]) -> list[dict[str, Any]]:
+        return await self.repository.filter_records_async(**self._query_filters_from_args(resolved_args))
+
+    @staticmethod
+    def _focus_device_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        latest_by_sn: dict[str, dict[str, Any]] = {}
+        for record in records:
+            if record.get("soil_status") not in ALERT_STATUSES:
+                continue
+            sn = str(record.get("sn") or "")
+            if not sn:
+                continue
+            create_time = str(record.get("create_time") or "")
+            current = latest_by_sn.get(sn)
+            if current is None:
+                latest_by_sn[sn] = record
+                continue
+            current_score = _safe_float(current.get("risk_score")) or 0.0
+            next_score = _safe_float(record.get("risk_score")) or 0.0
+            if next_score > current_score or (math.isclose(next_score, current_score) and create_time > str(current.get("create_time") or "")):
+                latest_by_sn[sn] = record
+        rows = []
+        for record in latest_by_sn.values():
+            rows.append(
+                {
+                    "entity_key": str(record.get("sn") or ""),
+                    "city": record.get("city"),
+                    "county": record.get("county"),
+                    "sn": record.get("sn"),
+                    "soil_status": record.get("soil_status"),
+                    "warning_level": record.get("warning_level"),
+                    "risk_score": record.get("risk_score"),
+                    "latest_create_time": record.get("create_time"),
+                }
+            )
+        rows.sort(
+            key=lambda item: (
+                -(_safe_float(item.get("risk_score")) or 0.0),
+                str(item.get("latest_create_time") or ""),
+                str(item.get("sn") or ""),
+            ),
+            reverse=False,
+        )
+        rows.sort(key=lambda item: str(item.get("sn") or ""))
+        rows.sort(key=lambda item: str(item.get("latest_create_time") or ""), reverse=True)
+        rows.sort(key=lambda item: _safe_float(item.get("risk_score")) or 0.0, reverse=True)
+        return rows
+
+    @staticmethod
+    def _top_regions_from_focus_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+        for row in rows:
+            key = (row.get("city"), row.get("county"))
+            bucket = grouped.setdefault(
+                key,
+                {
+                    "city": row.get("city"),
+                    "county": row.get("county"),
+                    "alert_device_count": 0,
+                    "max_risk_score": 0.0,
+                },
+            )
+            bucket["alert_device_count"] += 1
+            bucket["max_risk_score"] = max(bucket["max_risk_score"], _safe_float(row.get("risk_score")) or 0.0)
+        result = list(grouped.values())
+        result.sort(
+            key=lambda item: (
+                -int(item.get("alert_device_count") or 0),
+                -(_safe_float(item.get("max_risk_score")) or 0.0),
+                str(item.get("county") or ""),
+                str(item.get("city") or ""),
+            )
+        )
+        return result[:5]
+
+    @staticmethod
+    def _summary_metrics(records: list[dict[str, Any]], focus_rows: list[dict[str, Any]]) -> dict[str, Any]:
+        water_values = [_safe_float(record.get("water20cm")) for record in records]
+        valid_water = [value for value in water_values if value is not None]
+        alert_records = [record for record in records if record.get("soil_status") in ALERT_STATUSES]
+        alert_regions = {(row.get("city"), row.get("county")) for row in focus_rows if row.get("city") or row.get("county")}
+        return {
+            "record_count": len(records),
+            "avg_water20cm": round(sum(valid_water) / len(valid_water), 2) if valid_water else None,
+            "alert_record_count": len(alert_records),
+            "alert_device_count": len(focus_rows),
+            "alert_region_count": len(alert_regions),
+        }
+
+    async def _create_focus_snapshot(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        block_id: str,
+        query_spec: dict[str, Any],
+        rule_version: str | None,
+        rows: list[dict[str, Any]],
+        snapshot_kind: str = "focus_devices",
+    ) -> dict[str, Any]:
+        try:
+            return await self.snapshot_repository.create_snapshot_async(
+                session_id=session_id,
+                source_turn_id=turn_id,
+                source_block_id=block_id,
+                snapshot_kind=snapshot_kind,
+                query_spec=query_spec,
+                rule_version=rule_version,
+                rows=rows,
+            )
+        except Exception as exc:
+            raise DatabaseQueryError(f"结果快照写入失败：{exc}") from exc
+
+    async def _reply_summary(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
+            message=message,
+            tool_name="query_soil_summary",
+            current_context=current_context,
+        )
+        records = await self._query_records(resolved_args)
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="summary",
+                text="当前条件下没有查到墒情数据，你可以换一个地区、设备或扩大时间范围再试。",
+                current_context=current_context,
+            )
+
+        block_id = f"block_summary_{turn_id}"
+        focus_rows = self._focus_device_rows(records)
+        metrics = self._summary_metrics(records, focus_rows)
+        query_spec = self._build_query_spec(
+            capability="summary",
+            grain="aggregate",
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode="standalone",
+        )
+        rule_version = str(records[0].get("rule_version") or "") if records else None
+        snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "grain": "device_list", "filters": {**query_spec["filters"], "alert_only": True}},
+            rule_version=rule_version,
+            rows=focus_rows,
+        )
+        top_regions = self._top_regions_from_focus_rows(focus_rows)
+        label = self._entity_label(resolved_entities) or "当前整体墒情"
+        summary_text = self._render_summary_text(
+            label=label,
+            time_window=time_window,
+            metrics=metrics,
+            entity_confidence=entity_confidence,
+            resolved_entities=resolved_entities,
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "summary_card",
+            "title": label,
+            "time_window": time_window,
+            "metrics": metrics,
+            "top_regions": top_regions,
+            "focus_devices_snapshot_id": snapshot["snapshot_id"],
+        }
+        turn_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "focus_devices_snapshot_id": snapshot["snapshot_id"],
+                "focus_regions_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        executed_result = {
+            "time_window": time_window,
+            "metrics": metrics,
+            "top_regions": top_regions,
+            "focus_devices_snapshot_id": snapshot["snapshot_id"],
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "summary",
+            "final_text": summary_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [snapshot["snapshot_id"]]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="summary",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    row_count=len(records),
+                    snapshot_id=snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result=executed_result,
+                    result_digest={"metrics": metrics},
+                )
+            ],
+        }
+
+    async def _reply_list(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        if current_context.get("topic_family") != "data":
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再追问这些点位。",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
+
+        source_snapshot_id = (
+            current_context.get("derived_sets", {}).get("focus_devices_snapshot_id")
+            or current_context.get("derived_sets", {}).get("focus_regions_snapshot_id")
+        )
+        if not source_snapshot_id:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再追问这些点位。",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
+
+        snapshot = await self.snapshot_repository.get_snapshot_async(source_snapshot_id)
+        if not snapshot:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="当前会话的结果快照已失效，请重新发起一次数据查询。",
+                current_context={**current_context, "closed": True},
+                guidance_reason="clarification",
+            )
+
+        rows = [item.get("payload_json") or {} for item in snapshot.get("items") or []]
+        follow_up_mode = "inherit"
+        filter_entities = await self._extract_entities(message)
+        if filter_entities["county"] or filter_entities["city"] or filter_entities["sn"]:
+            rows = self._filter_snapshot_rows(rows, filter_entities)
+            follow_up_mode = "subset"
+        elif "更差那边" in message and current_context.get("compare_winner_entity"):
+            winner = current_context["compare_winner_entity"]
+            rows = self._filter_snapshot_rows(
+                rows,
+                {
+                    "city": [winner] if winner.endswith("市") else [],
+                    "county": [winner] if winner.endswith(("县", "区")) else [],
+                    "sn": [],
+                },
+            )
+            follow_up_mode = "drilldown"
+
+        block_id = f"block_list_{turn_id}"
+        query_spec = {
+            **(current_context.get("primary_query_spec") or {}),
+            "capability": "list",
+            "grain": "device_list",
+            "page": {"page": 1, "page_size": 50},
+            "filters": {
+                **((current_context.get("primary_query_spec") or {}).get("filters") or {}),
+                "source_snapshot_id": source_snapshot_id,
+                "alert_only": True,
+            },
+            "provenance": {
+                "source_turn_id": current_context.get("active_topic_turn_id") or turn_id,
+                "follow_up_mode": follow_up_mode,
+            },
+        }
+        next_snapshot_id = source_snapshot_id
+        if follow_up_mode in {"subset", "drilldown"}:
+            next_snapshot = await self._create_focus_snapshot(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                query_spec=query_spec,
+                rule_version=snapshot.get("rule_version"),
+                rows=rows,
+                snapshot_kind="focus_devices",
+            )
+            next_snapshot_id = next_snapshot["snapshot_id"]
+        page_rows = rows[:50]
+        block = {
+            "block_id": block_id,
+            "block_type": "list_table",
+            "title": "重点关注点位",
+            "columns": ["city", "county", "sn", "soil_status", "warning_level", "risk_score", "latest_create_time"],
+            "rows": page_rows,
+            "pagination": {
+                "snapshot_id": next_snapshot_id,
+                "page": 1,
+                "page_size": 50,
+                "total_count": len(rows),
+                "total_pages": 0 if not rows else math.ceil(len(rows) / 50),
+            },
+        }
+        resolved_entities = self._merge_context_entities(current_context, filter_entities)
+        turn_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": current_context.get("time_window") or {},
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "focus_devices_snapshot_id": next_snapshot_id,
+                "focus_regions_snapshot_id": None,
+            },
+            "compare_winner_entity": current_context.get("compare_winner_entity"),
+            "closed": False,
+        }
+        final_text = f"已列出当前条件下需要重点关注的 {len(rows)} 个点位。"
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "list",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [next_snapshot_id]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="list",
+                    query_spec=query_spec,
+                    executed_sql_text=(
+                        "SELECT payload_json FROM agent_result_snapshot_item "
+                        f"WHERE snapshot_id = '{source_snapshot_id}' ORDER BY row_index ASC"
+                    ),
+                    row_count=len(rows),
+                    snapshot_id=next_snapshot_id,
+                    time_window=current_context.get("time_window") or {},
+                    filters=query_spec["filters"],
+                    executed_result={"rows": page_rows, "total_count": len(rows)},
+                    result_digest={"total_count": len(rows)},
+                )
+            ],
+        }
+
+    async def _reply_group(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        if current_context.get("topic_family") != "data":
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再做分组汇总。",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
+
+        snapshot_id = current_context.get("derived_sets", {}).get("focus_devices_snapshot_id")
+        snapshot = await self.snapshot_repository.get_snapshot_async(snapshot_id) if snapshot_id else None
+        if not snapshot:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="当前会话的结果快照已失效，请重新发起一次数据查询。",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
+
+        group_by = "county" if "县" in message or "区" in message else "soil_status"
+        grouped: dict[str, dict[str, Any]] = {}
+        for row in [item.get("payload_json") or {} for item in snapshot.get("items") or []]:
+            key = str(row.get(group_by) or "未知")
+            bucket = grouped.setdefault(key, {"group_key": key, "device_count": 0, "max_risk_score": 0.0})
+            bucket["device_count"] += 1
+            bucket["max_risk_score"] = max(bucket["max_risk_score"], _safe_float(row.get("risk_score")) or 0.0)
+        rows = list(grouped.values())
+        rows.sort(key=lambda item: (-int(item["device_count"]), -float(item["max_risk_score"]), item["group_key"]))
+        block_id = f"block_group_{turn_id}"
+        query_spec = {
+            **(current_context.get("primary_query_spec") or {}),
+            "capability": "group",
+            "grain": "region_group" if group_by == "county" else "aggregate",
+            "filters": {
+                **((current_context.get("primary_query_spec") or {}).get("filters") or {}),
+                "source_snapshot_id": snapshot_id,
+            },
+            "provenance": {
+                "source_turn_id": current_context.get("active_topic_turn_id") or turn_id,
+                "follow_up_mode": "subset",
+            },
+        }
+        block = {
+            "block_id": block_id,
+            "block_type": "group_table",
+            "title": "点位分组汇总",
+            "group_by": group_by,
+            "rows": rows,
+        }
+        turn_context = {
+            **current_context,
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "closed": False,
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "group",
+            "final_text": f"已按{ '县区' if group_by == 'county' else '状态' }完成汇总，共 {len(rows)} 组。",
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [snapshot_id]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="group",
+                    query_spec=query_spec,
+                    executed_sql_text=(
+                        "SELECT payload_json FROM agent_result_snapshot_item "
+                        f"WHERE snapshot_id = '{snapshot_id}' ORDER BY row_index ASC"
+                    ),
+                    row_count=len(rows),
+                    snapshot_id=snapshot_id,
+                    time_window=current_context.get("time_window") or {},
+                    filters=query_spec["filters"],
+                    executed_result={"rows": rows, "group_by": group_by},
+                    result_digest={"group_count": len(rows)},
+                )
+            ],
+        }
+
+    async def _reply_detail(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
+            message=message,
+            tool_name="query_soil_detail",
+            current_context=current_context,
+        )
+        records = await self._query_records(resolved_args)
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="detail",
+                text="当前条件下没有查到对应的详情数据，你可以换一个地区、设备或扩大时间范围再试。",
+                current_context=current_context,
+            )
+        latest_record = records[0]
+        focus_rows = self._focus_device_rows(records)
+        metrics = self._summary_metrics(records, focus_rows)
+        block_id = f"block_detail_{turn_id}"
+        label = self._entity_label(resolved_entities) or str(latest_record.get("sn") or "详情")
+        query_spec = self._build_query_spec(
+            capability="detail",
+            grain="entity_detail",
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode="inherit" if current_context.get("topic_family") == "data" else "standalone",
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "detail_card",
+            "title": label,
+            "time_window": time_window,
+            "metrics": metrics,
+            "latest_record": latest_record,
+        }
+        turn_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "focus_devices_snapshot_id": None,
+                "focus_regions_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        final_text = self._render_detail_text(label, time_window, latest_record, entity_confidence, resolved_entities)
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "detail",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="detail",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    row_count=len(records),
+                    snapshot_id=None,
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"latest_record": latest_record, "metrics": metrics},
+                    result_digest={"latest_sn": latest_record.get("sn")},
+                )
+            ],
+        }
+
+    async def _reply_compare(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(message, latest_business_time)
+        base_resolved = await self.parameter_resolver.resolve(
+            tool_name="query_soil_summary",
+            raw_args={},
+            latest_business_time=latest_business_time,
+            user_input=message,
+            time_evidence=time_evidence,
+            inherited_time_window=(current_context.get("time_window") or None) if current_context.get("topic_family") == "data" else None,
+        )
+        time_window = {
+            "start_time": base_resolved.resolved_args["start_time"],
+            "end_time": base_resolved.resolved_args["end_time"],
+            "source": base_resolved.time_source or "default_recent_7d",
+        }
+        entities = await self._extract_entities(message)
+        names = []
+        for item in entities["resolved"]:
+            canonical_name = item["canonical_name"]
+            if canonical_name not in names:
+                names.append(canonical_name)
+        if len(names) < 2:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="对比查询至少需要两个地区或设备，例如：南通和盐城最近哪边更差。",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
+
+        compared = []
+        winner_rows: list[dict[str, Any]] = []
+        winner_name = ""
+        winner_score = None
+        for name in names[:2]:
+            filters = {
+                "city": name if name.endswith("市") else None,
+                "county": name if name.endswith(("县", "区")) else None,
+                "sn": name if name.startswith("SNS") else None,
+                "start_time": time_window["start_time"],
+                "end_time": time_window["end_time"],
+            }
+            records = await self.repository.filter_records_async(**filters)
+            focus_rows = self._focus_device_rows(records)
+            metrics = self._summary_metrics(records, focus_rows)
+            avg_risk = round(
+                sum((_safe_float(row.get("risk_score")) or 0.0) for row in focus_rows) / len(focus_rows),
+                2,
+            ) if focus_rows else 0.0
+            compared.append(
+                {
+                    "entity": name,
+                    "alert_device_count": metrics["alert_device_count"],
+                    "alert_record_count": metrics["alert_record_count"],
+                    "avg_risk_score": avg_risk,
+                    "record_count": metrics["record_count"],
+                }
+            )
+            candidate_score = (
+                metrics["alert_device_count"],
+                metrics["alert_record_count"],
+                avg_risk,
+            )
+            if winner_score is None or candidate_score > winner_score:
+                winner_score = candidate_score
+                winner_name = name
+                winner_rows = focus_rows
+        block_id = f"block_compare_{turn_id}"
+        query_spec = {
+            "spec_id": f"qs_{turn_id}_compare",
+            "dataset": "fact_soil_moisture",
+            "capability": "compare",
+            "grain": "entity_compare",
+            "time_window": time_window,
+            "entities": {"city": names, "county": [], "sn": []},
+            "filters": {"alert_only": False, "status_in": [], "source_snapshot_id": None},
+            "sort": {"field": "risk_score", "direction": "desc"},
+            "page": {"page": 1, "page_size": 50},
+            "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+        }
+        winner_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "device_list"},
+            rule_version=None,
+            rows=winner_rows,
+            snapshot_kind="focus_devices",
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "compare_card",
+            "title": "对比结果",
+            "time_window": time_window,
+            "rows": compared,
+            "winner": winner_name,
+            "winner_basis": "alert_device_count -> alert_record_count -> avg_risk_score",
+        }
+        turn_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": [{"kind": "city", "canonical_name": name} for name in names[:2]],
+            "derived_sets": {
+                "focus_devices_snapshot_id": winner_snapshot["snapshot_id"],
+                "focus_regions_snapshot_id": None,
+            },
+            "compare_winner_entity": winner_name,
+            "closed": False,
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "compare",
+            "final_text": f"在当前时间范围内，{winner_name} 更需要优先关注，比较依据是预警点位数、预警记录数和平均风险分数。",
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [winner_snapshot["snapshot_id"]]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="compare",
+                    query_spec=query_spec,
+                    executed_sql_text=";\n\n".join(
+                        self.repository.build_filter_records_audit_sql(
+                            city=name if name.endswith("市") else None,
+                            county=name if name.endswith(("县", "区")) else None,
+                            start_time=time_window["start_time"],
+                            end_time=time_window["end_time"],
+                        )
+                        for name in names[:2]
+                    ),
+                    row_count=sum(int(item["record_count"]) for item in compared),
+                    snapshot_id=winner_snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"rows": compared, "winner": winner_name},
+                    result_digest={"winner": winner_name},
+                )
+            ],
+        }
+
+    async def _reply_rule(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        del message
+        row = await self.repository.warning_rule_row_async()
+        if not row:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="rule",
+                text="当前规则不可用，请联系管理员检查配置。",
+                current_context=current_context,
+            )
+        rule_definition = row.get("rule_definition_json")
+        if isinstance(rule_definition, str):
+            try:
+                rule_definition = json.loads(rule_definition)
+            except json.JSONDecodeError:
+                rule_definition = {"raw": rule_definition}
+        thresholds = {}
+        for item in (rule_definition or {}).get("rules", []):
+            condition = str(item.get("condition") or "")
+            level = str(item.get("warning_level") or "")
+            if level == "heavy_drought" and "<" in condition:
+                thresholds["heavy_drought"] = condition
+            elif level == "waterlogging" and ">=" in condition:
+                thresholds["waterlogging"] = condition
+            elif level == "device_fault":
+                thresholds["device_fault"] = condition
+        block_id = f"block_rule_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "rule_card",
+            "rule_code": row.get("rule_code"),
+            "rule_name": row.get("rule_name"),
+            "updated_at": row.get("updated_at"),
+            "thresholds": thresholds,
+            "rule_definition_json": rule_definition,
+        }
+        turn_context = {
+            "topic_family": "rule",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "rule",
+            "final_text": self._render_rule_text(row, thresholds),
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="rule",
+                    query_spec={
+                        "spec_id": f"qs_{turn_id}_rule",
+                        "dataset": "metric_rule",
+                        "capability": "rule",
+                        "grain": "rule_read",
+                        "time_window": {},
+                        "entities": {"city": [], "county": [], "sn": []},
+                        "filters": {"alert_only": False, "status_in": [], "source_snapshot_id": None},
+                        "sort": {"field": "updated_at", "direction": "desc"},
+                        "page": {"page": 1, "page_size": 1},
+                        "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+                    },
+                    executed_sql_text=self.repository.build_warning_rule_audit_sql(),
+                    row_count=1,
+                    snapshot_id=None,
+                    time_window={},
+                    filters={"rule_code": row.get("rule_code")},
+                    executed_result={"rule": row},
+                    result_digest={"rule_code": row.get("rule_code"), "updated_at": row.get("updated_at")},
+                )
+            ],
+        }
+
+    async def _reply_template(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        del message
+        row = await self.repository.warning_template_row_async()
+        if not row:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="template",
+                text="当前模板不可用，请联系管理员检查配置。",
+                current_context=current_context,
+            )
+        block_id = f"block_template_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "template_card",
+            "template_id": row.get("template_id"),
+            "template_name": row.get("template_name"),
+            "template_text": row.get("template_text"),
+            "required_fields_json": row.get("required_fields_json"),
+            "version": row.get("version"),
+            "updated_at": row.get("updated_at"),
+        }
+        turn_context = {
+            "topic_family": "template",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "template",
+            "final_text": f"当前启用的预警模板是《{row.get('template_name') or '未命名模板'}》，可直接用于墒情预警通知。",
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="template",
+                    query_spec={
+                        "spec_id": f"qs_{turn_id}_template",
+                        "dataset": "warning_template",
+                        "capability": "template",
+                        "grain": "template_read",
+                        "time_window": {},
+                        "entities": {"city": [], "county": [], "sn": []},
+                        "filters": {"alert_only": False, "status_in": [], "source_snapshot_id": None},
+                        "sort": {"field": "updated_at", "direction": "desc"},
+                        "page": {"page": 1, "page_size": 1},
+                        "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+                    },
+                    executed_sql_text=self.repository.build_warning_template_audit_sql(),
+                    row_count=1,
+                    snapshot_id=None,
+                    time_window={},
+                    filters={"template_id": row.get("template_id")},
+                    executed_result={"template": row},
+                    result_digest={"template_id": row.get("template_id"), "version": row.get("version")},
+                )
+            ],
+        }
+
+    def _build_fallback_response(
+        self,
+        *,
+        turn_id: int,
+        capability: str,
+        text: str,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "fallback",
+            "capability": capability,
+            "final_text": text,
+            "blocks": [
+                {
+                    "block_id": f"block_fallback_{turn_id}",
+                    "block_type": "fallback_card",
+                    "text": text,
+                    "reason": "no_data",
+                }
+            ],
+            "topic": self._topic_payload(current_context),
+            "turn_context": current_context,
+            "query_ref": {"has_query": False, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [],
+        }
+
+    @staticmethod
+    def _merge_context_entities(current_context: dict[str, Any], filter_entities: dict[str, Any]) -> list[dict[str, Any]]:
+        if filter_entities.get("province"):
+            return [{"kind": "province", "canonical_name": filter_entities["province"][0]}]
+        if filter_entities["sn"]:
+            return [{"kind": "device", "canonical_name": filter_entities["sn"][0]}]
+        if filter_entities["county"]:
+            entities = []
+            for entity in current_context.get("resolved_entities") or []:
+                if entity.get("kind") == "city":
+                    entities.append(entity)
+                    break
+            entities.append({"kind": "county", "canonical_name": filter_entities["county"][0]})
+            return entities
+        if filter_entities["city"]:
+            return [{"kind": "city", "canonical_name": filter_entities["city"][0]}]
+        return current_context.get("resolved_entities") or []
+
+    @staticmethod
+    def _filter_snapshot_rows(rows: list[dict[str, Any]], filter_entities: dict[str, Any]) -> list[dict[str, Any]]:
+        city_values = {value for value in filter_entities.get("city") or []}
+        county_values = {value for value in filter_entities.get("county") or []}
+        sn_values = {value for value in filter_entities.get("sn") or []}
+        filtered = []
+        for row in rows:
+            if city_values and row.get("city") not in city_values:
+                continue
+            if county_values and row.get("county") not in county_values:
+                continue
+            if sn_values and row.get("sn") not in sn_values:
+                continue
+            filtered.append(row)
+        return filtered
+
+    def _build_query_spec(
+        self,
+        *,
+        capability: str,
+        grain: str,
+        time_window: dict[str, Any],
+        resolved_args: dict[str, Any],
+        source_turn_id: int,
+        follow_up_mode: str,
+    ) -> dict[str, Any]:
+        return {
+            "spec_id": f"qs_{source_turn_id}_{capability}",
+            "dataset": "fact_soil_moisture",
+            "capability": capability,
+            "grain": grain,
+            "time_window": time_window,
+            "entities": {
+                "city": [resolved_args["city"]] if resolved_args.get("city") else [],
+                "county": [resolved_args["county"]] if resolved_args.get("county") else [],
+                "sn": [resolved_args["sn"]] if resolved_args.get("sn") else [],
+            },
+            "filters": {
+                "alert_only": False,
+                "status_in": [],
+                "source_snapshot_id": None,
+            },
+            "sort": {"field": "risk_score", "direction": "desc"},
+            "page": {"page": 1, "page_size": 50},
+            "provenance": {
+                "source_turn_id": source_turn_id,
+                "follow_up_mode": follow_up_mode,
+            },
+        }
+
+    @staticmethod
+    def _entity_label(resolved_entities: list[dict[str, Any]]) -> str:
+        if not resolved_entities:
+            return ""
+        ordered = [item.get("canonical_name") for item in resolved_entities if item.get("canonical_name")]
+        return "".join(ordered)
+
+    @staticmethod
+    def _render_summary_text(
+        *,
+        label: str,
+        time_window: dict[str, Any],
+        metrics: dict[str, Any],
+        entity_confidence: str,
+        resolved_entities: list[dict[str, Any]],
+    ) -> str:
+        scope = label or "当前整体墒情"
+        avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
+        text = (
+            f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的墒情概况如下："
+            f"20cm平均相对含水量约 {avg_text}，"
+            f"共有 {metrics['alert_record_count']} 条预警相关记录，涉及 {metrics['alert_device_count']} 个重点关注点位，"
+            f"覆盖 {metrics['alert_region_count']} 个地区。"
+        )
+        if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
+            text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+        text += " 如需继续下钻，可以直接回复：列出需要重点关注的点位。"
+        return text
+
+    @staticmethod
+    def _render_detail_text(
+        label: str,
+        time_window: dict[str, Any],
+        latest_record: dict[str, Any],
+        entity_confidence: str,
+        resolved_entities: list[dict[str, Any]],
+    ) -> str:
+        status = str(latest_record.get("display_label") or latest_record.get("soil_status") or "未知")
+        water20 = latest_record.get("water20cm")
+        text = (
+            f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的最新详情如下："
+            f"最近一条记录时间为 {latest_record.get('create_time')}，"
+            f"20cm含水量 {water20}%，当前状态 {status}。"
+        )
+        if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
+            text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+        return text
+
+    @staticmethod
+    def _render_rule_text(row: dict[str, Any], thresholds: dict[str, Any]) -> str:
+        return (
+            f"当前启用规则是《{row.get('rule_name') or row.get('rule_code') or '未命名规则'}》。"
+            f"其中重旱条件为 {thresholds.get('heavy_drought', '未配置')}，"
+            f"涝渍条件为 {thresholds.get('waterlogging', '未配置')}，"
+            f"设备故障条件为 {thresholds.get('device_fault', '未配置')}。"
+        )
+
+    @staticmethod
+    def _build_query_log_entry(
+        *,
+        session_id: str,
+        turn_id: int,
+        query_index: int,
+        query_type: str,
+        query_spec: dict[str, Any],
+        executed_sql_text: str,
+        row_count: int,
+        snapshot_id: str | None,
+        time_window: dict[str, Any],
+        filters: dict[str, Any],
+        executed_result: dict[str, Any],
+        result_digest: dict[str, Any],
+    ) -> dict[str, Any]:
+        return {
+            "query_id": f"{session_id}:{turn_id}:{query_index}",
+            "session_id": session_id,
+            "turn_id": turn_id,
+            "query_type": query_type,
+            "query_plan_json": {
+                "capability": query_spec.get("capability"),
+                "grain": query_spec.get("grain"),
+            },
+            "query_spec_json": query_spec,
+            "sql_fingerprint": None,
+            "executed_sql_text": executed_sql_text,
+            "time_range_json": time_window,
+            "filters_json": filters,
+            "group_by_json": None,
+            "metrics_json": None,
+            "order_by_json": query_spec.get("sort"),
+            "limit_size": (query_spec.get("page") or {}).get("page_size"),
+            "row_count": row_count,
+            "snapshot_id": snapshot_id,
+            "executed_result_json": executed_result,
+            "result_digest_json": result_digest,
+            "source_files_json": None,
+            "status": "succeeded",
+            "error_message": None,
+            "created_at": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+        }

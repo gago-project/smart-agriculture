@@ -38,6 +38,24 @@ class SoilRepositoryPathTest(unittest.TestCase):
         rendered = sql % params
         self.assertIn("DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s')", rendered)
 
+    def test_warning_rule_query_escapes_date_format_percent_for_pyformat(self):
+        """Verify warning-rule query does not treat DATE_FORMAT markers as pyformat placeholders."""
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        with patch.object(repository, "_connect", return_value=RuleRowConnection()):
+            row = repository.warning_rule_row()
+
+        self.assertEqual(row["rule_code"], "soil_warning_v1")
+
+    def test_warning_template_query_escapes_date_format_percent_for_pyformat(self):
+        """Verify warning-template query does not treat DATE_FORMAT markers as pyformat placeholders."""
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        with patch.object(repository, "_connect", return_value=TemplateRowConnection()):
+            row = repository.warning_template_row()
+
+        self.assertEqual(row["template_id"], "soil_default_warning")
+
 
 class EmptyResultCursor:
     """Test double for empty result cursor."""
@@ -106,6 +124,83 @@ class MissingRegionAliasConnection:
     def close(self):
         """Handle close on the missing region alias connection."""
         self.closed = True
+
+
+class RuleRowCursor:
+    """Test double that mimics one warning-rule lookup."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql, params=None):
+        self.sql = sql
+        self.params = params
+        rendered = sql % params
+        self.rendered = rendered
+
+    def fetchone(self):
+        return {
+            "rule_code": "soil_warning_v1",
+            "rule_name": "土壤墒情预警规则",
+            "rule_scope": "soil",
+            "rule_definition_json": "{}",
+            "enabled": 1,
+            "updated_at": "2026-04-30 00:00:00",
+        }
+
+
+class RuleRowConnection:
+    """Connection wrapper for warning-rule lookup tests."""
+
+    def cursor(self):
+        return RuleRowCursor()
+
+    def close(self):
+        return None
+
+
+class TemplateRowCursor:
+    """Test double that mimics one warning-template lookup."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql, params=None):
+        self.sql = sql
+        self.params = params
+        rendered = sql % params
+        self.rendered = rendered
+
+    def fetchone(self):
+        return {
+            "template_id": "soil_default_warning",
+            "domain": "soil",
+            "warning_type": "soil_moisture",
+            "audience": "farmer",
+            "template_name": "土壤墒情预警模板",
+            "template_text": "模板内容",
+            "required_fields_json": "[]",
+            "version": "v1",
+            "enabled": 1,
+            "created_at": "2026-04-30 00:00:00",
+            "updated_at": "2026-04-30 00:00:00",
+        }
+
+
+class TemplateRowConnection:
+    """Connection wrapper for warning-template lookup tests."""
+
+    def cursor(self):
+        return TemplateRowCursor()
+
+    def close(self):
+        return None
 
 
 if __name__ == "__main__":

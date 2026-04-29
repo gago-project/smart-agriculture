@@ -59,6 +59,14 @@ class InputGuardServiceTest(unittest.TestCase):
         self.assertIn("80", result.suggested_answer)
         self.assertIn("排水", result.suggested_answer)
 
+    def test_capability_question_with_greeting_prefix_returns_guidance(self) -> None:
+        result = self.service.classify("你好，你可以为我做点什么")
+
+        self.assertFalse(result.allow_business_flow)
+        self.assertEqual(result.input_type, "capability_question")
+        self.assertEqual(result.guidance_reason, "safe_hint")
+        self.assertIn("支持", result.suggested_answer)
+
     def test_ambiguous_low_confidence_returns_clarification_guidance_reason(self) -> None:
         result = self.service.classify("看看")
 

@@ -218,3 +218,54 @@ class SeedSoilRepository(SoilRepository):
             start_time=start_time,
             end_time=end_time,
         )
+
+    def warning_rule_row(self, rule_code: str = "soil_warning_v1") -> dict[str, Any] | None:
+        """Return a deterministic warning-rule fixture for unit tests."""
+        return {
+            "rule_code": rule_code,
+            "rule_name": "土壤墒情预警规则",
+            "rule_scope": "soil",
+            "rule_definition_json": {
+                "rules": [
+                    {"warning_level": "heavy_drought", "condition": "water20cm < 50"},
+                    {"warning_level": "waterlogging", "condition": "water20cm >= 150"},
+                    {"warning_level": "device_fault", "condition": "water20cm = 0 and t20cm = 0"},
+                ]
+            },
+            "enabled": 1,
+            "updated_at": "2026-04-13 23:59:59",
+        }
+
+    async def warning_rule_row_async(self, rule_code: str = "soil_warning_v1") -> dict[str, Any] | None:
+        """Async warning-rule fixture lookup."""
+        return self.warning_rule_row(rule_code)
+
+    def warning_template_row(self, domain: str = "soil") -> dict[str, Any] | None:
+        """Return a deterministic warning-template fixture for unit tests."""
+        return {
+            "template_id": "soil_default_warning",
+            "domain": domain,
+            "warning_type": "soil_moisture",
+            "audience": "farmer",
+            "template_name": "土壤墒情预警模板",
+            "template_text": DEFAULT_WARNING_TEMPLATE_TEXT,
+            "required_fields_json": [
+                "year",
+                "month",
+                "day",
+                "hour",
+                "city",
+                "county",
+                "sn",
+                "water20cm",
+                "warning_level",
+            ],
+            "version": "seed-template-v1",
+            "enabled": 1,
+            "created_at": "2026-04-13 23:59:59",
+            "updated_at": "2026-04-13 23:59:59",
+        }
+
+    async def warning_template_row_async(self, domain: str = "soil") -> dict[str, Any] | None:
+        """Async warning-template fixture lookup."""
+        return self.warning_template_row(domain)

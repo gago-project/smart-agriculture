@@ -137,6 +137,67 @@ CREATE TABLE IF NOT EXISTS auth_session (
   CONSTRAINT fk_auth_session_user FOREIGN KEY (user_id) REFERENCES auth_user(id)
 );
 
+CREATE TABLE IF NOT EXISTS agent_chat_session (
+  session_id CHAR(36) PRIMARY KEY,
+  owner_user_id BIGINT NOT NULL,
+  title VARCHAR(128) NOT NULL,
+  last_turn_id INT NOT NULL DEFAULT 0,
+  current_context_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  archived_at DATETIME NULL,
+  CONSTRAINT fk_agent_chat_session_owner FOREIGN KEY (owner_user_id) REFERENCES auth_user(id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_chat_turn (
+  id BIGINT PRIMARY KEY AUTO_INCREMENT,
+  session_id CHAR(36) NOT NULL,
+  turn_id INT NOT NULL,
+  client_message_id CHAR(36) NOT NULL,
+  user_text TEXT NOT NULL,
+  answer_kind VARCHAR(32) NOT NULL,
+  capability VARCHAR(32) NOT NULL,
+  final_text TEXT NOT NULL,
+  blocks_json JSON NOT NULL,
+  primary_block_id VARCHAR(128) NULL,
+  query_ref_json JSON NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uk_agent_chat_turn_session_turn (session_id, turn_id),
+  UNIQUE KEY uk_agent_chat_turn_session_client (session_id, client_message_id),
+  CONSTRAINT fk_agent_chat_turn_session FOREIGN KEY (session_id) REFERENCES agent_chat_session(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_result_snapshot (
+  snapshot_id VARCHAR(64) PRIMARY KEY,
+  session_id CHAR(36) NOT NULL,
+  source_turn_id INT NOT NULL,
+  source_block_id VARCHAR(128) NOT NULL,
+  snapshot_kind VARCHAR(32) NOT NULL,
+  query_spec_json JSON NOT NULL,
+  query_spec_hash VARCHAR(64) NOT NULL,
+  rule_version VARCHAR(64) NULL,
+  total_count INT NOT NULL DEFAULT 0,
+  expires_at DATETIME NOT NULL,
+  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT fk_agent_result_snapshot_session FOREIGN KEY (session_id) REFERENCES agent_chat_session(session_id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_result_snapshot_item (
+  snapshot_id VARCHAR(64) NOT NULL,
+  row_index INT NOT NULL,
+  entity_key VARCHAR(128) NOT NULL,
+  city VARCHAR(64) NULL,
+  county VARCHAR(64) NULL,
+  sn VARCHAR(64) NULL,
+  soil_status VARCHAR(32) NULL,
+  warning_level VARCHAR(32) NULL,
+  risk_score DECIMAL(10,2) NULL,
+  latest_create_time DATETIME NULL,
+  payload_json JSON NOT NULL,
+  PRIMARY KEY (snapshot_id, row_index),
+  CONSTRAINT fk_agent_result_snapshot_item_snapshot FOREIGN KEY (snapshot_id) REFERENCES agent_result_snapshot(snapshot_id)
+);
+
 CREATE TABLE IF NOT EXISTS agent_query_log (
   query_id VARCHAR(64) PRIMARY KEY,
   session_id VARCHAR(64) NOT NULL,
@@ -149,6 +210,7 @@ CREATE TABLE IF NOT EXISTS agent_query_log (
   final_status VARCHAR(64) NULL,
   query_type VARCHAR(64) NOT NULL,
   query_plan_json JSON NOT NULL,
+  query_spec_json JSON NULL,
   sql_fingerprint VARCHAR(255) NULL,
   executed_sql_text TEXT NULL,
   time_range_json JSON NOT NULL,
@@ -158,7 +220,9 @@ CREATE TABLE IF NOT EXISTS agent_query_log (
   order_by_json JSON NULL,
   limit_size INT NULL,
   row_count INT NOT NULL,
+  snapshot_id VARCHAR(64) NULL,
   executed_result_json JSON NULL,
+  result_digest_json JSON NULL,
   source_files_json JSON NULL,
   status VARCHAR(32) NOT NULL,
   error_message TEXT NULL,
@@ -241,8 +305,11 @@ CALL ensure_column('agent_query_log', 'input_type', 'ALTER TABLE agent_query_log
 CALL ensure_column('agent_query_log', 'intent', 'ALTER TABLE agent_query_log ADD COLUMN intent VARCHAR(64) NULL AFTER input_type');
 CALL ensure_column('agent_query_log', 'answer_type', 'ALTER TABLE agent_query_log ADD COLUMN answer_type VARCHAR(64) NULL AFTER intent');
 CALL ensure_column('agent_query_log', 'final_status', 'ALTER TABLE agent_query_log ADD COLUMN final_status VARCHAR(64) NULL AFTER answer_type');
+CALL ensure_column('agent_query_log', 'query_spec_json', 'ALTER TABLE agent_query_log ADD COLUMN query_spec_json JSON NULL AFTER query_plan_json');
 CALL ensure_column('agent_query_log', 'executed_sql_text', 'ALTER TABLE agent_query_log ADD COLUMN executed_sql_text TEXT NULL AFTER sql_fingerprint');
+CALL ensure_column('agent_query_log', 'snapshot_id', 'ALTER TABLE agent_query_log ADD COLUMN snapshot_id VARCHAR(64) NULL AFTER row_count');
 CALL ensure_column('agent_query_log', 'executed_result_json', 'ALTER TABLE agent_query_log ADD COLUMN executed_result_json JSON NULL AFTER row_count');
+CALL ensure_column('agent_query_log', 'result_digest_json', 'ALTER TABLE agent_query_log ADD COLUMN result_digest_json JSON NULL AFTER executed_result_json');
 CALL drop_column_if_exists('agent_query_log', 'result_preview_json', 'ALTER TABLE agent_query_log DROP COLUMN result_preview_json');
 
 CALL ensure_index('fact_soil_moisture', 'idx_soil_create_time', 'CREATE INDEX idx_soil_create_time ON fact_soil_moisture (create_time)');
@@ -251,6 +318,11 @@ CALL ensure_index('fact_soil_moisture', 'idx_soil_region_create_time', 'CREATE I
 CALL ensure_index('soil_import_job', 'idx_soil_import_job_status_created_at', 'CREATE INDEX idx_soil_import_job_status_created_at ON soil_import_job (status, created_at)');
 CALL ensure_index('soil_import_job_diff', 'idx_soil_import_job_diff_lookup', 'CREATE INDEX idx_soil_import_job_diff_lookup ON soil_import_job_diff (job_id, diff_type, diff_id)');
 CALL ensure_index('metric_rule', 'idx_metric_rule_scope_enabled', 'CREATE INDEX idx_metric_rule_scope_enabled ON metric_rule (enabled, rule_scope, updated_at)');
+CALL ensure_index('agent_chat_session', 'idx_agent_chat_session_owner_archived', 'CREATE INDEX idx_agent_chat_session_owner_archived ON agent_chat_session (owner_user_id, archived_at, updated_at)');
+CALL ensure_index('agent_chat_turn', 'idx_agent_chat_turn_session_created_at', 'CREATE INDEX idx_agent_chat_turn_session_created_at ON agent_chat_turn (session_id, created_at)');
+CALL ensure_index('agent_result_snapshot', 'idx_agent_result_snapshot_session_turn', 'CREATE INDEX idx_agent_result_snapshot_session_turn ON agent_result_snapshot (session_id, source_turn_id)');
+CALL ensure_index('agent_result_snapshot', 'idx_agent_result_snapshot_expires_at', 'CREATE INDEX idx_agent_result_snapshot_expires_at ON agent_result_snapshot (expires_at)');
+CALL ensure_index('agent_result_snapshot_item', 'idx_agent_result_snapshot_item_lookup', 'CREATE INDEX idx_agent_result_snapshot_item_lookup ON agent_result_snapshot_item (snapshot_id, sn, county, city)');
 CALL ensure_index('agent_query_log', 'idx_aql_session_turn', 'CREATE INDEX idx_aql_session_turn ON agent_query_log (session_id, turn_id)');
 CALL ensure_index('agent_query_log', 'idx_aql_created_at', 'CREATE INDEX idx_aql_created_at ON agent_query_log (created_at)');
 CALL ensure_index('agent_query_log', 'idx_aql_query_type_created_at', 'CREATE INDEX idx_aql_query_type_created_at ON agent_query_log (query_type, created_at)');

@@ -1,4 +1,5 @@
 import type { Message, Session } from '../types/chat';
+import { TurnRenderer } from './TurnRenderer';
 
 interface ChatPanelProps {
   session: Session | null;
@@ -75,6 +76,7 @@ export function ChatPanel({
                 }}
               >
                 <p>{message.content || (message.status === 'streaming' ? '...' : '')}</p>
+                {message.role === 'assistant' ? <TurnRenderer turn={message.meta?.turn ?? null} /> : null}
                 {message.status === 'error' && retryMessage ? (
                   <button className="retry" onClick={() => onRetry(retryMessage)}>
                     重试

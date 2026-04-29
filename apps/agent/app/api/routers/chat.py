@@ -20,11 +20,12 @@ import json
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import StreamingResponse
 
-from app.api.deps import get_agent_service
+from app.api.deps import get_agent_service, get_data_answer_service
 from app.repositories.soil_repository import DatabaseQueryError, DatabaseUnavailableError
-from app.schemas.request import ChatRequest
+from app.schemas.request import ChatRequest, ChatV2Request
 from app.schemas.response import ChatResponse
 from app.services.agent_service import SoilAgentService
+from app.services.data_answer_service import DataAnswerService
 
 
 router = APIRouter(prefix="", tags=["chat"])
@@ -61,6 +62,28 @@ async def chat(request: ChatRequest, service: SoilAgentService = Depends(get_age
         raise HTTPException(status_code=503, detail=f"数据库不可用：{exc}") from exc
     except DatabaseQueryError as exc:
         raise HTTPException(status_code=500, detail=f"数据库查询失败：{exc}") from exc
+
+
+@router.post("/chat-v2")
+async def chat_v2(
+    request: ChatV2Request,
+    service: DataAnswerService = Depends(get_data_answer_service),
+) -> dict:
+    """Run the deterministic server-session chat contract used by the new BFF."""
+    try:
+        return await service.reply(
+            message=request.user_input,
+            session_id=request.session_id,
+            turn_id=request.turn_id,
+            current_context=request.current_context,
+            timezone=request.timezone,
+        )
+    except DatabaseUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=f"数据库不可用：{exc}") from exc
+    except DatabaseQueryError as exc:
+        raise HTTPException(status_code=500, detail=f"数据库查询失败：{exc}") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 @router.post("/chat/stream")

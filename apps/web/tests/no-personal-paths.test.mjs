@@ -7,7 +7,6 @@ import { fileURLToPath } from 'node:url';
 
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, '../../..');
-const gagoCloudRoot = resolve(repoRoot, '../..');
 const blockedPathFragments = [
   ['', 'Users', 'mac', ''].join('/'),
   ['', 'Users', 'mac', 'Desktop', 'gago-cloud'].join('/'),
@@ -57,7 +56,7 @@ function listTextFiles(directory) {
 
 test('workspace text files do not expose personal macOS paths', () => {
   const violations = [];
-  for (const file of listTextFiles(gagoCloudRoot)) {
+  for (const file of listTextFiles(repoRoot)) {
     const content = readFileSync(file, 'utf8');
     for (const blockedPath of blockedPathFragments) {
       if (content.includes(blockedPath)) {

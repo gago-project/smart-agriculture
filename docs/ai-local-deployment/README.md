@@ -7,16 +7,16 @@
 
 ## 文件说明
 
-- [01-leadership-proposal.md](/Users/mac/Desktop/gago-cloud/code/smart-agriculture/docs/ai-local-deployment/01-leadership-proposal.md)
+- [01-leadership-proposal.md](./01-leadership-proposal.md)
   领导汇报版正式方案，适合形成 Word 稿或汇报材料正文。
 
-- [02-ppt-outline.md](/Users/mac/Desktop/gago-cloud/code/smart-agriculture/docs/ai-local-deployment/02-ppt-outline.md)
+- [02-ppt-outline.md](./02-ppt-outline.md)
   8 到 10 页 PPT 提纲与逐页讲稿，适合你自己汇报时直接照着讲。
 
-- [04-ppt-page-copy.md](/Users/mac/Desktop/gago-cloud/code/smart-agriculture/docs/ai-local-deployment/04-ppt-page-copy.md)
+- [04-ppt-page-copy.md](./04-ppt-page-copy.md)
   PPT 正式页文案，适合办公室或设计同事直接复制进 PPT 页面排版。
 
-- [03-system-architecture.md](/Users/mac/Desktop/gago-cloud/code/smart-agriculture/docs/ai-local-deployment/03-system-architecture.md)
+- [03-system-architecture.md](./03-system-architecture.md)
   系统架构图与说明，包含部署分区、数据流和真实性保障链路。
 
 ## 建议使用顺序

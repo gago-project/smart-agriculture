@@ -122,7 +122,7 @@
 
 ### 页面配图建议
 
-本页建议直接插入 [03-system-architecture.md](/Users/mac/Desktop/gago-cloud/code/smart-agriculture/docs/ai-local-deployment/03-system-architecture.md) 中的总体架构图。
+本页建议直接插入 [03-system-architecture.md](./03-system-architecture.md) 中的总体架构图。
 
 ---
 
@@ -199,7 +199,7 @@
 
 ### 页面配图建议
 
-本页建议直接插入 [03-system-architecture.md](/Users/mac/Desktop/gago-cloud/code/smart-agriculture/docs/ai-local-deployment/03-system-architecture.md) 中的真实性保障链路图。
+本页建议直接插入 [03-system-architecture.md](./03-system-architecture.md) 中的真实性保障链路图。
 
 ---
 

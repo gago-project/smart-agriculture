@@ -42,3 +42,21 @@ export async function withMysqlConnection(task, options = {}) {
     await connection.end();
   }
 }
+
+export async function withMysqlTransaction(task, options = {}) {
+  return await withMysqlConnection(async (connection) => {
+    await connection.beginTransaction();
+    try {
+      const result = await task(connection);
+      await connection.commit();
+      return result;
+    } catch (error) {
+      try {
+        await connection.rollback();
+      } catch {
+        // Ignore rollback errors so the original failure remains the primary signal.
+      }
+      throw error;
+    }
+  }, options);
+}

@@ -12,7 +12,6 @@ import { SoilAdminPage } from './components/SoilAdminPage';
 import { WorkspaceUserMenu } from './components/WorkspaceUserMenu';
 import { useChatActions } from './hooks/useChatActions';
 import { useAuthStore } from './store/authStore';
-import { useChatStore } from './store/chatStore';
 
 export default function App() {
   const pathname = usePathname();
@@ -22,11 +21,15 @@ export default function App() {
   const initAuth = useAuthStore((state) => state.initAuth);
   const login = useAuthStore((state) => state.login);
   const logout = useAuthStore((state) => state.logout);
-  const { sessions, activeSessionId, createSession, switchSession, renameSession, deleteSession } = useChatStore();
   const {
+    sessions,
+    activeSessionId,
     activeSession,
     error,
     isSending,
+    createSession,
+    switchSession,
+    deleteSession,
     retryForMessage,
     sendQuestion,
     selectedAssistantMessage,
@@ -116,9 +119,8 @@ export default function App() {
       <SessionSidebar
         sessions={sessions}
         activeSessionId={activeSessionId}
-        onCreateSession={() => createSession()}
+        onCreateSession={createSession}
         onSwitchSession={switchSession}
-        onRenameSession={renameSession}
         onDeleteSession={deleteSession}
       />
       <main className="main">
