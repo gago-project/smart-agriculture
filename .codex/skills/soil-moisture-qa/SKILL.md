@@ -2,22 +2,63 @@
 name: soil-moisture-qa
 description: >
   Use when running QA, regression testing, or business review for the
-  soil-moisture Agent. Single source of truth is the 60-case formal
+  soil-moisture Agent. Single source of truth is the 56-case formal
   acceptance library at testdata/agent/soil-moisture/case-library.md.
 ---
 
 # Smart Agriculture — 墒情 Agent QA Skill
 
 > **架构版本**：LLM + Function Calling 5 节点。
-> 正式测试入口为一套 **60 条** 的正式验收库。
+> 正式测试入口为一套 **56 条** 的正式验收库。
 
 ## 权威入口
 
 | 资产 | 路径 | 说明 |
 |------|------|------|
-| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 60 条正式验收 Case，每次全量执行 |
+| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 56 条正式验收 Case，每次全量执行 |
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
 | Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
+
+## 发布前正式门禁（Release Gate）
+
+> 与历史 `scripts/qa/run-soil-moisture-release-gate.sh` **等价**：先本地验活，再跑 56 条正式 Case 并写报告。以本节为唯一权威步骤（不再维护独立 `.sh`）。
+
+### 前置条件
+
+- 在**仓库根目录**执行；环境变量已加载（可先 `source scripts/dev/load-root-env.sh`）。
+- 存在可执行 `.venv/bin/python`。
+- 已配置 `HEALTH_PASSWORD`。
+- 本地 Web + Agent 已启动；`BASE_WEB` 默认 `http://localhost:3000`；Agent 端口优先读 `.runtime/local-agent-port`，缺失则 `18010`。
+
+### 门禁 1/2：本地健康冒烟
+
+```bash
+LOCAL_AGENT_PORT=$(test -f .runtime/local-agent-port && cat .runtime/local-agent-port || echo 18010)
+export BASE_WEB="${BASE_WEB:-http://localhost:3000}"
+export BASE_AGENT="${BASE_AGENT:-http://localhost:${LOCAL_AGENT_PORT}}"
+BASE_WEB="$BASE_WEB" BASE_AGENT="$BASE_AGENT" bash scripts/health/check-local.sh
+```
+
+### 门禁 2/2：56 条正式验收（生成报告）
+
+```bash
+export FORMAL_AGENT_URL="${FORMAL_AGENT_URL:-${BASE_AGENT}/chat}"
+env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy \
+  FORMAL_AGENT_URL="$FORMAL_AGENT_URL" \
+  .venv/bin/python testdata/agent/soil-moisture/scripts/generate_formal_acceptance_report.py
+```
+
+报告路径：`testdata/agent/soil-moisture/outputs/formal-acceptance-report.md`。
+
+### 一键等价（npm）
+
+仓库根目录、环境就绪时：
+
+```bash
+npm run qa:soil:formal
+```
+
+`package.json` 中 `qa:soil:formal` 内联上述两步逻辑，无需单独 shell 脚本。
 
 ## 架构约束（QA 必须对齐）
 
@@ -78,15 +119,15 @@ description: >
 
 ## 正式验收库结构
 
-正式库共 **60** 条，分布固定：
+正式库共 **56** 条，分布固定：
 
-| 一级 `answer_type` | 数量 | CaseID |
+| 章节 | 数量 | CaseID |
 |---|---:|---|
-| `guidance_answer` | 15 | `SM-CONV-001 ~ SM-CONV-015` |
-| `soil_summary_answer` | 12 | `SM-SUM-001 ~ SM-SUM-012` |
-| `soil_ranking_answer` | 8 | `SM-RANK-001 ~ SM-RANK-008` |
-| `soil_detail_answer` | 15 | `SM-DETAIL-001 ~ SM-DETAIL-015` |
-| `fallback_answer` | 10 | `SM-FB-001 ~ SM-FB-010` |
+| Guidance Cases | 15 | `SM-CONV-001 ~ SM-CONV-015` |
+| Summary Cases | 10 | `SM-SUM-001 ~ SM-SUM-010` |
+| Ranking Cases | 8 | `SM-RANK-001 ~ SM-RANK-008` |
+| Detail Cases | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
+| Fallback Cases | 10 | `SM-FB-001 ~ SM-FB-010` |
 
 ### 必须覆盖的重点
 
@@ -113,7 +154,7 @@ description: >
 
 正式要求是：
 - 只维护一套正式库
-- 每次都全量跑完 60 条
+- 每次都全量跑完 56 条
 - 测试以单元测试为主
 
 ### 长文本回答必须保留
@@ -141,7 +182,7 @@ description: >
 
 ### 标准详细测试报告
 
-当用户明确要求“正式测试报告”“逐条详细报告”“60 条 Case 全量验收报告”时，必须按统一报告标准输出。
+当用户明确要求“正式测试报告”“逐条详细报告”“56 条 Case 全量验收报告”时，必须按统一报告标准输出。
 
 推荐报告落点：
 
@@ -151,7 +192,7 @@ description: >
 
 #### 报告范围
 
-- 必须逐条覆盖全部 **60** 条正式 Case
+- 必须逐条覆盖全部 **56** 条正式 Case
 - 不允许抽样
 - 每条业务 Case 都必须包含数据库回查与事实校验
 - 每条业务 Case 都必须明确给出 `是否符合事实`
@@ -248,7 +289,7 @@ description: >
 - 测试范围
 - 正式库自检结果
 - Python / Node 测试结果
-- 60 条逐条测试结果
+- 56 条逐条测试结果
 - 数据库真实性校验汇总
 - 哪些 Case 的 `是否符合事实` 需要调整
 - 是否仍存在“未调 Tool 直接回答业务问题”的路径

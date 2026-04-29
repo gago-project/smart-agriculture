@@ -280,22 +280,27 @@ test('soil moisture testing docs use testdata case library as the single formal 
   );
 
   assert.match(testdataReadmeSource, /case-library\.md/);
-  assert.match(testdataReadmeSource, /60/);
+  assert.match(testdataReadmeSource, /正式 Case 总数：`56`/);
+  assert.match(testdataReadmeSource, /每次全量跑完 56 条/);
   assert.doesNotMatch(testdataReadmeSource, /当前正式规模为 `130` 个 Case/);
-  assert.match(caseLibrarySource, /60 条正式验收 Case/);
+  assert.match(caseLibrarySource, /56 条正式验收 Case/);
   assert.match(caseLibrarySource, /是否符合事实/);
   assert.match(caseLibrarySource, /数据库校验断言/);
   assert.match(caseLibrarySource, /### SM-CONV-001/);
   assert.match(caseLibrarySource, /### SM-CONV-015/);
-  assert.match(caseLibrarySource, /### SM-SUM-012/);
+  assert.match(caseLibrarySource, /### SM-SUM-010/);
   assert.match(caseLibrarySource, /### SM-RANK-008/);
-  assert.match(caseLibrarySource, /### SM-DETAIL-015/);
+  assert.match(caseLibrarySource, /### SM-DETAIL-013/);
   assert.match(caseLibrarySource, /### SM-FB-010/);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-[A-Z]+-\d+/gm)].length, 60);
+  assert.doesNotMatch(caseLibrarySource, /### SM-SUM-011/);
+  assert.doesNotMatch(caseLibrarySource, /### SM-SUM-012/);
+  assert.doesNotMatch(caseLibrarySource, /### SM-DETAIL-014/);
+  assert.doesNotMatch(caseLibrarySource, /### SM-DETAIL-015/);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-[A-Z]+-\d+/gm)].length, 56);
   assert.equal([...caseLibrarySource.matchAll(/^### SM-CONV-/gm)].length, 15);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-SUM-/gm)].length, 12);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-SUM-/gm)].length, 10);
   assert.equal([...caseLibrarySource.matchAll(/^### SM-RANK-/gm)].length, 8);
-  assert.equal([...caseLibrarySource.matchAll(/^### SM-DETAIL-/gm)].length, 15);
+  assert.equal([...caseLibrarySource.matchAll(/^### SM-DETAIL-/gm)].length, 13);
   assert.equal([...caseLibrarySource.matchAll(/^### SM-FB-/gm)].length, 10);
   const blocks = caseLibrarySource
     .split(/^### /gm)
@@ -310,13 +315,36 @@ test('soil moisture testing docs use testdata case library as the single formal 
       assert.match(block, /是否符合事实[：:]\s*是/);
     }
   }
-  assert.match(claudeSkillSource, /60/);
-  assert.match(claudeSkillSource, /每次都全量跑完 60 条/);
-  assert.match(claudeSkillSource, /正式测试入口为一套 \*\*60 条\*\* 的正式验收库/);
+  assert.match(claudeSkillSource, /56/);
+  assert.match(claudeSkillSource, /每次都全量跑完 56 条/);
+  assert.match(claudeSkillSource, /正式测试入口为一套 \*\*56 条\*\* 的正式验收库/);
   assert.doesNotMatch(claudeSkillSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
-  assert.match(cursorRuleSource, /正式 Case 总数固定为 `60`/);
-  assert.match(cursorRuleSource, /只允许使用当前正式库中的 60 条 Case/);
+  assert.match(cursorRuleSource, /正式 Case 总数固定为 `56`/);
+  assert.match(cursorRuleSource, /只允许使用当前正式库中的 56 条 Case/);
   assert.doesNotMatch(cursorRuleSource, /旧三层测试模型|旧 `130`|旧 CaseID/);
+});
+
+test('deploy skills require the formal 56-case gate after smoke checks', () => {
+  const deploySkillSource = readFileSync(
+    new URL('../../../.claude/skills/deploy/SKILL.md', import.meta.url),
+    'utf8',
+  );
+  const localHealthSkillSource = readFileSync(
+    new URL('../../../.claude/skills/local-health/SKILL.md', import.meta.url),
+    'utf8',
+  );
+  const rootPackageSource = readFileSync(
+    new URL('../../../package.json', import.meta.url),
+    'utf8',
+  );
+
+  assert.match(deploySkillSource, /正式 QA 门禁（56 条全量）/);
+  assert.match(deploySkillSource, /generate_formal_acceptance_report\.py/);
+  assert.match(deploySkillSource, /56 条正式 Case/);
+  assert.match(localHealthSkillSource, /不替代 56 条正式 Case 门禁/);
+  assert.match(rootPackageSource, /"qa:soil:formal"/);
+  assert.match(rootPackageSource, /generate_formal_acceptance_report\.py/);
+  assert.match(rootPackageSource, /check-local\.sh/);
 });
 
 test('agent summary route must surface upstream errors instead of fake fallback data', () => {

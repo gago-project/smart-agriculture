@@ -13,6 +13,7 @@
     "db:init:local": "bash scripts/db/apply-local-init.sh",
     "db:seed:auth:local": "bash -lc 'source scripts/dev/load-root-env.sh && node apps/web/scripts/seed-local-auth-users.mjs'",
     "db:import:soil:local": "bash -lc 'source scripts/dev/load-root-env.sh && node apps/web/scripts/import-local-soil-excel.mjs'",
+    "qa:soil:formal": "bash -lc 'source scripts/dev/load-root-env.sh; set -euo pipefail; test -x .venv/bin/python || { echo \"缺少 .venv/bin/python\"; exit 1; }; test -n \"${HEALTH_PASSWORD:-}\" || { echo \"缺少 HEALTH_PASSWORD\"; exit 1; }; LOCAL_AGENT_PORT=$(test -f .runtime/local-agent-port && cat .runtime/local-agent-port || echo 18010); export BASE_WEB=${BASE_WEB:-http://localhost:3000}; export BASE_AGENT=${BASE_AGENT:-http://localhost:${LOCAL_AGENT_PORT}}; export FORMAL_AGENT_URL=${FORMAL_AGENT_URL:-${BASE_AGENT}/chat}; echo \"[gate 1/2] local smoke\"; BASE_WEB=\"$BASE_WEB\" BASE_AGENT=\"$BASE_AGENT\" bash scripts/health/check-local.sh; echo \"[gate 2/2] formal acceptance (56 cases)\"; env -u ALL_PROXY -u all_proxy -u HTTP_PROXY -u HTTPS_PROXY -u http_proxy -u https_proxy FORMAL_AGENT_URL=\"$FORMAL_AGENT_URL\" .venv/bin/python testdata/agent/soil-moisture/scripts/generate_formal_acceptance_report.py; echo \"formal acceptance report: $(pwd)/testdata/agent/soil-moisture/outputs/formal-acceptance-report.md\"'",
     "test:agent": "PYTHONPATH=apps/agent .venv/bin/python -m unittest discover -s apps/agent/tests -p '*_unittest.py' -v",
     "test:web": "npm --prefix apps/web test",
     "health": "bash scripts/health/check-local.sh"

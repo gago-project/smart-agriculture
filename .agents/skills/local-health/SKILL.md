@@ -146,5 +146,6 @@ bash scripts/health/check-local.sh
 ## 提示
 
 - **步骤三（chat smoke）是真正的发布门禁**，不能只看步骤一二就算验活完成。
+- 对 `soil-moisture` 正式发布来说，这个 smoke test 只解决“服务可用”，不替代 56 条正式 Case 门禁；发布后还要按 `.claude/skills/soil-moisture-qa/SKILL.md` 的「发布前正式门禁」执行，或在仓库根目录执行 `npm run qa:soil:formal`。
 - 进程模式 agent 端口不固定，始终从 `.runtime/local-agent-port` 读取，不要硬编码 18010。
 - 不要重启 `nginx` 或 `cloudflared`，这两个服务与本项目无关。

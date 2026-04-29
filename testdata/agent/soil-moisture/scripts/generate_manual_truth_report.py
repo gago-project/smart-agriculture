@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate a manual DB truth-check report for the 30 formal soil-moisture cases."""
+"""Generate a manual DB truth-check report for the 56 formal soil-moisture cases."""
 
 from __future__ import annotations
 
@@ -370,7 +370,7 @@ def render_report(rows: list[dict[str, Any]]) -> str:
     total = len(rows)
     status_counter = Counter(row["factual_status"] for row in rows)
     lines = []
-    lines.append("# 墒情 Agent 30 条正式 case 手工数据库真实性复核报告")
+    lines.append("# 墒情 Agent 56 条正式 case 手工数据库真实性复核报告")
     lines.append("")
     lines.append("## 1. 复核概览")
     lines.append(f"- 复核时间：`{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}`")

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the 30-case formal acceptance report for the soil-moisture Agent."""
+"""Generate the 56-case formal acceptance report for the soil-moisture Agent."""
 
 from __future__ import annotations
 
@@ -28,6 +28,15 @@ CASE_LIBRARY = ROOT / "testdata/agent/soil-moisture/case-library.md"
 REPORT_PATH = ROOT / "testdata/agent/soil-moisture/outputs/formal-acceptance-report.md"
 AGENT_URL = os.environ.get("FORMAL_AGENT_URL", "http://localhost:18010/chat")
 RUN_ID = datetime.now().strftime("%Y%m%d-%H%M%S")
+PYTEST_BIN = ROOT / ".venv/bin/pytest"
+EXPECTED_CASE_TOTAL = 56
+EXPECTED_DISTRIBUTION = {
+    "guidance_answer": 13,
+    "soil_summary_answer": 12,
+    "soil_ranking_answer": 8,
+    "soil_detail_answer": 13,
+    "fallback_answer": 10,
+}
 
 REQUIRED_LIBRARY_FIELDS = [
     "当前回答",
@@ -73,12 +82,13 @@ class CommandResult:
 
 def main() -> None:
     load_dotenv(ROOT / ".env")
+    clear_proxy_env()
     cases = parse_case_library(CASE_LIBRARY)
     self_check = check_case_library(cases)
     git_meta = collect_git_meta()
     env_meta = collect_environment_meta()
     python_test = run_command(
-        "PYTHONPATH=. pytest tests -q",
+        f"PYTHONPATH=. {PYTEST_BIN} tests -q",
         cwd=ROOT / "apps/agent",
     )
     node_test = run_command(
@@ -109,6 +119,22 @@ def main() -> None:
     REPORT_PATH.parent.mkdir(parents=True, exist_ok=True)
     REPORT_PATH.write_text(report, encoding="utf-8")
     print(str(REPORT_PATH))
+    blockers = collect_gate_blockers(
+        self_check=self_check,
+        python_test=python_test,
+        node_test=node_test,
+        results=results,
+        summary=summary,
+    )
+    if blockers:
+        for blocker in blockers:
+            print(f"[gate] {blocker}", file=sys.stderr)
+        sys.exit(1)
+
+
+def clear_proxy_env() -> None:
+    for key in ("ALL_PROXY", "all_proxy", "HTTP_PROXY", "HTTPS_PROXY", "http_proxy", "https_proxy"):
+        os.environ.pop(key, None)
 
 
 def load_dotenv(path: Path) -> None:
@@ -154,22 +180,15 @@ def clean_markdown_value(value: str) -> str:
 
 def check_case_library(cases: list[dict[str, Any]]) -> dict[str, Any]:
     distribution = Counter(case.get("预期 answer_type", "") for case in cases)
-    required_distribution = {
-        "guidance_answer": 8,
-        "soil_summary_answer": 6,
-        "soil_ranking_answer": 4,
-        "soil_detail_answer": 8,
-        "fallback_answer": 4,
-    }
     missing_fields: dict[str, list[str]] = {}
     for case in cases:
         missing = [name for name in REQUIRED_LIBRARY_FIELDS if not case.get(name)]
         if missing:
             missing_fields[case["CaseID"]] = missing
     blockers: list[str] = []
-    if len(cases) != 30:
-        blockers.append(f"正式 case 总数不是 30，而是 {len(cases)}。")
-    for answer_type, expected_count in required_distribution.items():
+    if len(cases) != EXPECTED_CASE_TOTAL:
+        blockers.append(f"正式 case 总数不是 {EXPECTED_CASE_TOTAL}，而是 {len(cases)}。")
+    for answer_type, expected_count in EXPECTED_DISTRIBUTION.items():
         actual_count = distribution.get(answer_type, 0)
         if actual_count != expected_count:
             blockers.append(f"{answer_type} 分布不符：期望 {expected_count}，实际 {actual_count}。")
@@ -179,10 +198,44 @@ def check_case_library(cases: list[dict[str, Any]]) -> dict[str, Any]:
     return {
         "total_cases": len(cases),
         "distribution": distribution,
-        "required_distribution": required_distribution,
+        "required_distribution": EXPECTED_DISTRIBUTION,
         "missing_fields": missing_fields,
         "blockers": blockers,
     }
+
+
+def has_legacy_live_fields(response: dict[str, Any]) -> bool:
+    return "merged_slots" in response or "query_plan" in response
+
+
+def collect_gate_blockers(
+    *,
+    self_check: dict[str, Any],
+    python_test: CommandResult,
+    node_test: CommandResult,
+    results: list[dict[str, Any]],
+    summary: dict[str, Any],
+) -> list[str]:
+    blockers: list[str] = []
+    if python_test.exit_code != 0:
+        blockers.append("Python 基础测试失败")
+    if node_test.exit_code != 0:
+        blockers.append("Node 基础测试失败")
+    if any(
+        has_legacy_live_fields(result["execution"].get("response", {}))
+        for result in results
+        if result["execution"]["mode"] == "live-http-agent"
+    ):
+        blockers.append("在线 Agent 返回旧 live path 字段（如 merged_slots/query_plan），与仓库当前正式 5 节点契约漂移")
+    if self_check["blockers"]:
+        blockers.extend(self_check["blockers"])
+    if summary["failed"] != 0:
+        blockers.append(f"{EXPECTED_CASE_TOTAL} 条正式验收存在失败 case：{summary['failed']} 条")
+    if summary["business_without_tool"]:
+        blockers.append("仍存在域内业务问题未调 Tool 的路径")
+    if summary["factual_pending"] or summary["factual_no"]:
+        blockers.append("仍存在数据库事实未对齐的正式 case")
+    return blockers
 
 
 def collect_git_meta() -> dict[str, str]:
@@ -1063,7 +1116,7 @@ def render_report(
     summary: dict[str, Any],
 ) -> str:
     lines: list[str] = []
-    lines.append("# 墒情 Agent 30 条正式验收测试报告")
+    lines.append("# 墒情 Agent 56 条正式验收测试报告")
     lines.append("")
     lines.append("## 1. 测试概览")
     lines.append(f"- 测试时间：{env_meta['timestamp']}")
@@ -1092,7 +1145,7 @@ def render_report(
     lines.append("")
     lines.append(render_command_result("Node 测试结果", node_test))
     lines.append("")
-    lines.append("## 4. 30 条 case 逐条结果")
+    lines.append("## 4. 56 条 case 逐条结果")
     for result in results:
         lines.extend(render_case_section(result))
     lines.append("")
@@ -1115,7 +1168,7 @@ def render_report(
         passed_count = sum(1 for result in matched if result["analysis"]["pass"])
         lines.append(f"  - `{mode}`：`{passed_count}/{len(matched)}`")
     lines.append("- 各 fallback_reason 通过情况：")
-    for reason in ["无", "no_data", "entity_not_found", "tool_missing", "fact_check_failed"]:
+    for reason in ["无", "no_data", "entity_not_found", "tool_missing", "tool_blocked", "fact_check_failed", "unknown"]:
         matched = [result for result in results if (result["case"].get("预期 fallback_reason") or "无") == reason]
         if not matched:
             continue
@@ -1139,15 +1192,13 @@ def render_report(
         f"- 哪些 case 的 `是否符合事实` 需要更新："
         f"`{', '.join(summary['factual_pending'] + summary['factual_no']) or '无'}`"
     )
-    blockers = []
-    if python_test.exit_code != 0:
-        blockers.append("Python 基础测试失败")
-    if node_test.exit_code != 0:
-        blockers.append("Node 基础测试失败")
-    if any("merged_slots" in result["execution"].get("response", {}) for result in results if result["execution"]["mode"] == "live-http-agent"):
-        blockers.append("在线 Agent 返回旧 live path 字段（如 merged_slots/query_plan），与仓库当前正式 5 节点契约漂移")
-    if self_check["blockers"]:
-        blockers.extend(self_check["blockers"])
+    blockers = collect_gate_blockers(
+        self_check=self_check,
+        python_test=python_test,
+        node_test=node_test,
+        results=results,
+        summary=summary,
+    )
     lines.append(f"- 阻塞项：`{'; '.join(blockers) or '无'}`")
     lines.append("")
     return "\n".join(lines).rstrip() + "\n"

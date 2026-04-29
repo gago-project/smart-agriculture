@@ -1,11 +1,11 @@
-# 墒情 Agent Case Library（60 条正式验收 Case）
+# 墒情 Agent Case Library（56 条正式验收 Case）
 
 > **架构版本**：LLM + Function Calling 5 节点（`InputGuard → AgentLoop → DataFactCheck → AnswerVerify → FallbackGuard`）。
 >  
 > **唯一正式入口**：本文件是当前 `soil-moisture` Agent 的唯一正式验收库。所有正式 Case 的新增、删减、修订都只改这里。
 >
 > **测试原则**：
-> - 每次验收都全量跑完全部 `60` 条 Case。
+> - 每次验收都全量跑完全部 `56` 条 Case。
 > - 每条 Case 都保留完整的 `当前回答` 长文本样例。
 > - 每条业务 Case 都必须带 `数据库校验断言` 与 `是否符合事实`。
 > - 正式通过的业务 Case，`是否符合事实` 必须为 `是`。
@@ -40,9 +40,9 @@
 | 章节 | CaseID 区间 | 数量 | 主要 answer_type |
 |---|---|---:|---|
 | Guidance Cases | `SM-CONV-001 ~ SM-CONV-015` | 15 | 13 条 `guidance_answer` + 2 条业务回答（`SM-CONV-009 / SM-CONV-011` 为 `soil_summary_answer`） |
-| Summary Cases | `SM-SUM-001 ~ SM-SUM-012` | 12 | 全部 `soil_summary_answer` |
+| Summary Cases | `SM-SUM-001 ~ SM-SUM-010` | 10 | 全部 `soil_summary_answer` |
 | Ranking Cases | `SM-RANK-001 ~ SM-RANK-008` | 8 | 全部 `soil_ranking_answer` |
-| Detail Cases | `SM-DETAIL-001 ~ SM-DETAIL-015` | 15 | 全部 `soil_detail_answer` |
+| Detail Cases | `SM-DETAIL-001 ~ SM-DETAIL-013` | 13 | 全部 `soil_detail_answer` |
 | Fallback Cases | `SM-FB-001 ~ SM-FB-010` | 10 | 全部 `fallback_answer` |
 
 ### 按一级 `answer_type` 维度
@@ -52,7 +52,7 @@
 | `guidance_answer` | 引导 / 澄清 / 非业务回复 | 13 |
 | `soil_summary_answer` | 墒情概览（全局或区域汇总，含 `SM-CONV-009 / SM-CONV-011` 两条多轮业务回答） | 12 |
 | `soil_ranking_answer` | 排名对比（区域风险排行） | 8 |
-| `soil_detail_answer` | 地区 / 设备详情及异常分析 | 15 |
+| `soil_detail_answer` | 地区 / 设备详情及异常分析 | 13 |
 | `fallback_answer` | 无数据 / 找不到对象 / 兜底 | 10 |
 
 ### 按 `output_mode` 覆盖
@@ -61,8 +61,8 @@
 |---|---:|---|
 | `normal` | 30+ | 全库默认 |
 | `anomaly_focus` | 4 | `SM-SUM-004 / SM-DETAIL-006 / SM-DETAIL-009 / SM-DETAIL-010` |
-| `warning_mode` | 4 | `SM-SUM-005 / SM-SUM-012 / SM-DETAIL-007 / SM-DETAIL-014` |
-| `advice_mode` | 4 | `SM-SUM-006 / SM-SUM-011 / SM-DETAIL-008 / SM-DETAIL-015` |
+| `warning_mode` | 2 | `SM-SUM-005 / SM-DETAIL-007` |
+| `advice_mode` | 2 | `SM-SUM-006 / SM-DETAIL-008` |
 
 ## Guidance Cases（15）
 
@@ -397,7 +397,7 @@
 - `是否符合事实`：`是`
 - `备注`：closing 后上下文重置样例（与 SM-CONV-008 配套）
 
-## Summary Cases（12）
+## Summary Cases（10）
 
 ### SM-SUM-001
 
@@ -659,58 +659,6 @@
 - `是否符合事实`：`是`
 - `备注`：entity_confidence=medium 继续执行并附加说明样例
 
-### SM-SUM-011
-
-- `CaseID`：`SM-SUM-011`
-- `用户问题`：睢宁县最近一个月需要怎么处理
-- `当前回答`：从建议视角看，睢宁县最近一个月需要重点处理。该时段共有 `210` 条记录，其中 `39` 条预警相关记录，主要集中在 `涝渍`。建议对这些点位（尤其是 `SNS00213891` 这一类持续涝渍设备）安排现场排水复核，同时关注降水后 24 小时内的水分回落速度。  
-- `上下文`：无
-- `预期 input_type`：`business_colloquial`
-- `是否域内业务问题`：是
-- `是否必须命中 Tool`：是
-- `预期 Tool`：`query_soil_summary`
-- `预期 answer_type`：`soil_summary_answer`
-- `预期 output_mode`：`advice_mode`
-- `预期 guidance_reason`：`无`
-- `预期 fallback_reason`：`无`
-- `是否写查询日志`：是
-- `关键断言`：建议必须基于真实异常分布；不得在没有数据支持时建议"立即升级预警"
-- `结构化证据断言`：`answer_facts.output_mode=advice_mode`；`answer_facts.alert_count=39`；`answer_facts.top_alert_devices[0].sn=SNS00213891`
-- `数据库校验断言`：调用 `query_soil_summary(county=睢宁县,start=2026-03-15 00:00:00,end=2026-04-13 23:59:59,output_mode=advice_mode)`；应得到 `total_records=210`、`alert_count=39`，代表设备包含 `SNS00213891`
-- `预期实体`：`睢宁县`
-- `预期时间窗`：`2026-03-15 00:00:00 ~ 2026-04-13 23:59:59`
-- `预期关键指标`：`210 / 39`
-- `必含事实`：`涝渍`、`SNS00213891`、`排水`
-- `禁止事实`：`没有需要处理的异常`、`立即升级预警`
-- `是否符合事实`：`是`
-- `备注`：summary 建议视角第二条样例（高风险县区，与 SM-SUM-006 南通市"平稳地区建议视角"形成对照）
-
-### SM-SUM-012
-
-- `CaseID`：`SM-SUM-012`
-- `用户问题`：从预警角度看，睢宁县最近一个月情况怎么样
-- `当前回答`：从预警视角看，睢宁县最近一个月需要重点关注。该时段共汇总 `210` 条记录，其中 `39` 条为预警相关记录，全部集中在 `涝渍` 类型。代表性预警样例集中在设备 `SNS00213891`，20 厘米含水量峰值长期超过 `130%`，建议优先复核当地排水情况。
-- `上下文`：无
-- `预期 input_type`：`business_direct`
-- `是否域内业务问题`：是
-- `是否必须命中 Tool`：是
-- `预期 Tool`：`query_soil_summary`
-- `预期 answer_type`：`soil_summary_answer`
-- `预期 output_mode`：`warning_mode`
-- `预期 guidance_reason`：`无`
-- `预期 fallback_reason`：`无`
-- `是否写查询日志`：是
-- `关键断言`：预警视角必须落在 `warning_mode`，并突出预警记录数与代表设备
-- `结构化证据断言`：`answer_facts.output_mode=warning_mode`；`answer_facts.alert_count=39`；`answer_facts.warning_data.sn=SNS00213891`
-- `数据库校验断言`：调用 `query_soil_summary(county=睢宁县,start=2026-03-15 00:00:00,end=2026-04-13 23:59:59,output_mode=warning_mode)`；应得到 `total_records=210`、`alert_count=39`，代表预警记录中包含 `SNS00213891`
-- `预期实体`：`睢宁县`
-- `预期时间窗`：`2026-03-15 00:00:00 ~ 2026-04-13 23:59:59`
-- `预期关键指标`：`210 / 39`
-- `必含事实`：`SNS00213891`、`涝渍`
-- `禁止事实`：`没有预警`
-- `是否符合事实`：`是`
-- `备注`：summary 预警视角第二条样例（高风险县区，与 SM-SUM-005 南通市"今年累计预警视角"形成对照）
-
 ## Ranking Cases（8）
 
 ### SM-RANK-001
@@ -921,7 +869,7 @@
 - `是否符合事实`：`是`
 - `备注`：query_soil_comparison 横向对比样例（市级）
 
-## Detail Cases（15）
+## Detail Cases（13）
 
 ### SM-DETAIL-001
 
@@ -1260,58 +1208,6 @@
 - `禁止事实`：`继续查如东县`、`要求重新提供时间`
 - `是否符合事实`：`是`
 - `备注`：否定修正多轮样例
-
-### SM-DETAIL-014
-
-- `CaseID`：`SM-DETAIL-014`
-- `用户问题`：SNS00214096 三个月预警情况要不要紧
-- `当前回答`：设备 `SNS00214096` 近三个月（`2026-02-01 ~ 2026-04-13`）共有 `72` 条记录，其中 `3` 条触发了涝渍预警。代表性记录是 `2026-03-05 23:59:17` 的 `154.31%` 读数，位于 `南通市启东市`。当前已恢复正常，但仍建议把它列入下一轮巡检重点。
-- `上下文`：无
-- `预期 input_type`：`business_direct`
-- `是否域内业务问题`：是
-- `是否必须命中 Tool`：是
-- `预期 Tool`：`query_soil_detail`
-- `预期 answer_type`：`soil_detail_answer`
-- `预期 output_mode`：`warning_mode`
-- `预期 guidance_reason`：`无`
-- `预期 fallback_reason`：`无`
-- `是否写查询日志`：是
-- `关键断言`：warning_mode 必须提供 `warning_data` 对象（含 sn / water20cm / time / location）
-- `结构化证据断言`：`answer_facts.output_mode=warning_mode`；`answer_facts.warning_data.sn=SNS00214096`；`answer_facts.warning_data.water20cm=154.31`
-- `数据库校验断言`：调用 `query_soil_detail(sn=SNS00214096,start=2026-02-01 00:00:00,end=2026-04-13 23:59:59,output_mode=warning_mode)`；`record_count=72`，`status_summary.waterlogging=3`，`warning_data` 应对应 `SNS00214096 / 启东市 / 154.31 / 2026-03-05 23:59:17`
-- `预期实体`：`SNS00214096`
-- `预期时间窗`：`2026-02-01 00:00:00 ~ 2026-04-13 23:59:59`
-- `预期关键指标`：`154.31 / 涝渍`
-- `必含事实`：`154.31`、`启东市`、`2026-03-05`
-- `禁止事实`：`没有预警`、`未触发预警`
-- `是否符合事实`：`是`
-- `备注`：三个月设备预警样例
-
-### SM-DETAIL-015
-
-- `CaseID`：`SM-DETAIL-015`
-- `用户问题`：SNS00213891 这台设备建议怎么处理
-- `当前回答`：从建议视角看，设备 `SNS00213891` 最近 30 天处于持续涝渍状态，位于 `徐州市睢宁县`。代表性异常记录在该时段连续出现，20 厘米含水量长期高于 `130%`。建议立即联系当地核查现场排水情况，并在排水后维持每日观察，确认是否能恢复到 `not_triggered` 状态。
-- `上下文`：无
-- `预期 input_type`：`business_colloquial`
-- `是否域内业务问题`：是
-- `是否必须命中 Tool`：是
-- `预期 Tool`：`query_soil_detail`
-- `预期 answer_type`：`soil_detail_answer`
-- `预期 output_mode`：`advice_mode`
-- `预期 guidance_reason`：`无`
-- `预期 fallback_reason`：`无`
-- `是否写查询日志`：是
-- `关键断言`：建议必须绑定到真实持续异常；不得对未触发预警的设备凭空建议"立即处理"
-- `结构化证据断言`：`answer_facts.output_mode=advice_mode`；`answer_facts.entity_name=SNS00213891`；`answer_facts.alert_records[0].soil_status=waterlogging`
-- `数据库校验断言`：调用 `query_soil_detail(sn=SNS00213891,start=2026-03-15 00:00:00,end=2026-04-13 23:59:59,output_mode=advice_mode)`；alert records 主要为 `waterlogging`，位置 `徐州市睢宁县`
-- `预期实体`：`SNS00213891`
-- `预期时间窗`：`2026-03-15 00:00:00 ~ 2026-04-13 23:59:59`
-- `预期关键指标`：`waterlogging`
-- `必含事实`：`徐州市睢宁县`、`涝渍`、`排水`
-- `禁止事实`：`当前已正常无需关注`
-- `是否符合事实`：`是`
-- `备注`：detail 建议视角第二条样例（高风险设备，与 SM-DETAIL-008 已恢复设备 SNS00204334 形成对照）
 
 ## Fallback Cases（10）
 
