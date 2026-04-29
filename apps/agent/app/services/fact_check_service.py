@@ -71,9 +71,10 @@ class FactCheckService:
         # ── blocking checks ───────────────────────────────────────────────────
 
         if answer_type in _BUSINESS_ANSWER_TYPES:
+            query_payload = _as_dict(query_result)
             entries = []
-            if hasattr(query_result, "get"):
-                entries = query_result.get("entries") or []
+            if query_payload:
+                entries = query_payload.get("entries") or []
             has_entries = bool(entries)
             has_trace = bool(tool_trace)
             if not has_entries and not has_trace:
@@ -107,7 +108,7 @@ class FactCheckService:
 
         warnings: list[str] = []
         rargs = resolved_args or {}
-        qt = query_result if hasattr(query_result, "get") else {}
+        qt = _as_dict(query_result)
 
         _check_numeric_values(final_answer, qt, tool_trace or [], warnings)
         _check_time_window(final_answer, rargs, warnings)
@@ -122,19 +123,29 @@ class FactCheckService:
 
 # ── alert check implementations ───────────────────────────────────────────────
 
+def _as_dict(result: Any) -> dict:
+    if isinstance(result, dict):
+        return result
+    model_dump = getattr(result, "model_dump", None)
+    if callable(model_dump):
+        payload = model_dump(exclude_none=True)
+        return payload if isinstance(payload, dict) else {}
+    return {}
+
 def _collect_water_values(qt: dict, tool_trace: list) -> list[float]:
     """Gather all water-content numeric values from tool results."""
     values: list[float] = []
 
-    def _from_result(result: dict) -> None:
+    def _from_result(result: Any) -> None:
+        payload = _as_dict(result)
         for key in ("avg_water20cm",):
-            v = result.get(key)
+            v = payload.get(key)
             if v is not None:
                 try:
                     values.append(float(v))
                 except (TypeError, ValueError):
                     pass
-        for rec in result.get("alert_records") or []:
+        for rec in payload.get("alert_records") or []:
             for wk in ("water20cm", "water40cm", "water60cm", "water80cm"):
                 v = rec.get(wk)
                 if v is not None:
@@ -142,7 +153,7 @@ def _collect_water_values(qt: dict, tool_trace: list) -> list[float]:
                         values.append(float(v))
                     except (TypeError, ValueError):
                         pass
-        latest = result.get("latest_record") or {}
+        latest = payload.get("latest_record") or {}
         for wk in ("water20cm", "water40cm", "water60cm", "water80cm"):
             v = latest.get(wk)
             if v is not None:
@@ -150,7 +161,7 @@ def _collect_water_values(qt: dict, tool_trace: list) -> list[float]:
                     values.append(float(v))
                 except (TypeError, ValueError):
                     pass
-        for item in result.get("items") or []:
+        for item in payload.get("items") or []:
             v = item.get("avg_water20cm")
             if v is not None:
                 try:
@@ -222,22 +233,23 @@ def _check_time_window(final_answer: str, rargs: dict, warnings: list[str]) -> N
 def _collect_status_set(qt: dict, tool_trace: list) -> set[str]:
     statuses: set[str] = set()
 
-    def _from_result(result: dict) -> None:
-        for k in result.get("status_counts") or {}:
+    def _from_result(result: Any) -> None:
+        payload = _as_dict(result)
+        for k in payload.get("status_counts") or {}:
             statuses.add(k)
-        for rec in result.get("alert_records") or []:
+        for rec in payload.get("alert_records") or []:
             s = rec.get("soil_status")
             if s:
                 statuses.add(s)
-        latest = result.get("latest_record") or {}
+        latest = payload.get("latest_record") or {}
         s = latest.get("soil_status")
         if s:
             statuses.add(s)
-        for item in result.get("items") or []:
+        for item in payload.get("items") or []:
             s = item.get("status")
             if s:
                 statuses.add(s)
-        for k in (result.get("status_summary") or {}):
+        for k in (payload.get("status_summary") or {}):
             statuses.add(k)
 
     _from_result(qt)
@@ -266,12 +278,12 @@ def _check_status_labels(
 
 
 def _collect_items(qt: dict, tool_trace: list) -> list[dict]:
-    items = qt.get("items") or []
+    items = _as_dict(qt).get("items") or []
     if items:
         return items
     for entry in tool_trace:
-        result = entry.get("result", {}) if isinstance(entry, dict) else {}
-        if isinstance(result, dict) and result.get("items"):
+        result = _as_dict(entry.get("result", {}) if isinstance(entry, dict) else {})
+        if result.get("items"):
             return result["items"]
     return []
 
@@ -307,7 +319,7 @@ def _tool_reported_data(facts: dict, entries: list) -> bool:
     if facts.get("items"):
         return True
     for entry in entries:
-        result = entry.get("result", {}) if isinstance(entry, dict) else {}
+        result = _as_dict(entry.get("result", {}) if isinstance(entry, dict) else {})
         if result.get("total_records", 0) > 0:
             return True
         if result.get("record_count", 0) > 0:

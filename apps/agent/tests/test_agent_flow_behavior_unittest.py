@@ -91,6 +91,17 @@ class InputGuardBehaviorTest(unittest.TestCase):
         closing = self.service.chat("谢谢", session_id="ctx-close", turn_id=2)
         self.assertTrue(closing["conversation_closed"])
 
+    def test_closing_then_colloquial_follow_up_requires_fresh_clarification(self):
+        self.service.chat("南通市最近7天怎么样", session_id="ctx-reset", turn_id=1)
+        self.service.chat("好的，先这样", session_id="ctx-reset", turn_id=2)
+
+        result = self.service.chat("如东县呢", session_id="ctx-reset", turn_id=3)
+
+        self.assertEqual(result["answer_type"], "guidance_answer")
+        self.assertEqual(result["guidance_reason"], "clarification")
+        self.assertFalse(result["should_query"])
+        self.assertIn("时间", result["final_answer"])
+
 
 class P0RedLineTest(unittest.TestCase):
     """P0: business queries must hit a Tool before generating a business answer."""
@@ -183,7 +194,6 @@ class P0RedLineTest(unittest.TestCase):
 
         self.assertFalse(result.is_fallback)
         self.assertEqual(len(result.tool_calls_made), 0)
-
 
 class AnswerTypeContractTest(unittest.TestCase):
     """answer_type is restricted to exactly 5 canonical values."""
@@ -336,6 +346,16 @@ class ToolToAnswerTypeMappingTest(unittest.TestCase):
         )
         # diagnose → fallback_answer
         self.assertEqual(result["answer_type"], "fallback_answer")
+
+    def test_empty_summary_result_surfaces_entity_not_found_fallback_reason(self):
+        result = self._run_with_tool(
+            "query_soil_summary",
+            {"start_time": self._DATA_START, "end_time": self._DATA_END, "city": "不存在的城市XYZ"},
+            "该地区暂无数据。",
+            "不存在的城市XYZ最近一个月怎么样",
+        )
+        self.assertEqual(result["answer_type"], "fallback_answer")
+        self.assertEqual(result["fallback_reason"], "entity_not_found")
 
 
 if __name__ == "__main__":

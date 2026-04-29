@@ -159,7 +159,7 @@ class TestEntityNormalization:
         svc = self._resolver()
         raw_args = {"sn": "BADFORMAT123", **_WINDOW}
         outcome = await svc._resolve_entities(raw_args, svc._alias_index)
-        assert outcome.confidence == CONFIDENCE_MEDIUM
+        assert outcome.confidence == CONFIDENCE_LOW
         assert any("格式不符" in w for w in outcome.warnings)
 
 

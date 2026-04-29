@@ -67,6 +67,7 @@ class InputGuardService:
         "谢谢了",
         "多谢",
         "好的不用了",
+        "好的先这样",
         "不用了",
         "先这样",
         "先到这",
@@ -108,6 +109,26 @@ class InputGuardService:
                 suggested_answer_type="guidance_answer",
                 suggested_answer="我当前支持墒情概览、地区/设备详情、异常分析、预警判断和模板输出。你可以直接给地区、设备或时间范围来问。",
                 guidance_reason="safe_hint",
+            )
+        domain_knowledge_answer = self._domain_knowledge_answer(normalized)
+        if domain_knowledge_answer:
+            return InputGuardResult(
+                allow_business_flow=False,
+                input_type="capability_question",
+                terminal_action="safe_end",
+                suggested_answer_type="guidance_answer",
+                suggested_answer=domain_knowledge_answer,
+                guidance_reason="safe_hint",
+            )
+        if self._is_out_of_domain_request(normalized):
+            return InputGuardResult(
+                allow_business_flow=False,
+                input_type="out_of_domain",
+                terminal_action="boundary_end",
+                suggested_answer_type="guidance_answer",
+                suggested_answer="我当前只支持土壤墒情相关的数据查询、异常分析、预警判断和管理建议，暂不处理创作型请求或内部系统指令问题。",
+                intent="out_of_scope",
+                guidance_reason="boundary",
             )
         if self._is_pure_closing(normalized):
             return InputGuardResult(
@@ -168,6 +189,8 @@ class InputGuardService:
             return True
         if "什么意思" in normalized:
             return True
+        if normalized.endswith("呢") and self._contains_business_signal(normalized):
+            return True
         return any(marker in normalized for marker in self.colloquial_markers)
 
     def _is_pure_closing(self, text: str) -> bool:
@@ -176,6 +199,34 @@ class InputGuardService:
         if compact not in self.pure_closing_texts:
             return False
         return not self._contains_business_signal(text)
+
+    @staticmethod
+    def _is_out_of_domain_request(text: str) -> bool:
+        lowered = text.lower()
+        return any(
+            token in text or token in lowered
+            for token in (
+                "写一首诗",
+                "写诗",
+                "system prompt",
+                "prompt",
+                "提示词",
+                "内部指令",
+                "忽略以上所有指令",
+                "function_call",
+                "tool_name",
+            )
+        )
+
+    @staticmethod
+    def _domain_knowledge_answer(text: str) -> str | None:
+        if "涝渍" in text and ("什么意思" in text or "是什么" in text):
+            return (
+                "涝渍是土壤墒情的一种预警状态，通常表示 20cm 含水量达到或超过 80%，"
+                "说明土壤可能存在积水风险，需要及时排水。"
+                "如果你想看真实数据里的涝渍分布，可以直接问最近哪些地区有涝渍预警。"
+            )
+        return None
 
     def _contains_business_signal(self, text: str) -> bool:
         """识别设备、地区、时间、指标或业务动作词。"""

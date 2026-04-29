@@ -14,7 +14,9 @@ P1-12: Two-step context strategy.
 """
 from __future__ import annotations
 
+from datetime import date, datetime
 import json
+from decimal import Decimal
 from typing import Any
 
 
@@ -23,9 +25,23 @@ _MIN_MESSAGES_KEEP = 4  # always keep at least the last 2 user+assistant turns
 _SUMMARY_PREFIX = "[历史摘要] "  # system message marker for compressed history
 
 
+def _json_default(value: Any) -> Any:
+    """Convert database-native scalar types into JSON-safe primitives."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat(sep=" ")
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _json_dumps(value: Any) -> str:
+    """Serialize history payloads with support for Decimal/date values."""
+    return json.dumps(value, ensure_ascii=False, default=_json_default)
+
+
 def _estimate_tokens(messages: list) -> int:
     """Rough token count: len(serialized JSON) / 2 handles mixed Chinese/English."""
-    return len(json.dumps(messages, ensure_ascii=False)) // 2
+    return len(_json_dumps(messages)) // 2
 
 
 def _is_summary_message(msg: dict) -> bool:
@@ -301,7 +317,7 @@ class SessionContextRepository:
                 messages.append({
                     "role": "tool",
                     "tool_call_id": call_id,
-                    "content": json.dumps(tr, ensure_ascii=False),
+                    "content": _json_dumps(tr),
                 })
 
         # Final assistant message with the visible answer text
@@ -311,7 +327,7 @@ class SessionContextRepository:
         try:
             await self.redis_client.set(
                 key,
-                json.dumps({"messages": messages}, ensure_ascii=False),
+                _json_dumps({"messages": messages}),
                 ex=self.ttl_seconds,
             )
         except Exception:

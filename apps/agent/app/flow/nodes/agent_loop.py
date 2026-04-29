@@ -56,6 +56,18 @@ class AgentLoopNode(BaseNode):
         semantic_intent_hint: str | None = None
         if getattr(state, "input_type", None) and str(state.input_type or "").endswith("colloquial"):
             history = await self.service.history_store.load_history(state.session_id)
+            if state.turn_id > 1 and not history:
+                patch: dict = {
+                    "answer_bundle": {"final_answer": (
+                        "上一轮已经结束话题，这一轮我需要重新确认要查的内容。"
+                        "请补充时间范围，例如“如东县最近 7 天墒情怎么样”或“如东县当前最新一期情况如何”。"
+                    )},
+                    "answer_type": "guidance_answer",
+                    "guidance_reason": "clarification",
+                    "session_reset": True,
+                    "answer_facts": {"should_clarify": True, "context_reset_after_closing": True},
+                }
+                return self.ensure_result(NodeResult(next_action="clarify", state_patch=patch))
             parse_result = await self.semantic_parser.parse(
                 state.user_input,
                 history,
@@ -114,6 +126,18 @@ class AgentLoopNode(BaseNode):
                 tool_meta.get("answer_type", "soil_summary_answer")
                 if has_any_data else "fallback_answer"
             )
+            if not has_any_data:
+                empty_result_path = next(
+                    (
+                        str(tr.get("empty_result_path") or "")
+                        for tr in result.tool_results
+                        if isinstance(tr, dict) and tr.get("empty_result_path")
+                    ),
+                    "",
+                )
+                fallback_reason = _fallback_reason_from_empty_result_path(empty_result_path)
+                if fallback_reason:
+                    patch["fallback_reason"] = fallback_reason
             # intent: semantic hint wins; otherwise read from tool meta
             if semantic_intent_hint:
                 patch["intent"] = semantic_intent_hint
@@ -126,7 +150,7 @@ class AgentLoopNode(BaseNode):
                     patch["intent"] = "soil_device_query"
 
         # output_mode from first tool's args
-        if result.tool_calls_made:
+        if result.tool_calls_made and patch.get("answer_type") != "fallback_answer":
             first_args = result.tool_calls_made[0].get("tool_args", {})
             output_mode = first_args.get("output_mode")
             if output_mode:
@@ -190,3 +214,13 @@ def _has_data(result: dict) -> bool:
     if result.get("diagnosis") == "data_exists":
         return True
     return False
+
+
+def _fallback_reason_from_empty_result_path(path: str) -> str | None:
+    if path == "entity_not_found":
+        return "entity_not_found"
+    if path == "no_data_in_window":
+        return "no_data"
+    if path == "normalize_failed":
+        return "entity_not_found"
+    return None

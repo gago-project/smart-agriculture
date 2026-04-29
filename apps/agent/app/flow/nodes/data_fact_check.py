@@ -37,7 +37,10 @@ class DataFactCheckNode(BaseNode):
                 ))
             return self.ensure_result(NodeResult(
                 next_action="retry_response",
-                state_patch={"retry_count": state.retry_count + 1},
+                state_patch={
+                    "retry_count": state.retry_count + 1,
+                    "fallback_reason": "fact_check_failed",
+                },
             ))
         if result["failed"]:
             return self.ensure_result(NodeResult(

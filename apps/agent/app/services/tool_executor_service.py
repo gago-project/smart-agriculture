@@ -261,7 +261,9 @@ class ToolExecutorService:
             }
 
         enriched = [_evaluate_and_merge(r) for r in records]
-        # Sort descending by create_time
+        # Keep latest-record selection deterministic when multiple devices share
+        # the same business timestamp.
+        enriched.sort(key=lambda r: str(r.get("sn") or ""))
         enriched.sort(key=lambda r: r.get("create_time") or "", reverse=True)
         latest = enriched[0]
 

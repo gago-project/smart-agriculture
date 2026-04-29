@@ -126,6 +126,37 @@ class ToolExecutorServiceTest(unittest.TestCase):
         self.assertIn("alert_records", result)
         self.assertIn("status_summary", result)
 
+    def test_query_soil_detail_uses_stable_latest_record_tiebreaker(self):
+        self.repo.records = [
+            {
+                "sn": "SNS00215000",
+                "city": "南通市",
+                "county": "如东县",
+                "create_time": "2026-04-13 23:59:17",
+                "water20cm": 110.0,
+                "t20cm": 14.0,
+            },
+            {
+                "sn": "SNS00204333",
+                "city": "南通市",
+                "county": "如东县",
+                "create_time": "2026-04-13 23:59:17",
+                "water20cm": 92.43,
+                "t20cm": 13.8,
+            },
+        ]
+
+        result = asyncio.run(self.executor.execute(
+            tool_name="query_soil_detail",
+            tool_args={
+                "city": "南通市",
+                "start_time": "2026-04-07 00:00:00",
+                "end_time": "2026-04-13 23:59:59",
+            },
+        ))
+
+        self.assertEqual(result["latest_record"]["sn"], "SNS00204333")
+
     def test_diagnose_empty_result_returns_diagnosis(self):
         result = asyncio.run(self.executor.execute(
             tool_name="diagnose_empty_result",

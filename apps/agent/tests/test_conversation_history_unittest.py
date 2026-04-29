@@ -1,4 +1,5 @@
 import asyncio
+from decimal import Decimal
 import unittest
 from app.repositories.session_context_repository import SessionContextRepository
 
@@ -73,6 +74,32 @@ class ConversationHistoryTest(unittest.TestCase):
         self.assertEqual(assistant_msg["tool_calls"][0]["function"]["name"], "query_soil_ranking")
         self.assertEqual(tool_msg["role"], "tool")
         self.assertEqual(tool_msg["tool_call_id"], "call_1")
+
+    def test_save_with_decimal_tool_result_is_json_safe(self):
+        asyncio.run(self.repo.save_message_turn(
+            session_id="s4_decimal", turn_id=1,
+            user_message="查南通市最近7天详情",
+            assistant_message="已完成",
+            tool_calls=[{
+                "id": "call_decimal_1",
+                "type": "function",
+                "function": {
+                    "name": "query_soil_detail",
+                    "arguments": "{\"city\": \"南通市\", \"start_time\": \"2026-04-07 00:00:00\", \"end_time\": \"2026-04-13 23:59:59\"}",
+                },
+            }],
+            tool_results=[{
+                "entity_name": "南通市",
+                "record_count": 259,
+                "latest_record": {"water20cm": Decimal("92.43")},
+            }],
+        ))
+        history = asyncio.run(self.repo.load_history("s4_decimal"))
+        tool_msg = history[2]
+        payload = __import__("json").loads(tool_msg["content"])
+        self.assertEqual(payload["entity_name"], "南通市")
+        self.assertEqual(payload["record_count"], 259)
+        self.assertEqual(payload["latest_record"]["water20cm"], 92.43)
 
     def test_clear_removes_all_history(self):
         asyncio.run(self.repo.save_message_turn(

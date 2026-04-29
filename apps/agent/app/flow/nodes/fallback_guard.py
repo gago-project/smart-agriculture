@@ -53,7 +53,7 @@ class FallbackGuardNode(BaseNode):
         return self.ensure_result(NodeResult(
             next_action="fallback_end",
             state_patch={
-                "answer_type": state.answer_type or "fallback_answer",
+                "answer_type": "fallback_answer",
                 "answer_bundle": {"final_answer": safe_answer},
             },
         ))

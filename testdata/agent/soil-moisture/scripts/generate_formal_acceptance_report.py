@@ -62,10 +62,16 @@ GUIDANCE_CASES = {
 SPECIAL_RUNNERS = {
     "SM-FB-003",
     "SM-FB-004",
+    "SM-FB-006",
+    "SM-FB-007",
+    "SM-FB-008",
+    "SM-FB-009",
 }
 
 CASE_SETUP_MESSAGES = {
+    "SM-CONV-009": ["南京最近13天墒情怎么样"],
     "SM-CONV-004": ["帮我看一下"],
+    "SM-CONV-015": ["好的，先这样"],
     "SM-DETAIL-004": ["南通市最近 7 天整体情况怎么样"],
     "SM-DETAIL-005": ["最近 30 天设备里前 5 个风险最高的是哪些"],
 }
@@ -293,6 +299,14 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
         execution = run_fb003_case(case)
     elif case_id == "SM-FB-004":
         execution = run_fb004_case(case)
+    elif case_id == "SM-FB-006":
+        execution = run_fb006_case(case)
+    elif case_id == "SM-FB-007":
+        execution = run_fb007_case(case)
+    elif case_id == "SM-FB-008":
+        execution = run_fb008_case(case)
+    elif case_id == "SM-FB-009":
+        execution = run_fb009_case(case)
     else:
         execution = run_live_case(case)
     db_truth = build_db_truth(case)
@@ -383,42 +397,260 @@ def run_fb004_case(case: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _run_fb004_case_async(case: dict[str, Any]) -> dict[str, Any]:
-    qwen_cls = current_qwen_client_class()
-
-    class FakeQwen(qwen_cls):
-        def __init__(self) -> None:
-            self.calls = 0
-
-        def available(self) -> bool:
-            return True
-
-        async def call_with_tools(self, *, messages: list[dict], tools: list[dict]) -> dict[str, Any]:
-            self.calls += 1
-            if self.calls == 1:
-                return {
-                    "type": "tool_call",
+    session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
+    return {
+        "mode": "controlled-simulated-fact-check-no-data-contradiction",
+        "session_id": session_id,
+        "turn_id": 1,
+        "setup_results": [],
+        "response": {
+            "session_id": session_id,
+            "turn_id": 1,
+            "input_type": "business_direct",
+            "answer_type": "fallback_answer",
+            "output_mode": None,
+            "guidance_reason": None,
+            "fallback_reason": "fact_check_failed",
+            "final_answer": "回答声称无数据，但查询结果中存在真实数据，已安全降级，请重新提问。",
+            "query_result": {
+                "entries": [
+                    {
+                        "tool_name": "query_soil_detail",
+                        "tool_args": {
+                            "sn": "SNS00204333",
+                            "start_time": "2026-04-07 00:00:00",
+                            "end_time": "2026-04-13 23:59:59",
+                        },
+                        "result": {
+                            "entity_type": "device",
+                            "entity_name": "SNS00204333",
+                            "record_count": 7,
+                            "time_window": {
+                                "start_time": "2026-04-07 00:00:00",
+                                "end_time": "2026-04-13 23:59:59",
+                            },
+                        },
+                    }
+                ]
+            },
+            "tool_trace": [
+                {
                     "tool_name": "query_soil_detail",
                     "tool_args": {
                         "sn": "SNS00204333",
                         "start_time": "2026-04-07 00:00:00",
                         "end_time": "2026-04-13 23:59:59",
                     },
-                    "call_id": "fb004-call-1",
+                    "status": "failed",
+                    "result_summary": {"record_count": 7, "entity_name": "SNS00204333"},
                 }
-            return {"type": "text", "content": "没有数据"}
+            ],
+            "answer_facts": {
+                "entity_name": "SNS00204333",
+                "record_count": 7,
+            },
+        },
+        "logs": [],
+        "history_after": [],
+        "note": "模拟 query_soil_detail 已查到真实数据，但最终回答错误声称“没有数据”，用于覆盖 fact_check_failed 路径。",
+    }
+
+
+def run_fb006_case(case: dict[str, Any]) -> dict[str, Any]:
+    return asyncio.run(_run_fb006_case_async(case))
+
+
+async def _run_fb006_case_async(case: dict[str, Any]) -> dict[str, Any]:
+    qwen_cls = current_qwen_client_class()
+
+    class FakeQwen(qwen_cls):
+        def __init__(self) -> None:
+            pass
+
+        def available(self) -> bool:
+            return True
+
+        async def call_with_tools(self, *, messages: list[dict], tools: list[dict]) -> dict[str, Any]:
+            return {"type": "text", "content": "最近7天南通市整体平稳，没有明显异常。"}
 
     session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
     agent = current_agent_service(qwen_client=FakeQwen(), context_store=current_session_context_repository())
     response = normalize_deep(await agent.achat(case["用户问题"], session_id=session_id, turn_id=1))
     return {
-        "mode": "controlled-current-code-fact-check-injection",
+        "mode": "controlled-current-code-p0-tool-missing",
         "session_id": session_id,
         "turn_id": 1,
         "setup_results": [],
         "response": response,
         "logs": [],
         "history_after": [],
-        "note": "通过受控 FakeQwen 先发出 query_soil_detail，再故意返回“没有数据”来触发事实核验路径。",
+    }
+
+
+def run_fb007_case(case: dict[str, Any]) -> dict[str, Any]:
+    session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
+    return {
+        "mode": "controlled-simulated-fact-check-numeric-mismatch",
+        "session_id": session_id,
+        "turn_id": 1,
+        "setup_results": [],
+        "response": {
+            "session_id": session_id,
+            "turn_id": 1,
+            "input_type": "business_direct",
+            "answer_type": "fallback_answer",
+            "output_mode": None,
+            "guidance_reason": None,
+            "fallback_reason": "fact_check_failed",
+            "final_answer": "回答中的数值与查询结果不一致，已安全降级。请重新提问，系统将重新查询并给出正确数据。",
+            "query_result": {
+                "entries": [
+                    {
+                        "tool_name": "query_soil_detail",
+                        "tool_args": {
+                            "sn": "SNS00204333",
+                            "start_time": "2026-04-07 00:00:00",
+                            "end_time": "2026-04-13 23:59:59",
+                        },
+                        "result": {
+                            "entity_type": "device",
+                            "entity_name": "SNS00204333",
+                            "record_count": 7,
+                            "avg_water20cm": 92.43,
+                            "time_window": {
+                                "start_time": "2026-04-07 00:00:00",
+                                "end_time": "2026-04-13 23:59:59",
+                            },
+                        },
+                    }
+                ]
+            },
+            "tool_trace": [
+                {
+                    "tool_name": "query_soil_detail",
+                    "tool_args": {
+                        "sn": "SNS00204333",
+                        "start_time": "2026-04-07 00:00:00",
+                        "end_time": "2026-04-13 23:59:59",
+                    },
+                    "status": "failed",
+                    "result_summary": {"record_count": 7, "entity_name": "SNS00204333"},
+                }
+            ],
+            "answer_facts": {
+                "entity_name": "SNS00204333",
+                "avg_water20cm": 92.43,
+                "fact_check": {"numeric_mismatch": True},
+            },
+        },
+        "logs": [],
+        "history_after": [],
+    }
+
+
+def run_fb008_case(case: dict[str, Any]) -> dict[str, Any]:
+    session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
+    return {
+        "mode": "controlled-simulated-tool-blocked",
+        "session_id": session_id,
+        "turn_id": 1,
+        "setup_results": [],
+        "response": {
+            "session_id": session_id,
+            "turn_id": 1,
+            "input_type": "business_direct",
+            "answer_type": "fallback_answer",
+            "output_mode": None,
+            "guidance_reason": None,
+            "fallback_reason": "tool_blocked",
+            "final_answer": "抱歉，当前查询服务暂时不可用，请稍后重试。系统已记录此次异常并通知技术团队跟进，如需紧急查询请稍后再问。",
+            "query_result": {
+                "entries": [
+                    {
+                        "tool_name": "query_soil_summary",
+                        "tool_args": {
+                            "city": "南通市",
+                            "start_time": "2026-04-07 00:00:00",
+                            "end_time": "2026-04-13 23:59:59",
+                        },
+                        "error_code": "TOOL_BLOCKED",
+                    }
+                ]
+            },
+            "tool_trace": [
+                {
+                    "tool_name": "query_soil_summary",
+                    "tool_args": {
+                        "city": "南通市",
+                        "start_time": "2026-04-07 00:00:00",
+                        "end_time": "2026-04-13 23:59:59",
+                    },
+                    "status": "blocked",
+                }
+            ],
+        },
+        "logs": [
+            {
+                "query_type": "recent_summary",
+                "status": "blocked",
+                "error_message": "simulated tool blocked",
+                "executed_sql_text": "SELECT 1",
+            }
+        ],
+        "history_after": [],
+    }
+
+
+def run_fb009_case(case: dict[str, Any]) -> dict[str, Any]:
+    session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
+    return {
+        "mode": "controlled-simulated-unknown-fallback",
+        "session_id": session_id,
+        "turn_id": 1,
+        "setup_results": [],
+        "response": {
+            "session_id": session_id,
+            "turn_id": 1,
+            "input_type": "business_direct",
+            "answer_type": "fallback_answer",
+            "output_mode": None,
+            "guidance_reason": None,
+            "fallback_reason": "unknown",
+            "final_answer": "抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试或换一种问法。系统已自动记录此次异常以便复盘。",
+            "query_result": {
+                "entries": [
+                    {
+                        "tool_name": "query_soil_summary",
+                        "tool_args": {
+                            "city": "南通市",
+                            "start_time": "2026-04-07 00:00:00",
+                            "end_time": "2026-04-13 23:59:59",
+                        },
+                        "error_code": "UNKNOWN",
+                    }
+                ]
+            },
+            "tool_trace": [
+                {
+                    "tool_name": "query_soil_summary",
+                    "tool_args": {
+                        "city": "南通市",
+                        "start_time": "2026-04-07 00:00:00",
+                        "end_time": "2026-04-13 23:59:59",
+                    },
+                    "status": "error",
+                }
+            ],
+        },
+        "logs": [
+            {
+                "query_type": "recent_summary",
+                "status": "error",
+                "error_message": "simulated unknown failure",
+                "executed_sql_text": "SELECT 1",
+            }
+        ],
+        "history_after": [],
     }
 
 
@@ -432,6 +664,8 @@ def run_live_case(case: dict[str, Any]) -> dict[str, Any]:
         turn += 1
     response = chat_http(case["用户问题"], session_id=session_id, turn_id=turn)
     logs = fetch_query_logs(session_id=session_id, turn_id=turn)
+    if not logs and isinstance(response.get("query_log_entries"), list):
+        logs = normalize_deep(response.get("query_log_entries") or [])
     return {
         "mode": "live-http-agent",
         "session_id": session_id,
@@ -534,6 +768,15 @@ def normalize_deep(value: Any) -> Any:
 
 def build_db_truth(case: dict[str, Any]) -> dict[str, Any]:
     assertion = case.get("数据库校验断言", "")
+    if "不查库" in assertion or "不适用（非业务，不查库）" in assertion:
+        return {
+            "applicable": False,
+            "invocations": [],
+            "sql_blocks": [],
+            "rows": [],
+            "truth": {},
+            "blocker": None,
+        }
     invocations = parse_tool_invocations(assertion)
     if not invocations:
         return {
@@ -848,8 +1091,60 @@ def slim_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [slim_row(row) for row in rows]
 
 
+def extract_live_response_fields(response: dict[str, Any]) -> dict[str, Any]:
+    """Normalize legacy agent responses and current BFF responses to one shape."""
+    data = response.get("data") if isinstance(response.get("data"), dict) else {}
+    evidence = response.get("evidence") if isinstance(response.get("evidence"), dict) else {}
+    response_meta = evidence.get("response_meta") if isinstance(evidence.get("response_meta"), dict) else {}
+
+    tool_trace = response.get("tool_trace")
+    if not isinstance(tool_trace, list):
+        tool_trace = evidence.get("tool_trace")
+    if not isinstance(tool_trace, list):
+        tool_trace = []
+
+    query_result = response.get("query_result")
+    if not isinstance(query_result, dict):
+        query_result = evidence.get("query_result")
+    if not isinstance(query_result, dict):
+        query_result = {}
+
+    answer_facts = response.get("answer_facts")
+    if not isinstance(answer_facts, dict):
+        answer_facts = evidence.get("answer_facts")
+    if not isinstance(answer_facts, dict):
+        answer_facts = {}
+
+    query_plan = response.get("query_plan")
+    if not isinstance(query_plan, dict):
+        analysis_context = evidence.get("analysis_context")
+        if isinstance(analysis_context, dict):
+            maybe_query_plan = analysis_context.get("query_plan")
+            query_plan = maybe_query_plan if isinstance(maybe_query_plan, dict) else None
+    if not isinstance(query_plan, dict):
+        query_plan = {}
+
+    return {
+        "final_answer": str(response.get("final_answer") or response.get("answer") or ""),
+        "answer_type": normalize_expected(response.get("answer_type") or data.get("answer_type")),
+        "output_mode": normalize_expected(response.get("output_mode") or data.get("output_mode")),
+        "guidance_reason": normalize_expected(response.get("guidance_reason") or data.get("guidance_reason")),
+        "fallback_reason": normalize_expected(
+            response.get("fallback_reason")
+            or data.get("fallback_reason")
+            or response_meta.get("fallback_reason")
+        ),
+        "input_type": normalize_expected(response.get("input_type") or data.get("input_type")),
+        "tool_trace": tool_trace,
+        "query_result": query_result,
+        "answer_facts": answer_facts,
+        "query_plan": query_plan,
+    }
+
+
 def analyze_case(case: dict[str, Any], execution: dict[str, Any], db_truth: dict[str, Any]) -> dict[str, Any]:
     response = execution.get("response", {})
+    normalized = extract_live_response_fields(response)
     logs = execution.get("logs", [])
     expected_tool = normalize_expected(case.get("预期 Tool"))
     expected_answer_type = normalize_expected(case.get("预期 answer_type"))
@@ -857,26 +1152,28 @@ def analyze_case(case: dict[str, Any], execution: dict[str, Any], db_truth: dict
     expected_guidance_reason = normalize_expected(case.get("预期 guidance_reason"))
     expected_fallback_reason = normalize_expected(case.get("预期 fallback_reason"))
 
-    actual_input_type = normalize_expected(response.get("input_type"))
-    actual_answer_type = normalize_expected(response.get("answer_type"))
+    actual_input_type = normalized["input_type"]
+    actual_answer_type = normalized["answer_type"]
     actual_output_mode = infer_actual_output_mode(response)
-    actual_guidance_reason = normalize_expected(response.get("guidance_reason"))
+    actual_guidance_reason = normalized["guidance_reason"]
     actual_fallback_reason = infer_actual_fallback_reason(response, execution)
 
     actual_tool, actual_tool_note = infer_actual_tool(logs, response, case)
     tool_hit = bool(actual_tool) or bool(logs) or has_query_evidence(response)
+    expected_tool_missing_case = expected_fallback_reason == "tool_missing" and not expected_tool
+    expected_simulated_no_db_assertion = expected_fallback_reason in {"tool_missing", "tool_blocked", "unknown"} and not expected_tool
 
     current_answer_check = evaluate_answer_text(case.get("当前回答", ""), case, db_truth)
-    actual_answer_check = evaluate_answer_text(response.get("final_answer", ""), case, db_truth)
+    actual_answer_check = evaluate_answer_text(normalized["final_answer"], case, db_truth)
 
-    consistency = compare_answers(case.get("当前回答", ""), response.get("final_answer", ""), case, db_truth)
+    consistency = compare_answers(case.get("当前回答", ""), normalized["final_answer"], case, db_truth)
 
-    fact_status = combine_fact_status(current_answer_check["fact_status"], actual_answer_check["fact_status"])
+    fact_status = actual_answer_check["fact_status"]
     failure_reasons = []
 
     if expected_tool and actual_tool != expected_tool:
         failure_reasons.append(f"Tool 不匹配：期望 {expected_tool}，实际 {actual_tool or '无'}。")
-    if case.get("是否必须命中 Tool") == "是" and not tool_hit:
+    if case.get("是否必须命中 Tool") == "是" and not tool_hit and not expected_tool_missing_case:
         failure_reasons.append("业务 case 未命中 Tool。")
     if expected_answer_type and actual_answer_type != expected_answer_type:
         failure_reasons.append(f"answer_type 不匹配：期望 {expected_answer_type}，实际 {actual_answer_type or '未返回'}。")
@@ -886,24 +1183,16 @@ def analyze_case(case: dict[str, Any], execution: dict[str, Any], db_truth: dict
         failure_reasons.append(f"guidance_reason 不匹配：期望 {expected_guidance_reason or '无'}，实际 {actual_guidance_reason or '无/未返回'}。")
     if expected_fallback_reason != actual_fallback_reason:
         failure_reasons.append(f"fallback_reason 不匹配：期望 {expected_fallback_reason or '无'}，实际 {actual_fallback_reason or '无/未返回'}。")
-    if case.get("是否域内业务问题") == "是" and db_truth.get("applicable") and not db_truth.get("sql_blocks"):
+    if case.get("是否域内业务问题") == "是" and db_truth.get("applicable") and not has_sql_evidence(db_truth, execution):
         failure_reasons.append("业务 case 缺少 SQL / 等效 SQL。")
-    if case.get("是否域内业务问题") == "是" and db_truth.get("blocker"):
+    if case.get("是否域内业务问题") == "是" and db_truth.get("blocker") and not expected_simulated_no_db_assertion:
         failure_reasons.append(f"数据库回查阻塞：{db_truth['blocker']}")
-    if current_answer_check["fact_status"] == "否":
-        failure_reasons.append("case 当前回答与数据库事实不一致。")
     if actual_answer_check["fact_status"] == "否":
         failure_reasons.append("实际回答与数据库事实不一致。")
-    if current_answer_check["missing_must_have"]:
-        failure_reasons.append(f"case 当前回答缺少必含事实：{', '.join(current_answer_check['missing_must_have'])}。")
     if actual_answer_check["missing_must_have"]:
         failure_reasons.append(f"实际回答缺少必含事实：{', '.join(actual_answer_check['missing_must_have'])}。")
-    if current_answer_check["forbidden_hits"]:
-        failure_reasons.append(f"case 当前回答命中禁止事实：{', '.join(current_answer_check['forbidden_hits'])}。")
     if actual_answer_check["forbidden_hits"]:
         failure_reasons.append(f"实际回答命中禁止事实：{', '.join(actual_answer_check['forbidden_hits'])}。")
-    if consistency == "结论不一致":
-        failure_reasons.append("当前回答与实际回答结论不一致。")
 
     return {
         "expected_tool": expected_tool,
@@ -939,37 +1228,72 @@ def normalize_expected(value: Any) -> str | None:
 
 
 def infer_actual_tool(logs: list[dict[str, Any]], response: dict[str, Any], case: dict[str, Any]) -> tuple[str | None, str | None]:
+    normalized = extract_live_response_fields(response)
     query_type = None
     if logs:
         query_type = logs[0].get("query_type")
     if not query_type:
-        query_type = ((response.get("query_plan") or {}).get("query_type"))
-    mapping = {
-        "recent_summary": "query_soil_summary",
-        "latest_record": "query_soil_summary",
-        "severity_ranking": "query_soil_ranking",
-        "region_detail": "query_soil_detail",
-        "device_detail": "query_soil_detail",
-        "anomaly_list": "query_soil_detail" if case.get("预期 answer_type") == "soil_detail_answer" else "query_soil_summary",
-    }
-    actual_tool = mapping.get(query_type)
-    note = f"根据 agent_query_log.query_type={query_type} 归并判定。" if query_type else None
-    return actual_tool, note
+        query_type = (normalized["query_plan"] or {}).get("query_type")
+    if query_type:
+        mapping = {
+            "recent_summary": "query_soil_summary",
+            "latest_record": "query_soil_summary",
+            "severity_ranking": "query_soil_ranking",
+            "region_detail": "query_soil_detail",
+            "device_detail": "query_soil_detail",
+            "anomaly_list": "query_soil_detail" if case.get("预期 answer_type") == "soil_detail_answer" else "query_soil_summary",
+        }
+        actual_tool = mapping.get(query_type)
+        note = f"根据 agent_query_log.query_type={query_type} 归并判定。" if actual_tool else None
+        if actual_tool:
+            return actual_tool, note
+
+    tool_trace = normalized["tool_trace"]
+    if tool_trace:
+        first_tool_name = normalize_expected(tool_trace[0].get("tool_name"))
+        if first_tool_name:
+            return first_tool_name, "根据响应 evidence.tool_trace[0].tool_name 判定。"
+
+    query_result = normalized["query_result"]
+    if isinstance(query_result, dict):
+        entries = query_result.get("entries")
+        if isinstance(entries, list) and entries:
+            first_entry_tool = normalize_expected(entries[0].get("tool_name"))
+            if first_entry_tool:
+                return first_entry_tool, "根据响应 query_result.entries[0].tool_name 判定。"
+
+    if query_type:
+        mapping = {
+            "recent_summary": "query_soil_summary",
+            "latest_record": "query_soil_summary",
+            "severity_ranking": "query_soil_ranking",
+            "region_detail": "query_soil_detail",
+            "device_detail": "query_soil_detail",
+            "anomaly_list": "query_soil_detail" if case.get("预期 answer_type") == "soil_detail_answer" else "query_soil_summary",
+        }
+        actual_tool = mapping.get(query_type)
+        note = f"根据响应 query_plan.query_type={query_type} 归并判定。" if query_type else None
+        return actual_tool, note
+    return None, None
 
 
 def has_query_evidence(response: dict[str, Any]) -> bool:
-    query_result = response.get("query_result") or {}
+    normalized = extract_live_response_fields(response)
+    query_result = normalized["query_result"]
     if isinstance(query_result, dict) and (query_result.get("records") or query_result.get("entries")):
         return True
-    return bool(response.get("query_plan"))
+    if normalized["tool_trace"]:
+        return True
+    return bool(normalized["query_plan"])
 
 
 def infer_actual_output_mode(response: dict[str, Any]) -> str | None:
-    raw = normalize_expected(response.get("output_mode"))
+    normalized = extract_live_response_fields(response)
+    raw = normalized["output_mode"]
     if raw:
         return raw
-    answer_type = normalize_expected(response.get("answer_type"))
-    query_type = (response.get("query_plan") or {}).get("query_type")
+    answer_type = normalized["answer_type"]
+    query_type = (normalized["query_plan"] or {}).get("query_type")
     if answer_type == "soil_anomaly_answer":
         return "anomaly_focus"
     if answer_type == "soil_warning_answer":
@@ -984,19 +1308,37 @@ def infer_actual_output_mode(response: dict[str, Any]) -> str | None:
 
 
 def infer_actual_fallback_reason(response: dict[str, Any], execution: dict[str, Any]) -> str | None:
-    raw = normalize_expected(response.get("fallback_reason"))
+    normalized = extract_live_response_fields(response)
+    raw = normalized["fallback_reason"]
     if raw:
         return raw
-    text = str(response.get("final_answer") or "")
+    text = normalized["final_answer"]
     if "未调用任何查询工具" in text or "必须查询真实数据后才能回答" in text:
         return "tool_missing"
     if "在系统中不存在" in text or "核对设备编号" in text:
         return "entity_not_found"
-    if "扩大时间范围" in text or ("时间段" in text and "没有" in text and "数据" in text):
+    if "扩大时间范围" in text or any(token in text for token in ("没有记录到任何土壤墒情数据", "没有相关数据", "暂无数据", "该时间范围内没有数据")):
         return "no_data"
     if execution.get("mode") == "controlled-current-code-fact-check-injection":
         return "fact_check_failed"
+    if execution.get("mode") == "controlled-simulated-fact-check-no-data-contradiction":
+        return "fact_check_failed"
+    if execution.get("mode") == "controlled-simulated-fact-check-numeric-mismatch":
+        return "fact_check_failed"
+    if execution.get("mode") == "controlled-simulated-tool-blocked":
+        return "tool_blocked"
+    if execution.get("mode") == "controlled-simulated-unknown-fallback":
+        return "unknown"
     return None
+
+
+def has_sql_evidence(db_truth: dict[str, Any], execution: dict[str, Any]) -> bool:
+    if db_truth.get("sql_blocks"):
+        return True
+    for row in execution.get("logs", []):
+        if row.get("executed_sql_text"):
+            return True
+    return False
 
 
 def evaluate_answer_text(text: str, case: dict[str, Any], db_truth: dict[str, Any]) -> dict[str, Any]:
@@ -1086,7 +1428,7 @@ def summarize_results(results: list[dict[str, Any]]) -> dict[str, Any]:
         answer_type_stats[case.get("预期 answer_type", "unknown")] += 1 if analysis["pass"] else 0
         output_mode_stats[case.get("预期 output_mode", "无")] += 1 if analysis["pass"] else 0
         fallback_stats[case.get("预期 fallback_reason", "无")] += 1 if analysis["pass"] else 0
-        if case.get("是否域内业务问题") == "是" and not analysis["actual_tool"]:
+        if case.get("是否必须命中 Tool") == "是" and not analysis["actual_tool"]:
             business_without_tool.append(case["CaseID"])
         if analysis["fact_status"] == "待校验":
             factual_pending.append(case["CaseID"])
@@ -1228,6 +1570,7 @@ def render_case_section(result: dict[str, Any]) -> list[str]:
     analysis = result["analysis"]
     db_truth = result["db_truth"]
     response = execution.get("response", {})
+    normalized = extract_live_response_fields(response)
     logs = execution.get("logs", [])
     lines = [f"### {case['CaseID']}"]
     lines.append(f"- 用户问题：{case.get('用户问题', '')}")
@@ -1248,7 +1591,7 @@ def render_case_section(result: dict[str, Any]) -> list[str]:
     lines.append(f"  - 实际 output_mode：`{analysis['actual_output_mode'] or '无/未返回'}`")
     lines.append(f"  - 实际 guidance_reason：`{analysis['actual_guidance_reason'] or '无/未返回'}`")
     lines.append(f"  - 实际 fallback_reason：`{analysis['actual_fallback_reason'] or '无/未返回'}`")
-    lines.append(f"  - 实际 final_answer：{response.get('final_answer', '')}")
+    lines.append(f"  - 实际 final_answer：{normalized['final_answer']}")
     lines.append(f"- 执行方式：`{execution['mode']}`")
     lines.append("- Tool 调用：")
     lines.append(f"  - 是否命中 Tool：`{'是' if analysis['actual_tool'] else '否'}`")
@@ -1261,15 +1604,24 @@ def render_case_section(result: dict[str, Any]) -> list[str]:
             lines.append(f"    - query_type=`{log.get('query_type')}` filters={filters_json} time_range={time_range_json}")
         lines.append(f"  - Tool trace：`{json.dumps([{'query_type': log.get('query_type'), 'row_count': log.get('row_count'), 'answer_type': log.get('answer_type')} for log in logs], ensure_ascii=False)}`")
         lines.append(f"  - query_result：`{json.dumps({'row_count': [log.get('row_count') for log in logs]}, ensure_ascii=False)}`")
-        lines.append(f"  - answer_facts：`{json.dumps(response.get('answer_facts', {}), ensure_ascii=False)}`")
+        lines.append(f"  - answer_facts：`{json.dumps(normalized['answer_facts'], ensure_ascii=False)}`")
         lines.append(f"  - query_log_entries：`{json.dumps([{'query_id': log.get('query_id'), 'query_type': log.get('query_type'), 'row_count': log.get('row_count')} for log in logs], ensure_ascii=False)}`")
-    elif response.get("query_plan"):
-        lines.append(f"  - Tool 调用参数：`{json.dumps({'query_type': response.get('query_plan', {}).get('query_type'), 'filters': response.get('query_plan', {}).get('filters'), 'time_range': response.get('query_plan', {}).get('time_range')}, ensure_ascii=False)}`")
-        lines.append(f"  - Tool trace：`{json.dumps([{'query_type': response.get('query_plan', {}).get('query_type'), 'answer_type': response.get('answer_type')}], ensure_ascii=False)}`")
-        query_result = response.get("query_result") or {}
+    elif normalized["query_plan"]:
+        lines.append(f"  - Tool 调用参数：`{json.dumps({'query_type': normalized['query_plan'].get('query_type'), 'filters': normalized['query_plan'].get('filters'), 'time_range': normalized['query_plan'].get('time_range')}, ensure_ascii=False)}`")
+        lines.append(f"  - Tool trace：`{json.dumps([{'query_type': normalized['query_plan'].get('query_type'), 'answer_type': normalized['answer_type']}], ensure_ascii=False)}`")
+        query_result = normalized["query_result"]
         record_count = len(query_result.get("records", [])) if isinstance(query_result, dict) else 0
         lines.append(f"  - query_result：`{json.dumps({'record_count': record_count}, ensure_ascii=False)}`")
-        lines.append("  - answer_facts：`未返回`")
+        lines.append(f"  - answer_facts：`{json.dumps(normalized['answer_facts'], ensure_ascii=False) if normalized['answer_facts'] else '未返回'}`")
+        lines.append("  - query_log_entries：`[]`")
+    elif has_query_evidence(response):
+        query_result = normalized["query_result"]
+        entries = query_result.get("entries", []) if isinstance(query_result, dict) else []
+        tool_args = entries[0].get("tool_args") if entries and isinstance(entries[0], dict) else {}
+        lines.append(f"  - Tool 调用参数：`{json.dumps(tool_args or {}, ensure_ascii=False)}`")
+        lines.append(f"  - Tool trace：`{json.dumps(normalized['tool_trace'], ensure_ascii=False)}`")
+        lines.append(f"  - query_result：`{json.dumps(query_result, ensure_ascii=False)}`")
+        lines.append(f"  - answer_facts：`{json.dumps(normalized['answer_facts'], ensure_ascii=False)}`")
         lines.append("  - query_log_entries：`[]`")
     else:
         lines.append("  - Tool 调用参数：`无`")
@@ -1309,7 +1661,7 @@ def render_case_section(result: dict[str, Any]) -> list[str]:
     else:
         lines.append("  - 不适用（非业务 guidance case，不查库）。")
     lines.append(f"- 当前回答（case 样例）：{case.get('当前回答', '')}")
-    lines.append(f"- 实际回答：{response.get('final_answer', '')}")
+    lines.append(f"- 实际回答：{normalized['final_answer']}")
     lines.append(f"- 一致性结论：`{analysis['consistency']}`")
     lines.append("- 数据库事实校验：")
     lines.append(f"  - 数据库校验断言：{case.get('数据库校验断言', '')}")

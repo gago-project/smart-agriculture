@@ -218,6 +218,44 @@ class TestResolverLevelAwareNormalization:
         assert result.should_clarify is True
         assert result.entity_confidence == CONFIDENCE_LOW
 
+    @pytest.mark.asyncio
+    async def test_unknown_suffixed_region_stays_low_confidence(self):
+        repo = FakeAliasRepository(
+            versions=["v1"],
+            rows_by_version={
+                "v1": [
+                    _alias_row("南通市", "南通市", "city", alias_source="canonical"),
+                    _alias_row("如东县", "如东县", "county", "南通市", alias_source="canonical"),
+                ]
+            },
+        )
+        svc = ParameterResolverService(repository=repo)
+
+        result = await svc.resolve(
+            "query_soil_summary",
+            {"city": "XX市", **_WINDOW},
+            _LBT,
+        )
+
+        assert result.should_clarify is True
+        assert result.entity_confidence == CONFIDENCE_LOW
+        assert "city" not in result.resolved_args
+
+    @pytest.mark.asyncio
+    async def test_illegal_sn_is_blocked_as_low_confidence(self):
+        repo = FakeAliasRepository(versions=["v1"], rows_by_version={"v1": []})
+        svc = ParameterResolverService(repository=repo)
+
+        result = await svc.resolve(
+            "query_soil_detail",
+            {"sn": "SNS001'; DROP TABLE soil_data; --", **_WINDOW},
+            _LBT,
+        )
+
+        assert result.should_clarify is True
+        assert result.entity_confidence == CONFIDENCE_LOW
+        assert "sn" not in result.resolved_args
+
 
 class TestAliasVersionedCache:
     @pytest.mark.asyncio

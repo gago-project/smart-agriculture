@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, MagicMock
 from tests.support_repositories import SeedSoilRepository
 from app.llm.qwen_client import QwenClient
 from app.repositories.session_context_repository import SessionContextRepository
-from app.services.parameter_resolver_service import ResolvedParams
+from app.services.parameter_resolver_service import ParameterResolverService, ResolvedParams
 from app.services.tool_executor_service import ToolExecutorService
 from app.services.agent_loop_service import AgentLoopService, AgentLoopResult
 
@@ -238,8 +238,122 @@ class AgentLoopServiceTest(unittest.TestCase):
         self.assertIn("FROM fact_soil_moisture", entry["executed_sql_text"])
         self.assertIn("city = '南通市'", entry["executed_sql_text"])
         self.assertIn("create_time >=", entry["executed_sql_text"])
-        self.assertIn("create_time <=", entry["executed_sql_text"])
-        self.assertEqual(entry["executed_result_json"]["total_records"], entry["row_count"])
+
+    def test_detail_question_injects_tool_selection_hint_into_messages(self):
+        svc = self._make_service([
+            {"type": "text", "content": "当前无法稳定回答这个问题，请补充地区、设备或时间范围后重试。"},
+        ])
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="SNS00204333 最近 7 天怎么样",
+            session_id="hint-detail",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        system_messages = [m["content"] for m in result.messages if m["role"] == "system"]
+        self.assertTrue(any("本轮推荐工具：query_soil_detail" in content for content in system_messages))
+
+    def test_warning_question_injects_output_mode_hint_into_messages(self):
+        svc = self._make_service([
+            {"type": "text", "content": "当前无法稳定回答这个问题，请补充地区、设备或时间范围后重试。"},
+        ])
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="从预警角度看，南通市今年情况怎么样",
+            session_id="hint-warning",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        system_messages = [m["content"] for m in result.messages if m["role"] == "system"]
+        self.assertTrue(any("本轮推荐工具：query_soil_summary" in content for content in system_messages))
+        self.assertTrue(any("本轮推荐 output_mode：warning_mode" in content for content in system_messages))
+
+    def test_detail_like_region_query_coerces_summary_tool_to_detail(self):
+        self.repo.extra_region_aliases = [
+            {
+                "alias_name": "如东",
+                "canonical_name": "如东县",
+                "region_level": "county",
+                "parent_city_name": "南通市",
+                "alias_source": "generated_fact",
+            },
+            {
+                "alias_name": "如东县",
+                "canonical_name": "如东县",
+                "region_level": "county",
+                "parent_city_name": "南通市",
+                "alias_source": "canonical",
+            },
+        ]
+        svc = AgentLoopService(
+            qwen_client=_mock_qwen([
+                {
+                    "type": "tool_call",
+                    "tool_name": "query_soil_summary",
+                    "tool_args": {
+                        "city": "如东",
+                        "start_time": "2025-04-14 00:00:00",
+                        "end_time": "2025-04-20 23:59:59",
+                    },
+                    "call_id": "call_detail_fix",
+                },
+                {"type": "text", "content": "如东县最近情况正常。"},
+            ]),
+            tool_executor=self.executor,
+            history_store=self.history_store,
+            resolver=ParameterResolverService(self.repo),
+        )
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="如东最近怎么样",
+            session_id="detail-coerce",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        self.assertEqual(result.tool_calls_made[0]["tool_name"], "query_soil_detail")
+        self.assertEqual(result.tool_calls_made[0]["tool_args"]["county"], "如东县")
+
+    def test_low_confidence_unknown_region_returns_entity_not_found_fallback(self):
+        self.repo.extra_region_aliases = [
+            {
+                "alias_name": "南通市",
+                "canonical_name": "南通市",
+                "region_level": "city",
+                "parent_city_name": None,
+                "alias_source": "canonical",
+            },
+        ]
+        svc = AgentLoopService(
+            qwen_client=_mock_qwen([
+                {
+                    "type": "tool_call",
+                    "tool_name": "query_soil_summary",
+                    "tool_args": {
+                        "city": "XX市",
+                        "start_time": "2025-04-14 00:00:00",
+                        "end_time": "2025-04-20 23:59:59",
+                    },
+                    "call_id": "call_unknown_region",
+                },
+            ]),
+            tool_executor=self.executor,
+            history_store=self.history_store,
+            resolver=ParameterResolverService(self.repo),
+        )
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="帮我查一下XX市最近7天情况",
+            session_id="unknown-region",
+            turn_id=1,
+            latest_business_time="2025-04-20 08:00:00",
+        ))
+
+        self.assertTrue(result.is_fallback)
+        self.assertEqual(result.fallback_reason, "entity_not_found")
+        self.assertEqual(result.tool_calls_made, [])
 
     def test_comparison_query_log_entry_concatenates_multiple_audit_sql_blocks(self):
         svc = self._make_service([

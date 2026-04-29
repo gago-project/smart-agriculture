@@ -16,6 +16,7 @@ Each request:
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -28,6 +29,7 @@ from app.services.time_window_service import TimeWindowService
 from app.services.tool_executor_service import ToolExecutorService, ToolValidationError
 
 MAX_TOOL_ITERATIONS = 5
+_SN_IN_TEXT = re.compile(r"SNS\d{8}", re.IGNORECASE)
 _FALLBACK_NO_LLM = "LLM 服务当前不可用，请稍后重试或联系管理员配置 API Key。"
 _FALLBACK_MAX_ITER = "当前请求调用工具次数过多，已安全终止，请缩小问题范围后重试。"
 _FALLBACK_TOOL_MISSING = (
@@ -100,9 +102,13 @@ class AgentLoopService:
         inherited_time_window = self._latest_history_time_window(history)
         time_evidence = self.time_window_service.resolve(user_input, latest_business_time)
         system_prompt = build_system_prompt(latest_business_time=latest_business_time)
+        suggested_tool_name = self._suggest_tool_name(user_input)
+        suggested_output_mode = self._suggest_output_mode(user_input, suggested_tool_name)
+        turn_hint = self._build_turn_hint(user_input)
 
         messages: list[dict[str, Any]] = [
             {"role": "system", "content": system_prompt},
+            *([{"role": "system", "content": turn_hint}] if turn_hint else []),
             *history,
             {"role": "user", "content": user_input},
         ]
@@ -185,8 +191,14 @@ class AgentLoopService:
 
             for call in batch:
                 tool_name = call["tool_name"]
-                raw_args = call["tool_args"]
+                raw_args = dict(call["tool_args"] or {})
                 call_id = call.get("call_id", "")
+                tool_name, raw_args = self._coerce_tool_call(
+                    tool_name=tool_name,
+                    raw_args=raw_args,
+                    suggested_tool_name=suggested_tool_name,
+                    suggested_output_mode=suggested_output_mode,
+                )
 
                 # --- Parameter Resolver ---
                 resolved = await self.resolver.resolve(
@@ -202,6 +214,31 @@ class AgentLoopService:
                 all_resolver_warnings.extend(resolved.warning_trace)
 
                 if resolved.should_clarify:
+                    if resolved.entity_confidence == "low":
+                        clarify_answer = self._entity_not_found_fallback_answer(
+                            raw_args=raw_args,
+                            clarify_message=resolved.clarify_message,
+                        )
+                        await self.history_store.save_message_turn(
+                            session_id, turn_id,
+                            user_message=user_input,
+                            assistant_message=clarify_answer,
+                            tool_calls=history_tool_calls,
+                            tool_results=history_tool_results,
+                        )
+                        return AgentLoopResult(
+                            final_answer=clarify_answer,
+                            tool_calls_made=tool_calls_made,
+                            tool_results=tool_results,
+                            query_log_entries=query_log_entries,
+                            messages=messages,
+                            is_fallback=True,
+                            fallback_reason="entity_not_found",
+                            entity_confidence=last_entity_confidence,
+                            time_confidence=last_time_confidence,
+                            resolver_warnings=all_resolver_warnings,
+                            session_reset=session_reset,
+                        )
                     clarify_triggered = True
                     clarify_answer = (
                         f"您的问题中有些信息需要确认：{resolved.clarify_message}。"
@@ -336,6 +373,112 @@ class AgentLoopService:
             fallback_reason="tool_blocked",
             session_reset=session_reset,
         )
+
+    def _build_turn_hint(self, user_input: str) -> str | None:
+        """Add a per-turn routing hint for queries Qwen commonly under-routes."""
+        text = (user_input or "").strip()
+        if not text:
+            return None
+
+        tool_name = self._suggest_tool_name(text)
+        output_mode = self._suggest_output_mode(text, tool_name)
+        if not tool_name:
+            return None
+
+        lines = [
+            "本轮结构化提示：",
+            f"- 本轮推荐工具：{tool_name}",
+        ]
+        if output_mode:
+            lines.append(f"- 本轮推荐 output_mode：{output_mode}")
+        lines.append("- 若当前信息不完整，不要直接自由文本回答；应先调用最匹配的查询工具，让参数解析层决定是否需要澄清。")
+        if tool_name == "query_soil_detail":
+            lines.append("- 单一地区或单台设备的“详细情况/最近怎么样/设备 SN”问题，优先走 query_soil_detail，不要退化成 summary。")
+        if tool_name == "query_soil_summary" and output_mode == "warning_mode":
+            lines.append("- “预警角度/预警视角”类问题，必须走 query_soil_summary 且 output_mode=warning_mode。")
+        if tool_name == "query_soil_summary" and output_mode == "advice_mode":
+            lines.append("- “需要注意什么/建议”类问题，必须基于真实 summary 数据回答。")
+        if tool_name == "query_soil_summary" and output_mode == "anomaly_focus":
+            lines.append("- “有没有异常/哪里需要关注”类问题，必须走 query_soil_summary 且 output_mode=anomaly_focus。")
+        return "\n".join(lines)
+
+    def _suggest_tool_name(self, user_input: str) -> str | None:
+        text = user_input.strip()
+        if not text:
+            return None
+        summary_markers = ("预警角度", "预警视角", "整体", "概况")
+        if _SN_IN_TEXT.search(text) or any(keyword in text for keyword in ("详细", "详情")):
+            return "query_soil_detail"
+        if text.startswith("那") and text.endswith("呢"):
+            return "query_soil_detail"
+        if text.startswith("不是") and "是" in text:
+            return "query_soil_detail"
+        if any(keyword in text for keyword in ("最近怎么样", "情况怎么样", "异常情况怎么样", "异常具体怎么回事", "需要发预警吗")) and not any(
+            marker in text for marker in summary_markers
+        ):
+            return "query_soil_detail"
+        if "对比" in text or "哪边更" in text or "谁更" in text:
+            return "query_soil_comparison"
+        if any(keyword in text for keyword in ("前", "排行", "排名", "最严重", "Top", "top")) and "预警角度" not in text:
+            return "query_soil_ranking"
+        return "query_soil_summary"
+
+    def _suggest_output_mode(self, user_input: str, tool_name: str | None) -> str | None:
+        if tool_name not in {"query_soil_summary", "query_soil_detail"}:
+            return None
+        text = user_input.strip()
+        if any(keyword in text for keyword in ("预警角度", "预警视角")):
+            return "warning_mode"
+        if any(keyword in text for keyword in ("需要注意什么", "建议")):
+            return "advice_mode"
+        if any(keyword in text for keyword in ("有没有异常", "异常", "需关注")) and "最严重" not in text:
+            return "anomaly_focus"
+        return None
+
+    @staticmethod
+    def _can_promote_summary_to_detail(raw_args: dict[str, Any]) -> bool:
+        return bool(raw_args.get("city") or raw_args.get("county") or raw_args.get("sn")) and not any(
+            raw_args.get(key) is not None for key in ("aggregation", "top_n", "entities", "entity_type")
+        )
+
+    def _coerce_tool_call(
+        self,
+        *,
+        tool_name: str,
+        raw_args: dict[str, Any],
+        suggested_tool_name: str | None,
+        suggested_output_mode: str | None,
+    ) -> tuple[str, dict[str, Any]]:
+        normalized_args = dict(raw_args)
+        normalized_tool_name = tool_name
+
+        if (
+            suggested_tool_name == "query_soil_detail"
+            and tool_name == "query_soil_summary"
+            and self._can_promote_summary_to_detail(normalized_args)
+        ):
+            normalized_tool_name = "query_soil_detail"
+
+        if suggested_output_mode and normalized_tool_name in {"query_soil_summary", "query_soil_detail"}:
+            current_output_mode = normalized_args.get("output_mode")
+            if current_output_mode in (None, "", "normal") or current_output_mode != suggested_output_mode:
+                normalized_args["output_mode"] = suggested_output_mode
+
+        return normalized_tool_name, normalized_args
+
+    @staticmethod
+    def _entity_not_found_fallback_answer(*, raw_args: dict[str, Any], clarify_message: str) -> str:
+        sn = str(raw_args.get("sn") or "").strip()
+        if sn:
+            if re.fullmatch(r"[A-Za-z0-9_-]+", sn):
+                return f"设备编号 '{sn}' 在系统中未找到匹配记录，请核对设备编号后重试。"
+            return f"你提供的设备号 '{sn}' 包含非法字符，无法解析为合法设备编号。请使用形如 SNSxxxxxxxx 的标准设备编号重新查询。"
+
+        region_name = str(raw_args.get("county") or raw_args.get("city") or "").strip()
+        if region_name:
+            return f"您提到的地区名称 '{region_name}' 在地区库中未找到匹配记录，请核对地区名称后重试。"
+
+        return clarify_message or "当前无法识别你提供的地区或设备，请核对后重试。"
 
     def _build_query_log_entry(
         self,

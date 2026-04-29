@@ -160,7 +160,7 @@ class QwenClient:
             "tool_choice": "auto",
             "temperature": 0.1,
         }
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, trust_env=False) as client:
             response = await client.post(
                 self.base_url,
                 headers={"Authorization": f"Bearer {self.api_key}"},
@@ -221,7 +221,7 @@ class QwenClient:
             "response_format": {"type": "json_object"},
             "temperature": 0.1,
         }
-        async with httpx.AsyncClient(timeout=self.timeout_seconds) as client:
+        async with httpx.AsyncClient(timeout=self.timeout_seconds, trust_env=False) as client:
             response = await client.post(
                 self.base_url,
                 headers={"Authorization": f"Bearer {self.api_key}"},

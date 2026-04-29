@@ -115,6 +115,49 @@ class QwenClientFunctionCallingTest(unittest.TestCase):
         self.assertEqual(result["type"], "text")
         self.assertIn("延安", result["content"])
 
+    def test_call_with_tools_disables_env_proxy_lookup(self):
+        mock_response = {
+            "choices": [{
+                "message": {
+                    "role": "assistant",
+                    "content": "ok",
+                    "tool_calls": None,
+                }
+            }]
+        }
+        with patch("httpx.AsyncClient") as mock_http:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_resp.raise_for_status = MagicMock()
+            mock_http.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
+
+            asyncio.run(self.client.call_with_tools(
+                messages=[{"role": "user", "content": "概况"}],
+                tools=SOIL_TOOLS,
+            ))
+
+        self.assertEqual(mock_http.call_args.kwargs.get("trust_env"), False)
+
+    def test_request_json_disables_env_proxy_lookup(self):
+        mock_response = {
+            "choices": [{
+                "message": {
+                    "content": "{\"resolved_input\": \"南京最近13天墒情怎么样\"}"
+                }
+            }]
+        }
+        with patch("httpx.AsyncClient") as mock_http:
+            mock_resp = MagicMock()
+            mock_resp.json.return_value = mock_response
+            mock_resp.raise_for_status = MagicMock()
+            mock_http.return_value.__aenter__.return_value.post = AsyncMock(return_value=mock_resp)
+
+            asyncio.run(self.client._request_json(
+                messages=[{"role": "user", "content": "南京最近13天墒情怎么样"}],
+            ))
+
+        self.assertEqual(mock_http.call_args.kwargs.get("trust_env"), False)
+
 
 from app.llm.prompts.system_prompt import build_system_prompt
 

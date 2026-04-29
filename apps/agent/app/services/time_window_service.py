@@ -22,17 +22,38 @@ _CHINESE_NUMBERS = {
 }
 
 _ABSOLUTE_TIME_PATTERNS = (
-    re.compile(r"\d{4}-\d{1,2}-\d{1,2}"),
-    re.compile(r"\d{4}/\d{1,2}/\d{1,2}"),
-    re.compile(r"\d{1,2}月\d{1,2}日"),
-    re.compile(r"\d{4}年\d{1,2}月"),
-    re.compile(r"去年\d{1,2}月"),
+    re.compile(r"\d{4}\s*-\s*\d{1,2}\s*-\s*\d{1,2}"),
+    re.compile(r"\d{4}\s*/\s*\d{1,2}\s*/\s*\d{1,2}"),
+    re.compile(r"\d{1,2}\s*月\s*\d{1,2}\s*日"),
+    re.compile(r"\d{4}\s*年\s*\d{1,2}\s*月"),
+    re.compile(r"去年\s*\d{1,2}\s*月"),
 )
 
 _AMBIGUOUS_PATTERNS = (
     re.compile(r"这几天"),
     re.compile(r"半个月"),
     re.compile(r"半年"),
+)
+
+_ABSOLUTE_YEAR_MONTH_PATTERN = re.compile(r"(?P<year>\d{4})\s*年\s*(?P<month>\d{1,2})\s*月")
+_LAST_YEAR_MONTH_PATTERN = re.compile(r"去年\s*(?P<month>\d{1,2})\s*月")
+_FULL_DATE_RANGE_PATTERNS = (
+    re.compile(
+        r"(?P<y1>\d{4})\s*-\s*(?P<m1>\d{1,2})\s*-\s*(?P<d1>\d{1,2})\s*(?:到|至|-)\s*"
+        r"(?P<y2>\d{4})\s*-\s*(?P<m2>\d{1,2})\s*-\s*(?P<d2>\d{1,2})"
+    ),
+    re.compile(
+        r"(?P<y1>\d{4})\s*/\s*(?P<m1>\d{1,2})\s*/\s*(?P<d1>\d{1,2})\s*(?:到|至|-)\s*"
+        r"(?P<y2>\d{4})\s*/\s*(?P<m2>\d{1,2})\s*/\s*(?P<d2>\d{1,2})"
+    ),
+    re.compile(
+        r"(?P<y1>\d{4})\s*年\s*(?P<m1>\d{1,2})\s*月\s*(?P<d1>\d{1,2})\s*日?\s*(?:到|至|-)\s*"
+        r"(?P<y2>\d{4})\s*年\s*(?P<m2>\d{1,2})\s*月\s*(?P<d2>\d{1,2})\s*日?"
+    ),
+)
+_MONTH_DAY_RANGE_PATTERN = re.compile(
+    r"(?P<m1>\d{1,2})\s*月\s*(?P<d1>\d{1,2})\s*日?\s*(?:到|至|-)\s*"
+    r"(?P<m2>\d{1,2})\s*月\s*(?P<d2>\d{1,2})\s*日?"
 )
 
 
@@ -57,10 +78,14 @@ class TimeWindowService:
         if any(pattern.search(text) for pattern in _AMBIGUOUS_PATTERNS):
             return TimeWindowResolution(has_time_signal=True, clarify_reason="ambiguous_time")
 
+        anchor = self._parse_anchor(latest_business_time)
+        absolute_match = self._resolve_absolute(text, anchor)
+        if absolute_match is not None:
+            return absolute_match
+
         if self._has_absolute_time_signal(text):
             return TimeWindowResolution(has_time_signal=True)
 
-        anchor = self._parse_anchor(latest_business_time)
         relative_match = self._resolve_relative(text, anchor)
         if relative_match is not None:
             return relative_match
@@ -80,8 +105,79 @@ class TimeWindowService:
     def _has_absolute_time_signal(text: str) -> bool:
         return any(pattern.search(text) for pattern in _ABSOLUTE_TIME_PATTERNS)
 
+    def _resolve_absolute(self, text: str, anchor: datetime | None) -> TimeWindowResolution | None:
+        for pattern in _FULL_DATE_RANGE_PATTERNS:
+            match = pattern.search(text)
+            if not match:
+                continue
+            start = datetime(
+                int(match.group("y1")),
+                int(match.group("m1")),
+                int(match.group("d1")),
+                0,
+                0,
+                0,
+            )
+            end = datetime(
+                int(match.group("y2")),
+                int(match.group("m2")),
+                int(match.group("d2")),
+                23,
+                59,
+                59,
+            )
+            return self._window("rule_absolute", start, end)
+
+        month_day_match = _MONTH_DAY_RANGE_PATTERN.search(text)
+        if month_day_match:
+            if anchor is None:
+                return TimeWindowResolution(has_time_signal=True, clarify_reason="missing_latest_business_time")
+            start = datetime(
+                anchor.year,
+                int(month_day_match.group("m1")),
+                int(month_day_match.group("d1")),
+                0,
+                0,
+                0,
+            )
+            end = datetime(
+                anchor.year,
+                int(month_day_match.group("m2")),
+                int(month_day_match.group("d2")),
+                23,
+                59,
+                59,
+            )
+            return self._window("rule_absolute", start, end)
+
+        year_month_match = _ABSOLUTE_YEAR_MONTH_PATTERN.search(text)
+        if year_month_match:
+            year = int(year_month_match.group("year"))
+            month = int(year_month_match.group("month"))
+            last_day = calendar.monthrange(year, month)[1]
+            return self._window(
+                "rule_absolute",
+                datetime(year, month, 1, 0, 0, 0),
+                datetime(year, month, last_day, 23, 59, 59),
+            )
+
+        last_year_month_match = _LAST_YEAR_MONTH_PATTERN.search(text)
+        if last_year_month_match:
+            if anchor is None:
+                return TimeWindowResolution(has_time_signal=True, clarify_reason="missing_latest_business_time")
+            year = anchor.year - 1
+            month = int(last_year_month_match.group("month"))
+            last_day = calendar.monthrange(year, month)[1]
+            return self._window(
+                "rule_absolute",
+                datetime(year, month, 1, 0, 0, 0),
+                datetime(year, month, last_day, 23, 59, 59),
+            )
+
+        return None
+
     def _resolve_relative(self, text: str, anchor: datetime | None) -> TimeWindowResolution | None:
-        if any(token in text for token in ("今天", "现在")):
+        if any(token in text for token in ("今天", "现在", "当前")):
             return self._anchor_required(anchor) or self._window("rule_relative", self._day(anchor, 0), self._day(anchor, 0, end=True))
         if "昨天" in text:
             return self._anchor_required(anchor) or self._window("rule_relative", self._day(anchor, -1), self._day(anchor, -1, end=True))
@@ -93,15 +189,21 @@ class TimeWindowService:
             return self._anchor_required(anchor) or self._last_week(anchor)
         if "这个月" in text or "本月" in text:
             return self._anchor_required(anchor) or self._this_month(anchor)
-        if "上月" in text or "一个月" in text:
+        if "上月" in text or "上个月" in text:
             return self._anchor_required(anchor) or self._last_month(anchor)
+        if "今年" in text:
+            return self._anchor_required(anchor) or self._this_year(anchor)
         if "近一年" in text or "最近1年" in text:
             return self._anchor_required(anchor) or self._rolling_days(anchor, 365)
+        if re.search(r"(?:最近|近|过去)\s*(?:1|一)\s*(?:个)?月", text):
+            return self._anchor_required(anchor) or self._rolling_days(anchor, 30)
+        if re.search(r"最近(?!\s*[0-9一二两三四五六七八九十百个天周月年])", text):
+            return self._anchor_required(anchor) or self._rolling_days(anchor, 7)
 
         for pattern, unit in (
             (re.compile(r"(?:最近|近|过去|前)\s*([0-9一二两三四五六七八九十百]+)\s*天"), "days"),
             (re.compile(r"(?:最近|近|过去)\s*([0-9一二两三四五六七八九十百]+)\s*周"), "weeks"),
-            (re.compile(r"(?:最近|近)\s*([0-9一二两三四五六七八九十百]+)\s*(?:个)?月"), "months"),
+            (re.compile(r"(?:最近|近|过去)\s*([0-9一二两三四五六七八九十百]+)\s*(?:个)?月"), "months"),
             (re.compile(r"([0-9一二两三四五六七八九十百]+)\s*周"), "weeks"),
             (re.compile(r"([0-9一二两三四五六七八九十百]+)\s*(?:个)?月"), "months"),
         ):
@@ -199,6 +301,11 @@ class TimeWindowService:
 
     def _this_month(self, anchor: datetime) -> TimeWindowResolution:
         start = datetime(anchor.year, anchor.month, 1, 0, 0, 0)
+        end = self._day(anchor, 0, end=True)
+        return self._window("rule_relative", start, end)
+
+    def _this_year(self, anchor: datetime) -> TimeWindowResolution:
+        start = datetime(anchor.year, 1, 1, 0, 0, 0)
         end = self._day(anchor, 0, end=True)
         return self._window("rule_relative", start, end)
 

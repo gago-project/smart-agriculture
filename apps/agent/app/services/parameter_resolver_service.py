@@ -353,7 +353,7 @@ class ParameterResolverService:
             if cross_prefix is not None:
                 return cross_prefix
 
-        if name.endswith(_REGION_SUFFIXES):
+        if not alias_index and name.endswith(_REGION_SUFFIXES):
             return RegionResolution(
                 raw_name=name,
                 canonical_name=name,
@@ -452,9 +452,15 @@ class ParameterResolverService:
                 resolved["sn"] = sn.upper()
                 confidences.append(CONFIDENCE_HIGH)
             else:
-                resolved["sn"] = sn
-                confidences.append(CONFIDENCE_MEDIUM)
-                warnings.append(f"设备编号 '{sn}' 格式不符合 SNSxxxxxxxx，请核对")
+                normalized_sn = str(sn).strip()
+                confidences.append(CONFIDENCE_LOW)
+                warnings.append(f"设备编号 '{normalized_sn}' 格式不符合 SNSxxxxxxxx，请核对")
+                if re.fullmatch(r"[A-Za-z0-9_-]+", normalized_sn):
+                    clarify_parts.append(f"设备编号 '{normalized_sn}' 格式不符合 SNSxxxxxxxx，请核对")
+                else:
+                    clarify_parts.append(
+                        f"设备编号 '{normalized_sn}' 包含非法字符，请使用标准设备编号重新查询"
+                    )
 
         # comparison tool: entities is a list — normalize per-item
         entities = raw_args.get("entities")
@@ -476,16 +482,14 @@ class ParameterResolverService:
                         )
                         confidences.append(CONFIDENCE_HIGH)
                     else:
-                        normalized_entities.append(
-                            {
-                                "raw_name": entity,
-                                "canonical_name": entity,
-                                "level": "device",
-                                "parent_city_name": None,
-                            }
-                        )
-                        confidences.append(CONFIDENCE_MEDIUM)
+                        confidences.append(CONFIDENCE_LOW)
                         warnings.append(f"设备编号 '{entity}' 格式不符合 SNSxxxxxxxx，请核对")
+                        if re.fullmatch(r"[A-Za-z0-9_-]+", entity):
+                            clarify_parts.append(f"设备编号 '{entity}' 格式不符合 SNSxxxxxxxx，请核对")
+                        else:
+                            clarify_parts.append(
+                                f"设备编号 '{entity}' 包含非法字符，请使用标准设备编号重新查询"
+                            )
                 else:
                     entity_result = self._resolve_region_name(
                         entity,

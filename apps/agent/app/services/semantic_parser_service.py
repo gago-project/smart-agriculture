@@ -8,7 +8,7 @@ One LLM call serves three purposes (P1-7 / P1-8 / P1-9):
   - Coreference resolution: expand "它"/"那个地区" to concrete entities
   - Intent extraction: return explicit intent_hint for AgentLoopNode
 
-Timeout: 3 s — on any failure the raw user_input is returned unchanged
+Timeout: 8 s — on any failure the raw user_input is returned unchanged
 (宁可多查一次，不拦截合法请求).
 """
 from __future__ import annotations
@@ -67,7 +67,7 @@ def _fallback(user_input: str) -> SemanticParseResult:
 class SemanticParserService:
     """One-shot LLM call that resolves coreferences and extracts structured intent."""
 
-    def __init__(self, qwen_client: Any = None, timeout_seconds: float = 3.0) -> None:
+    def __init__(self, qwen_client: Any = None, timeout_seconds: float = 8.0) -> None:
         self._client = qwen_client
         self._timeout = timeout_seconds
 
