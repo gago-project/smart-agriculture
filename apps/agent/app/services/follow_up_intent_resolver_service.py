@@ -34,6 +34,7 @@ class FollowUpIntentResult:
     confidence: float = 1.0
     chosen_target: dict[str, Any] | None = None
     selected_ref: dict[str, Any] | None = None
+    selected_action_target: dict[str, Any] | None = None
     new_slots: dict[str, Any] = field(default_factory=dict)
     inherit_slots: list[str] = field(default_factory=list)
     clarify_reason: str = ""

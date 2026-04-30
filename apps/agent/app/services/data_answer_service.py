@@ -19,6 +19,7 @@ from app.services.follow_up_intent_resolver_service import (
     FollowUpIntentResolverService,
     FollowUpIntentResult,
 )
+from app.services.follow_up_action_resolver_service import FollowUpActionResolverService
 from app.services.input_guard_service import InputGuardService
 from app.services.llm_follow_up_resolver_service import LlmFollowUpResolution, LlmFollowUpResolverService
 from app.services.llm_input_guard_service import LlmInputGuardService
@@ -69,7 +70,7 @@ REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"^[0-9一二两三四五六七八九十百]+\s*个?\s*(地区|区域)(?:呢|详情|明细)?$"),
     re.compile(r"^(这些|这几个|那些|上面的)\s*(地区|区域)(?:呢|详情|明细)?$"),
 )
-CONTEXT_VERSION = 2
+CONTEXT_VERSION = 3
 RESULT_REF_LIMIT = 20
 FOLLOW_UP_TARGET_LIMIT = 5
 DETAIL_HINT_TOKENS = ("详情", "明细")
@@ -98,6 +99,7 @@ class DataAnswerService:
         input_guard: InputGuardService | None = None,
         llm_input_guard: LlmInputGuardService | Any | None = None,
         llm_follow_up_resolver: LlmFollowUpResolverService | Any | None = None,
+        follow_up_action_resolver: FollowUpActionResolverService | None = None,
         time_window_service: TimeWindowService | None = None,
         parameter_resolver: ParameterResolverService | None = None,
         follow_up_intent_resolver: FollowUpIntentResolverService | None = None,
@@ -107,6 +109,7 @@ class DataAnswerService:
         self.input_guard = input_guard or InputGuardService()
         self.llm_input_guard = llm_input_guard
         self.llm_follow_up_resolver = llm_follow_up_resolver
+        self.follow_up_action_resolver = follow_up_action_resolver or FollowUpActionResolverService()
         self.time_window_service = time_window_service or TimeWindowService()
         self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
         self.follow_up_intent_resolver = follow_up_intent_resolver or FollowUpIntentResolverService()
@@ -141,6 +144,58 @@ class DataAnswerService:
             return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if self._is_template_request(text):
             return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        entities = await self._extract_entities(text)
+        if self._should_route_explicit_detail(text, entities):
+            return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        action_result = self.follow_up_action_resolver.resolve(
+            text=text,
+            current_context=context,
+            turn_id=turn_id,
+        )
+        if action_result.operation == "clarify":
+            logger.info(
+                "follow-up action session_id=%s turn_id=%s context_version=%s operation=%s matched_action_target_key=%s subject_kind=%s parsed_count=%s target_count=%s fallback_path=%s clarify_reason=%s",
+                session_id,
+                turn_id,
+                context.get("context_version"),
+                action_result.operation,
+                None,
+                action_result.subject_kind,
+                action_result.parsed_count,
+                None,
+                "clarify",
+                action_result.clarify_reason,
+            )
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=action_result.clarify_message,
+                current_context=context,
+                guidance_reason="clarification",
+            )
+        if action_result.operation == "expand_target":
+            selected_target = action_result.selected_action_target or {}
+            logger.info(
+                "follow-up action session_id=%s turn_id=%s context_version=%s operation=%s matched_action_target_key=%s subject_kind=%s parsed_count=%s target_count=%s fallback_path=%s clarify_reason=%s",
+                session_id,
+                turn_id,
+                context.get("context_version"),
+                action_result.operation,
+                selected_target.get("target_key"),
+                action_result.subject_kind,
+                action_result.parsed_count,
+                selected_target.get("count"),
+                "action_target",
+                action_result.clarify_reason,
+            )
+            return await self._reply_from_action_target(
+                message=text,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+                action_target=selected_target,
+            )
 
         list_target = self._resolve_list_target(text, context)
         if list_target:
@@ -197,16 +252,20 @@ class DataAnswerService:
             "query_state": context.get("query_state"),
             "follow_up_targets": list(context.get("follow_up_targets") or []),
             "result_refs": list(context.get("result_refs") or []),
+            "action_targets": list(context.get("action_targets") or []),
             "last_closed_turn_id": context.get("last_closed_turn_id"),
         }
         if normalized["query_state"] is None:
             normalized["query_state"] = self._legacy_query_state(normalized)
         if not normalized["follow_up_targets"] and normalized["query_state"]:
             normalized["follow_up_targets"] = [self._follow_up_target_from_query_state(normalized["query_state"])]
+        if not normalized["action_targets"]:
+            normalized["action_targets"] = self._legacy_action_targets(normalized)
         normalized["follow_up_targets"] = [target for target in normalized["follow_up_targets"] if isinstance(target, dict)][
             :FOLLOW_UP_TARGET_LIMIT
         ]
         normalized["result_refs"] = [ref for ref in normalized["result_refs"] if isinstance(ref, dict)][:RESULT_REF_LIMIT]
+        normalized["action_targets"] = [target for target in normalized["action_targets"] if isinstance(target, dict)]
         return normalized
 
     @staticmethod
@@ -225,6 +284,7 @@ class DataAnswerService:
             "query_state": None,
             "follow_up_targets": [],
             "result_refs": [],
+            "action_targets": [],
             "last_closed_turn_id": None,
         }
 
@@ -331,6 +391,149 @@ class DataAnswerService:
     def _latest_follow_up_target(self, context: dict[str, Any]) -> dict[str, Any] | None:
         targets = context.get("follow_up_targets") or []
         return targets[0] if targets else None
+
+    @staticmethod
+    def _action_target(
+        *,
+        target_key: str,
+        capability: str,
+        grain: str,
+        subject_kind: str,
+        source_snapshot_id: str | None,
+        source_snapshot_kind: str | None,
+        group_by: str | None,
+        count: int | None,
+        label: str,
+        source_turn_id: int,
+        last_active_turn_id: int,
+    ) -> dict[str, Any]:
+        return {
+            "target_key": target_key,
+            "capability": capability,
+            "grain": grain,
+            "subject_kind": subject_kind,
+            "source_snapshot_id": source_snapshot_id,
+            "source_snapshot_kind": source_snapshot_kind,
+            "group_by": group_by,
+            "count": count,
+            "label": label,
+            "source_turn_id": source_turn_id,
+            "last_active_turn_id": last_active_turn_id,
+        }
+
+    def _legacy_action_targets(self, context: dict[str, Any]) -> list[dict[str, Any]]:
+        if context.get("topic_family") != "data" or context.get("closed"):
+            return []
+        derived_sets = context.get("derived_sets") or {}
+        primary_query_spec = context.get("primary_query_spec") or {}
+        capability = str(primary_query_spec.get("capability") or "")
+        grain = str(primary_query_spec.get("grain") or "")
+        source_turn_id = int(context.get("active_topic_turn_id") or 0)
+        targets: list[dict[str, Any]] = []
+        focus_snapshot_id = derived_sets.get("focus_devices_snapshot_id")
+        alert_snapshot_id = derived_sets.get("alert_records_snapshot_id")
+
+        if capability == "summary":
+            if alert_snapshot_id:
+                targets.append(
+                    self._action_target(
+                        target_key=f"target_{source_turn_id}_alert_records",
+                        capability="list",
+                        grain="record_list",
+                        subject_kind="record",
+                        source_snapshot_id=alert_snapshot_id,
+                        source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                        group_by=None,
+                        count=None,
+                        label="预警记录",
+                        source_turn_id=source_turn_id,
+                        last_active_turn_id=source_turn_id,
+                    )
+                )
+            if focus_snapshot_id:
+                targets.extend(
+                    [
+                        self._action_target(
+                            target_key=f"target_{source_turn_id}_focus_devices",
+                            capability="list",
+                            grain="device_list",
+                            subject_kind="device",
+                            source_snapshot_id=focus_snapshot_id,
+                            source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                            group_by=None,
+                            count=None,
+                            label="重点关注点位",
+                            source_turn_id=source_turn_id,
+                            last_active_turn_id=source_turn_id,
+                        ),
+                        self._action_target(
+                            target_key=f"target_{source_turn_id}_covered_regions",
+                            capability="group",
+                            grain="region_group",
+                            subject_kind="region",
+                            source_snapshot_id=focus_snapshot_id,
+                            source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                            group_by="region",
+                            count=None,
+                            label="地区",
+                            source_turn_id=source_turn_id,
+                            last_active_turn_id=source_turn_id,
+                        ),
+                    ]
+                )
+            return targets
+
+        if capability == "compare" and focus_snapshot_id:
+            return [
+                self._action_target(
+                    target_key=f"target_{source_turn_id}_winner_focus_devices",
+                    capability="list",
+                    grain="device_list",
+                    subject_kind="device",
+                    source_snapshot_id=focus_snapshot_id,
+                    source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                    group_by=None,
+                    count=None,
+                    label="重点关注点位",
+                    source_turn_id=source_turn_id,
+                    last_active_turn_id=source_turn_id,
+                )
+            ]
+
+        if capability == "list" or grain in {"record_list", "device_list"}:
+            if grain == "record_list" and alert_snapshot_id:
+                return [
+                    self._action_target(
+                        target_key=f"target_{source_turn_id}_covered_regions",
+                        capability="group",
+                        grain="region_group",
+                        subject_kind="region",
+                        source_snapshot_id=alert_snapshot_id,
+                        source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                        group_by="region",
+                        count=None,
+                        label="地区",
+                        source_turn_id=source_turn_id,
+                        last_active_turn_id=source_turn_id,
+                    )
+                ]
+            if focus_snapshot_id:
+                return [
+                    self._action_target(
+                        target_key=f"target_{source_turn_id}_covered_regions",
+                        capability="group",
+                        grain="region_group",
+                        subject_kind="region",
+                        source_snapshot_id=focus_snapshot_id,
+                        source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                        group_by="region",
+                        count=None,
+                        label="地区",
+                        source_turn_id=source_turn_id,
+                        last_active_turn_id=source_turn_id,
+                    )
+                ]
+        return []
 
     def _merge_follow_up_targets(
         self,
@@ -507,6 +710,107 @@ class DataAnswerService:
                 )
         return refs[:RESULT_REF_LIMIT]
 
+    def _build_summary_action_targets(
+        self,
+        *,
+        turn_id: int,
+        block: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        metrics = block.get("metrics") or {}
+        return [
+            self._action_target(
+                target_key=f"target_{turn_id}_alert_records",
+                capability="list",
+                grain="record_list",
+                subject_kind="record",
+                source_snapshot_id=block.get("alert_records_snapshot_id"),
+                source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                group_by=None,
+                count=int(metrics.get("alert_record_count") or 0),
+                label=f"{int(metrics.get('alert_record_count') or 0)}条预警记录",
+                source_turn_id=turn_id,
+                last_active_turn_id=turn_id,
+            ),
+            self._action_target(
+                target_key=f"target_{turn_id}_focus_devices",
+                capability="list",
+                grain="device_list",
+                subject_kind="device",
+                source_snapshot_id=block.get("focus_devices_snapshot_id"),
+                source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                group_by=None,
+                count=int(metrics.get("alert_device_count") or 0),
+                label=f"{int(metrics.get('alert_device_count') or 0)}个重点关注点位",
+                source_turn_id=turn_id,
+                last_active_turn_id=turn_id,
+            ),
+            self._action_target(
+                target_key=f"target_{turn_id}_covered_regions",
+                capability="group",
+                grain="region_group",
+                subject_kind="region",
+                source_snapshot_id=block.get("focus_devices_snapshot_id"),
+                source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                group_by="region",
+                count=int(metrics.get("alert_region_count") or 0),
+                label=f"{int(metrics.get('alert_region_count') or 0)}个地区",
+                source_turn_id=turn_id,
+                last_active_turn_id=turn_id,
+            ),
+        ]
+
+    def _build_list_action_targets(
+        self,
+        *,
+        turn_id: int,
+        snapshot_id: str | None,
+        snapshot_kind: str,
+        rows: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        region_keys = {
+            self._group_key_for_row(row, "region")
+            for row in rows
+            if self._group_key_for_row(row, "region") != "未知"
+        }
+        return [
+            self._action_target(
+                target_key=f"target_{turn_id}_covered_regions",
+                capability="group",
+                grain="region_group",
+                subject_kind="region",
+                source_snapshot_id=snapshot_id,
+                source_snapshot_kind=snapshot_kind,
+                group_by="region",
+                count=len(region_keys),
+                label=f"{len(region_keys)}个地区",
+                source_turn_id=turn_id,
+                last_active_turn_id=turn_id,
+            )
+        ]
+
+    def _build_compare_action_targets(
+        self,
+        *,
+        turn_id: int,
+        snapshot_id: str | None,
+        count: int,
+    ) -> list[dict[str, Any]]:
+        return [
+            self._action_target(
+                target_key=f"target_{turn_id}_winner_focus_devices",
+                capability="list",
+                grain="device_list",
+                subject_kind="device",
+                source_snapshot_id=snapshot_id,
+                source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                group_by=None,
+                count=count,
+                label=f"{count}个重点关注点位",
+                source_turn_id=turn_id,
+                last_active_turn_id=turn_id,
+            )
+        ]
+
     def _finalize_context(
         self,
         *,
@@ -516,6 +820,7 @@ class DataAnswerService:
         query_state: dict[str, Any] | None = None,
         parent_target_key: str | None = None,
         result_refs: list[dict[str, Any]] | None = None,
+        action_targets: list[dict[str, Any]] | None = None,
         replace_history: bool = False,
     ) -> dict[str, Any]:
         next_context = {
@@ -534,6 +839,7 @@ class DataAnswerService:
                 replace_history=replace_history,
             )
             next_context["result_refs"] = result_refs or []
+            next_context["action_targets"] = action_targets or []
             target_key = next_context["follow_up_targets"][0]["target_key"] if next_context["follow_up_targets"] else None
             for ref in next_context["result_refs"]:
                 ref["target_key"] = target_key
@@ -541,6 +847,7 @@ class DataAnswerService:
             next_context["query_state"] = None
             next_context["follow_up_targets"] = []
             next_context["result_refs"] = []
+            next_context["action_targets"] = []
         return next_context
 
     @staticmethod
@@ -718,11 +1025,63 @@ class DataAnswerService:
     def _is_compare_request(text: str) -> bool:
         return "谁更" in text or ("和" in text and any(token in text for token in ("对比", "比较", "更差")))
 
+    @staticmethod
+    def _should_route_explicit_detail(text: str, entities: dict[str, Any]) -> bool:
+        if SN_PATTERN.search(text):
+            return True
+        if not any(entities.get(key) for key in ("province", "city", "county", "sn")):
+            return False
+        return any(token in text for token in DETAIL_HINT_TOKENS)
+
     def _is_detail_request(self, text: str, context: dict[str, Any]) -> bool:
         if SN_PATTERN.search(text):
             return True
         del context
         return any(token in text for token in DETAIL_HINT_TOKENS)
+
+    async def _reply_from_action_target(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+        action_target: dict[str, Any],
+    ) -> dict[str, Any]:
+        capability = str(action_target.get("capability") or "")
+        source_snapshot_kind = str(action_target.get("source_snapshot_kind") or "")
+        source_snapshot_id = action_target.get("source_snapshot_id")
+        if capability == "list":
+            list_target = (
+                LIST_TARGET_ALERT_RECORDS
+                if source_snapshot_kind == LIST_TARGET_ALERT_RECORDS
+                else LIST_TARGET_FOCUS_DEVICES
+            )
+            return await self._reply_list(
+                message=message,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=current_context,
+                list_target=list_target,
+                resolved_snapshot_id=source_snapshot_id,
+                resolved_snapshot_kind=source_snapshot_kind or list_target,
+            )
+        if capability == "group":
+            return await self._reply_group(
+                message=message,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=current_context,
+                resolved_snapshot_id=source_snapshot_id,
+                resolved_snapshot_kind=source_snapshot_kind,
+                resolved_group_by=str(action_target.get("group_by") or "region"),
+            )
+        return await self._reply_summary(
+            message=message,
+            session_id=session_id,
+            turn_id=turn_id,
+            current_context=current_context,
+        )
 
     async def _should_return_safe_hint_before_summary(self, text: str, context: dict[str, Any]) -> bool:
         """在新话题里识别无实体、无时间、无数据意图的短噪声，避免误澄清时间。"""
@@ -1056,6 +1415,8 @@ class DataAnswerService:
                 raw_args["county"] = payload["county"]
             elif payload.get("city") and not raw_args.get("city"):
                 raw_args["city"] = payload["city"]
+            if any(payload.get(key) for key in ("city", "county", "sn")):
+                raw_args["trusted_scope"] = True
         has_explicit_scope = bool(raw_args.get("province") or raw_args.get("county") or raw_args.get("city") or raw_args.get("sn"))
         latest_target = follow_up.chosen_target or self._latest_follow_up_target(current_context)
         if (
@@ -1490,6 +1851,7 @@ class DataAnswerService:
             query_state=query_state,
             parent_target_key=resolution_meta["parent_target_key"],
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=self._build_summary_action_targets(turn_id=turn_id, block=block),
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
         executed_result = {
@@ -1536,6 +1898,8 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
         list_target: str,
+        resolved_snapshot_id: str | None = None,
+        resolved_snapshot_kind: str | None = None,
     ) -> dict[str, Any]:
         if current_context.get("topic_family") != "data":
             return self._build_guidance_response(
@@ -1547,7 +1911,7 @@ class DataAnswerService:
 
         snapshot_config = self._list_snapshot_config(list_target)
         block_id = f"block_list_{turn_id}"
-        source_snapshot_id = current_context.get("derived_sets", {}).get(snapshot_config["snapshot_key"])
+        source_snapshot_id = resolved_snapshot_id or current_context.get("derived_sets", {}).get(snapshot_config["snapshot_key"])
         source_sql = None
         snapshot = None
         if source_snapshot_id:
@@ -1687,6 +2051,12 @@ class DataAnswerService:
             query_state=query_state,
             parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=self._build_list_action_targets(
+                turn_id=turn_id,
+                snapshot_id=next_snapshot_id,
+                snapshot_kind=resolved_snapshot_kind or snapshot_config["snapshot_kind"],
+                rows=rows,
+            ),
         )
         final_text = (
             f"已列出当前条件下的 {len(rows)} 条预警记录。"
@@ -1732,6 +2102,9 @@ class DataAnswerService:
         session_id: str,
         turn_id: int,
         current_context: dict[str, Any],
+        resolved_snapshot_id: str | None = None,
+        resolved_snapshot_kind: str | None = None,
+        resolved_group_by: str | None = None,
     ) -> dict[str, Any]:
         if current_context.get("topic_family") != "data":
             return self._build_guidance_response(
@@ -1741,7 +2114,8 @@ class DataAnswerService:
                 guidance_reason="clarification",
             )
 
-        snapshot_id = current_context.get("derived_sets", {}).get(self._group_source_snapshot_key(current_context))
+        del resolved_snapshot_kind
+        snapshot_id = resolved_snapshot_id or current_context.get("derived_sets", {}).get(self._group_source_snapshot_key(current_context))
         snapshot = await self.snapshot_repository.get_snapshot_async(snapshot_id) if snapshot_id else None
         if not snapshot:
             return self._build_guidance_response(
@@ -1751,7 +2125,7 @@ class DataAnswerService:
                 guidance_reason="clarification",
             )
 
-        group_by = self._resolve_group_by(message)
+        group_by = resolved_group_by or self._resolve_group_by(message)
         grouped: dict[str, dict[str, Any]] = {}
         for row in [item.get("payload_json") or {} for item in snapshot.get("items") or []]:
             key = self._group_key_for_row(row, group_by)
@@ -1818,6 +2192,7 @@ class DataAnswerService:
             query_state=query_state,
             parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=[],
         )
         return {
             "turn_id": turn_id,
@@ -2152,6 +2527,11 @@ class DataAnswerService:
             query_state=query_state,
             parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=self._build_compare_action_targets(
+                turn_id=turn_id,
+                snapshot_id=winner_snapshot["snapshot_id"],
+                count=len(winner_rows),
+            ),
         )
         return {
             "turn_id": turn_id,

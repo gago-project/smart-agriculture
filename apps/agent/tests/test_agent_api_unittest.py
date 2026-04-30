@@ -70,7 +70,7 @@ class ChatV2ClosingService:
                 }
             ],
             "topic": {"topic_family": None, "active_topic_turn_id": None, "primary_block_id": None},
-            "turn_context": {"context_version": 2, "closed": True, "last_closed_turn_id": 2},
+            "turn_context": {"context_version": 3, "closed": True, "last_closed_turn_id": 2},
             "query_ref": {"has_query": False, "snapshot_ids": []},
             "conversation_closed": True,
             "session_reset": False,

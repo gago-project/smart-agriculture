@@ -421,9 +421,18 @@ class ParameterResolverService:
         city = raw_args.get("city")
         county = raw_args.get("county")
         sn = raw_args.get("sn")
+        trusted_scope = bool(raw_args.get("trusted_scope"))
 
         if city:
-            city_result = self._resolve_region_name(city, alias_index, expected_level="city", source_field="city")
+            if trusted_scope:
+                city_result = RegionResolution(
+                    raw_name=str(city),
+                    canonical_name=str(city),
+                    level="city",
+                    confidence=CONFIDENCE_HIGH,
+                )
+            else:
+                city_result = self._resolve_region_name(city, alias_index, expected_level="city", source_field="city")
             ok, conflict = self._apply_region_assignment(
                 source_field="city",
                 result=city_result,
@@ -438,7 +447,16 @@ class ParameterResolverService:
                 clarify_parts.append(conflict)
 
         if county:
-            county_result = self._resolve_region_name(county, alias_index, expected_level="county", source_field="county")
+            if trusted_scope:
+                county_result = RegionResolution(
+                    raw_name=str(county),
+                    canonical_name=str(county),
+                    level="county",
+                    parent_city_name=str(resolved.get("city") or "") or None,
+                    confidence=CONFIDENCE_HIGH,
+                )
+            else:
+                county_result = self._resolve_region_name(county, alias_index, expected_level="county", source_field="county")
             ok, conflict = self._apply_region_assignment(
                 source_field="county",
                 result=county_result,
