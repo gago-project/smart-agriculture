@@ -1143,7 +1143,6 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "group_table",
-            "display_mode": "evidence_only",
             "title": "覆盖地区汇总" if group_by == "region" else "点位分组汇总",
             "group_by": group_by,
             "rows": rows,

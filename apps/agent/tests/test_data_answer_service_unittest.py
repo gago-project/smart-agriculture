@@ -199,6 +199,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["answer_kind"], "business")
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertNotIn("display_mode", grouped["blocks"][0])
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
         self.assertEqual(len(grouped["blocks"][0]["rows"]), summary["blocks"][0]["metrics"]["alert_region_count"])
         self.assertIn("地区", grouped["final_text"])

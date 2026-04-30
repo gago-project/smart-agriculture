@@ -4,7 +4,7 @@
 
 - `GET /api/health`: web health check.
 - `GET /api/agent/summary`: authenticated BFF summary from agent `/summary`.
-- `POST /api/agent/chat`: authenticated BFF proxy to agent `/chat`.
+- `POST /api/agent/chat`: authenticated session-based BFF proxy to agent `/chat-v2`.
 - `POST /api/soniox/token`: creates a temporary Soniox WebSocket token.
 
 ## Agent

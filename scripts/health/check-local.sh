@@ -48,7 +48,20 @@ if [ -z "$AUTH_TOKEN" ]; then
   exit 1
 fi
 
+SESSION_RESPONSE=$(curl -fsS -X POST "$BASE_WEB/api/agent/sessions" \
+  -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $AUTH_TOKEN" \
+  -d '{"title":"health-check"}')
+SESSION_ID=$(printf '%s' "$SESSION_RESPONSE" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("session_id",""))')
+
+if [ -z "$SESSION_ID" ]; then
+  echo "创建会话失败，未获取到 session_id"
+  exit 1
+fi
+
+CLIENT_MESSAGE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+
 curl -fsS -X POST "$BASE_WEB/api/agent/chat" \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d '{"question":"最近墒情怎么样","thread_id":"health-check","history":[]}' | print_json
+  -d "{\"session_id\":\"$SESSION_ID\",\"client_message_id\":\"$CLIENT_MESSAGE_ID\",\"message\":\"最近墒情怎么样\"}" | print_json
