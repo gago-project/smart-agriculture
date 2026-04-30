@@ -15,8 +15,10 @@ class AgentSummaryTest(unittest.TestCase):
 
         self.assertIn('latest_time', summary)
         self.assertIn('devices', summary)
+        self.assertIn('device_count', summary)
         self.assertGreaterEqual(len(summary['devices']), 1)
-        self.assertIn('display_label', summary['devices'][0])
+        self.assertNotIn('display_label', summary['devices'][0])
+        self.assertNotIn('soil_status', summary['devices'][0])
 
 
 if __name__ == '__main__':

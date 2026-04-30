@@ -16,8 +16,8 @@ class FactCheckServiceBundleRegressionTest(unittest.TestCase):
                     "result": {
                         "total_records": 259,
                         "avg_water20cm": 95.39,
-                        "alert_count": 0,
-                        "status_counts": {"not_triggered": 259},
+                        "device_count": 12,
+                        "region_count": 4,
                     },
                 }
             ]

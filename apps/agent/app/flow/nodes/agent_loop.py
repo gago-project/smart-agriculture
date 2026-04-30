@@ -238,7 +238,8 @@ def _summarize_result(result: dict) -> dict:
     if "total_records" in result:
         return {
             "total_records": result.get("total_records"),
-            "alert_count": result.get("alert_count"),
+            "device_count": result.get("device_count"),
+            "region_count": result.get("region_count"),
             "avg_water20cm": result.get("avg_water20cm"),
         }
     if "items" in result:

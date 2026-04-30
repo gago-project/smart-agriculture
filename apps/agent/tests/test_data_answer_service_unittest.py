@@ -143,12 +143,19 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["blocks"][0]["block_type"], "summary_card")
         self.assertEqual(summary["blocks"][0]["display_mode"], "evidence_only")
         self.assertTrue(summary["query_ref"]["has_query"])
-        self.assertTrue(summary["turn_context"]["derived_sets"]["focus_devices_snapshot_id"])
+        metrics = summary["blocks"][0]["metrics"]
+        self.assertIn("record_count", metrics)
+        self.assertIn("device_count", metrics)
+        self.assertIn("region_count", metrics)
+        self.assertIn("latest_create_time", metrics)
+        for banned_key in ("risk_score", "display_label", "soil_status", "warning_level", "alert_record_count", "alert_device_count", "alert_region_count"):
+            self.assertNotIn(banned_key, metrics)
+        self.assertTrue(summary["turn_context"]["derived_sets"]["device_snapshot_id"])
         self.assertEqual(len(summary["turn_context"]["action_targets"]), 3)
 
-        focus_snapshot_id = summary["turn_context"]["derived_sets"]["focus_devices_snapshot_id"]
+        focus_snapshot_id = summary["turn_context"]["derived_sets"]["device_snapshot_id"]
         listing = await self.service.reply(
-            message="列出需要重点关注的点位",
+            message=f"{metrics['device_count']}个点位详情",
             session_id="summary-list",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -161,6 +168,10 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("display_mode", listing["blocks"][0])
         self.assertEqual(listing["blocks"][0]["pagination"]["snapshot_id"], focus_snapshot_id)
         self.assertGreaterEqual(listing["blocks"][0]["pagination"]["total_count"], 0)
+        self.assertIn("点位", listing["blocks"][0]["title"])
+        for row in listing["blocks"][0]["rows"]:
+            for banned_key in ("risk_score", "display_label", "soil_status", "warning_level"):
+                self.assertNotIn(banned_key, row)
 
     async def test_detail_block_is_kept_for_evidence_but_marked_hidden_in_chat(self) -> None:
         detail = await self.service.reply(
@@ -175,6 +186,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail["capability"], "detail")
         self.assertEqual(detail["blocks"][0]["block_type"], "detail_card")
         self.assertEqual(detail["blocks"][0]["display_mode"], "evidence_only")
+        latest_record = detail["blocks"][0]["latest_record"]
+        for banned_key in ("risk_score", "display_label", "soil_status", "warning_level"):
+            self.assertNotIn(banned_key, latest_record)
 
     async def test_summary_then_alert_record_follow_up_returns_record_list(self) -> None:
         summary = await self.service.reply(
@@ -184,9 +198,10 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
 
         listing = await self.service.reply(
-            message="这44条预警记录详情",
+            message=f"这{record_count}条记录详情",
             session_id="summary-record-list",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -196,11 +211,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing["answer_kind"], "business")
         self.assertEqual(listing["capability"], "list")
         self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
-        self.assertIn("预警记录", listing["blocks"][0]["title"])
-        self.assertEqual(
-            listing["blocks"][0]["pagination"]["total_count"],
-            summary["blocks"][0]["metrics"]["alert_record_count"],
-        )
+        self.assertIn("记录", listing["blocks"][0]["title"])
+        self.assertEqual(listing["blocks"][0]["pagination"]["total_count"], record_count)
         self.assertGreater(len(listing["blocks"][0]["rows"]), 1)
 
     async def test_record_list_follow_up_can_group_covered_regions(self) -> None:
@@ -211,9 +223,11 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
+        region_count = summary["blocks"][0]["metrics"]["region_count"]
 
         listing = await self.service.reply(
-            message="列出44条预警记录详情",
+            message=f"列出{record_count}条记录详情",
             session_id="summary-region-group",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -221,7 +235,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         grouped = await self.service.reply(
-            message="覆盖哪13个地区",
+            message=f"覆盖哪{region_count}个地区",
             session_id="summary-region-group",
             turn_id=3,
             current_context=listing["turn_context"],
@@ -233,7 +247,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertNotIn("display_mode", grouped["blocks"][0])
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertEqual(len(grouped["blocks"][0]["rows"]), summary["blocks"][0]["metrics"]["alert_region_count"])
+        self.assertEqual(len(grouped["blocks"][0]["rows"]), region_count)
         self.assertIn("地区", grouped["final_text"])
         self.assertNotIn("当前整体墒情", grouped["final_text"])
 
@@ -253,9 +267,12 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=clarify["turn_context"],
             timezone="Asia/Shanghai",
         )
+        region_count = summary["blocks"][0]["metrics"]["region_count"]
+        device_count = summary["blocks"][0]["metrics"]["device_count"]
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
 
         grouped = await self.service.reply(
-            message="哪17个地区",
+            message=f"哪{region_count}个地区",
             session_id="device-list-back-to-record-list",
             turn_id=3,
             current_context=summary["turn_context"],
@@ -263,7 +280,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         focus_devices = await self.service.reply(
-            message="23个重点关注点位是哪些",
+            message=f"{device_count}个点位是哪些",
             session_id="device-list-back-to-record-list",
             turn_id=4,
             current_context=grouped["turn_context"],
@@ -271,7 +288,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         alert_records = await self.service.reply(
-            message="84条预警详情",
+            message=f"{record_count}条记录详情",
             session_id="device-list-back-to-record-list",
             turn_id=5,
             current_context=focus_devices["turn_context"],
@@ -281,11 +298,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(alert_records["answer_kind"], "business")
         self.assertEqual(alert_records["capability"], "list")
         self.assertEqual(alert_records["blocks"][0]["block_type"], "list_table")
-        self.assertIn("预警记录", alert_records["blocks"][0]["title"])
-        self.assertEqual(
-            alert_records["blocks"][0]["pagination"]["total_count"],
-            summary["blocks"][0]["metrics"]["alert_record_count"],
-        )
+        self.assertIn("记录", alert_records["blocks"][0]["title"])
+        self.assertEqual(alert_records["blocks"][0]["pagination"]["total_count"], record_count)
 
     async def test_focus_device_follow_up_can_group_regions_with_short_region_question(self) -> None:
         summary = await self.service.reply(
@@ -295,9 +309,11 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        device_count = summary["blocks"][0]["metrics"]["device_count"]
+        region_count = summary["blocks"][0]["metrics"]["region_count"]
 
         focus_devices = await self.service.reply(
-            message="16个重点关注点位详情",
+            message=f"{device_count}个点位详情",
             session_id="focus-device-short-region-group",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -305,7 +321,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         grouped = await self.service.reply(
-            message="13个地区呢",
+            message=f"{region_count}个地区呢",
             session_id="focus-device-short-region-group",
             turn_id=3,
             current_context=focus_devices["turn_context"],
@@ -316,7 +332,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertEqual(len(grouped["blocks"][0]["rows"]), summary["blocks"][0]["metrics"]["alert_region_count"])
+        self.assertEqual(len(grouped["blocks"][0]["rows"]), region_count)
 
     async def test_focus_device_follow_up_treats_region_detail_phrase_as_group_request(self) -> None:
         summary = await self.service.reply(
@@ -326,9 +342,11 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        device_count = summary["blocks"][0]["metrics"]["device_count"]
+        region_count = summary["blocks"][0]["metrics"]["region_count"]
 
         focus_devices = await self.service.reply(
-            message="16个重点关注点位详情",
+            message=f"{device_count}个点位详情",
             session_id="focus-device-region-detail-group",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -336,7 +354,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         grouped = await self.service.reply(
-            message="13个地区详情",
+            message=f"{region_count}个地区详情",
             session_id="focus-device-region-detail-group",
             turn_id=3,
             current_context=focus_devices["turn_context"],
@@ -378,9 +396,10 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
 
         listing = await self.service.reply(
-            message="44条异常记录",
+            message=f"{record_count}条异常记录",
             session_id="summary-record-alias-expand",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -390,7 +409,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing["answer_kind"], "business")
         self.assertEqual(listing["capability"], "list")
         self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
-        self.assertIn("预警记录", listing["blocks"][0]["title"])
+        self.assertIn("记录", listing["blocks"][0]["title"])
 
     async def test_summary_follow_up_clarifies_when_region_count_does_not_match(self) -> None:
         summary = await self.service.reply(
@@ -400,9 +419,10 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        region_count = int(summary["blocks"][0]["metrics"]["region_count"])
 
         reply = await self.service.reply(
-            message="12个地区详情",
+            message=f"{max(1, region_count - 1)}个地区详情",
             session_id="summary-region-count-mismatch",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -411,7 +431,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reply["answer_kind"], "guidance")
         self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
-        self.assertIn("13", reply["final_text"])
+        self.assertIn(str(region_count), reply["final_text"])
 
     async def test_summary_follow_up_stale_action_target_requires_clarification(self) -> None:
         summary = await self.service.reply(
@@ -508,16 +528,18 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
         legacy_context = {
             **summary["turn_context"],
             "derived_sets": {
-                "focus_devices_snapshot_id": summary["turn_context"]["derived_sets"].get("focus_devices_snapshot_id"),
-                "focus_regions_snapshot_id": None,
+                "device_snapshot_id": summary["turn_context"]["derived_sets"].get("device_snapshot_id"),
+                "record_snapshot_id": None,
+                "region_group_snapshot_id": None,
             },
         }
 
         listing = await self.service.reply(
-            message="这44条预警记录详情",
+            message=f"这{record_count}条记录详情",
             session_id="legacy-summary-record-list",
             turn_id=2,
             current_context=legacy_context,
@@ -527,11 +549,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing["answer_kind"], "business")
         self.assertEqual(listing["capability"], "list")
         self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
-        self.assertEqual(
-            listing["blocks"][0]["pagination"]["total_count"],
-            summary["blocks"][0]["metrics"]["alert_record_count"],
-        )
-        self.assertTrue(listing["turn_context"]["derived_sets"].get("alert_records_snapshot_id"))
+        self.assertEqual(listing["blocks"][0]["pagination"]["total_count"], record_count)
+        self.assertTrue(listing["turn_context"]["derived_sets"].get("record_snapshot_id"))
 
     async def test_capability_question_returns_guidance_instead_of_time_clarification(self) -> None:
         reply = await self.service.reply(
@@ -943,6 +962,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(rule["capability"], "rule")
         self.assertEqual(rule["turn_context"]["topic_family"], "rule")
+        self.assertEqual(rule["blocks"][0]["block_type"], "rule_card")
+        self.assertEqual(rule["blocks"][0]["display_mode"], "evidence_only")
 
         follow_up = await self.service.reply(
             message="这些点位呢",
@@ -1000,6 +1021,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["capability"], "template")
         self.assertEqual(template["turn_context"]["topic_family"], "template")
         self.assertEqual(template["blocks"][0]["block_type"], "template_card")
+        self.assertEqual(template["blocks"][0]["display_mode"], "evidence_only")
 
     async def test_legacy_context_is_upgraded_to_context_v3(self) -> None:
         summary = await self.service.reply(
@@ -1009,6 +1031,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             current_context=None,
             timezone="Asia/Shanghai",
         )
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
         legacy_context = {
             key: value
             for key, value in summary["turn_context"].items()
@@ -1023,7 +1046,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         }
 
         follow_up = await self.service.reply(
-            message="这44条预警记录详情",
+            message=f"这{record_count}条记录详情",
             session_id="legacy-upgrade-context-v2",
             turn_id=2,
             current_context=legacy_context,

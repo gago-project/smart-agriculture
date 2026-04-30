@@ -128,12 +128,13 @@ function SummaryBlock({ block }: { block: ChatBlock }) {
       </header>
       <div className="turn-block-metrics">
         <div>20cm 平均含水量：{toLabelValue(metrics.avg_water20cm)}%</div>
-        <div>预警相关记录：{toLabelValue(metrics.alert_record_count)}</div>
-        <div>重点关注点位：{toLabelValue(metrics.alert_device_count)}</div>
-        <div>涉及地区：{toLabelValue(metrics.alert_region_count)}</div>
+        <div>记录数：{toLabelValue(metrics.record_count)}</div>
+        <div>点位数：{toLabelValue(metrics.device_count)}</div>
+        <div>地区数：{toLabelValue(metrics.region_count)}</div>
+        <div>最新记录时间：{toLabelValue(metrics.latest_create_time)}</div>
       </div>
       {topRegions.length > 0 ? (
-        <BlockTable columns={['city', 'county', 'alert_device_count', 'max_risk_score']} rows={topRegions} />
+        <BlockTable columns={['city', 'county', 'record_count', 'device_count', 'avg_water20cm', 'latest_create_time']} rows={topRegions} />
       ) : null}
     </section>
   );
@@ -165,9 +166,9 @@ function CompareBlock({ block }: { block: ChatBlock }) {
     <section className="turn-block">
       <header className="turn-block-header">
         <strong>{block.title || '对比结果'}</strong>
-        <span>胜出对象：{toLabelValue(block.winner)}</span>
+        <span>{timeWindowLabel(block.time_window)}</span>
       </header>
-      <BlockTable columns={['entity', 'alert_device_count', 'alert_record_count', 'avg_risk_score', 'record_count']} rows={rows} />
+      <BlockTable columns={['entity', 'record_count', 'device_count', 'region_count', 'avg_water20cm', 'latest_create_time']} rows={rows} />
     </section>
   );
 }
@@ -229,7 +230,7 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
                 <span>{toLabelValue(block.group_by)}</span>
               </header>
               <BlockTable
-                columns={['group_key', 'device_count', 'max_risk_score']}
+                columns={['group_key', 'record_count', 'device_count', 'avg_water20cm', 'latest_create_time']}
                 rows={Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : []}
               />
             </section>

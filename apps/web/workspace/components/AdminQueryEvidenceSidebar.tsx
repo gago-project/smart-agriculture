@@ -88,7 +88,7 @@ function pickResultRows(result: unknown): Array<Record<string, unknown>> {
   if (!record) {
     return [];
   }
-  const candidateKeys = ['items', 'records', 'alert_records', 'top_alert_regions'];
+  const candidateKeys = ['rows', 'items', 'records', 'comparison', 'top_regions'];
   for (const key of candidateKeys) {
     const rows = asObjectArray(record[key]);
     if (rows.length > 0) {

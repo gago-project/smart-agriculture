@@ -22,6 +22,18 @@ class SoilRepositoryPathTest(unittest.TestCase):
         with patch.object(repository, "_connect", return_value=EmptyResultConnection()):
             self.assertEqual(repository.filter_records(), [])
 
+    def test_filter_records_returns_raw_fact_columns_only(self):
+        """Verify query results do not append any derived warning/risk fields."""
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        with patch.object(repository, "_connect", return_value=RawRowConnection()):
+            rows = repository.filter_records()
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["sn"], "SNS00000001")
+        for banned_key in ("soil_status", "warning_level", "risk_score", "display_label", "rule_version"):
+            self.assertNotIn(banned_key, rows[0])
+
     def test_missing_region_alias_table_returns_empty_alias_rows(self):
         """Verify missing region alias table returns empty alias rows."""
         repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
@@ -88,6 +100,68 @@ class EmptyResultConnection:
 
     def close(self):
         """Handle close on the empty result connection."""
+        self.closed = True
+
+
+class RawRowCursor:
+    """Test double for one raw fact row."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql, params):
+        del sql, params
+
+    def fetchall(self):
+        return [
+            {
+                "id": 1,
+                "sn": "SNS00000001",
+                "gatewayid": "gw-1",
+                "sensorid": "sensor-1",
+                "unitid": "unit-1",
+                "city": "南通市",
+                "county": "如东县",
+                "time": "2026-04-30 00:00:00",
+                "create_time": "2026-04-30 00:00:00",
+                "water20cm": 41.2,
+                "water40cm": 43.1,
+                "water60cm": 44.5,
+                "water80cm": 45.8,
+                "t20cm": 18.2,
+                "t40cm": 17.1,
+                "t60cm": 16.6,
+                "t80cm": 16.0,
+                "water20cmfieldstate": 1,
+                "water40cmfieldstate": 1,
+                "water60cmfieldstate": 1,
+                "water80cmfieldstate": 1,
+                "t20cmfieldstate": 1,
+                "t40cmfieldstate": 1,
+                "t60cmfieldstate": 1,
+                "t80cmfieldstate": 1,
+                "lat": 32.31,
+                "lon": 121.19,
+                "source_file": "seed.xlsx",
+                "source_sheet": "Sheet1",
+                "source_row": 2,
+            }
+        ]
+
+
+class RawRowConnection:
+    """Connection wrapper for one raw fact query."""
+
+    def __init__(self):
+        self.closed = False
+
+    def cursor(self):
+        return RawRowCursor()
+
+    def close(self):
         self.closed = True
 
 

@@ -153,7 +153,6 @@ class FlowContractTest(unittest.TestCase):
                                     "city": "南京市",
                                     "county": "江宁区",
                                     "water20cm": 42,
-                                    "display_label": "重旱",
                                 }
                             ]
                         },

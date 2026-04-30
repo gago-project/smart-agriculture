@@ -7,7 +7,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from app.repositories.soil_repository import DEFAULT_WARNING_TEMPLATE_TEXT, SoilRepository, _evaluate_record_status
+from app.repositories.soil_repository import DEFAULT_WARNING_TEMPLATE_TEXT, SoilRepository
 
 
 FACT_INSERT_RE = re.compile(
@@ -115,9 +115,8 @@ class SeedSoilRepository(SoilRepository):
             and (not start_time or str(record.get("create_time") or "") >= start_time)
             and (not end_time or str(record.get("create_time") or "") <= end_time)
         ]
-        enriched_records = [{**record, **_evaluate_record_status(record)} for record in records]
-        enriched_records.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
-        return enriched_records[:limit] if limit else enriched_records
+        records.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
+        return records[:limit] if limit else records
 
     async def filter_records_async(self, **kwargs) -> list[dict[str, Any]]:
         """Filter records async."""

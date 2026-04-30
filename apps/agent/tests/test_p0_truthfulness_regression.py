@@ -1,7 +1,7 @@
 """P0 truthfulness regression suite.
 
 Covers:
-  1. Rule thresholds: feature flag on/off produces consistent status judgments.
+  1. Raw-only query results: no fabricated status/risk fields leak into query outputs.
   2. Entity normalization: common short-form city names → canonical.
   3. Deterministic time window resolution: relative Chinese time phrases expand correctly.
   4. Empty-result diagnosis: three distinct paths (normalize_failed / entity_not_found / no_data_in_window).
@@ -10,14 +10,11 @@ Covers:
 """
 from __future__ import annotations
 
-import asyncio
 from datetime import datetime, timedelta
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from app.repositories.rule_repository import RuleRepository, SoilRuleProfile
-from app.repositories.soil_repository import _evaluate_record_status
 from app.services.fact_check_service import FactCheckService
 from app.services.parameter_resolver_service import (
     CONFIDENCE_HIGH,
@@ -28,20 +25,6 @@ from app.services.parameter_resolver_service import (
 from app.services.time_window_service import TimeWindowService
 from app.services.tool_executor_service import ToolExecutorService
 
-
-# ── helpers ────────────────────────────────────────────────────────────────────
-
-def _profile(heavy_drought_max: float = 20.0, waterlogging_min: float = 80.0) -> SoilRuleProfile:
-    return SoilRuleProfile(
-        rule_name="soil_warning_v1",
-        heavy_drought_max=heavy_drought_max,
-        waterlogging_min=waterlogging_min,
-        device_fault_water20=0.0,
-        device_fault_t20=0.0,
-        rule_version="test@2026-01-01T00:00:00",
-    )
-
-
 _LBT = "2026-04-20 12:00:00"
 _WINDOW = {
     "start_time": "2026-04-20 00:00:00",
@@ -49,37 +32,61 @@ _WINDOW = {
 }
 
 
-# ── 1. Rule threshold feature-flag consistency ─────────────────────────────────
+# ── 1. Raw-only truthfulness ───────────────────────────────────────────────────
 
-class TestRuleThresholds:
-    def test_hardcoded_heavy_drought(self):
-        record = {"water20cm": 15.0, "water40cm": 15.0}
-        result = _evaluate_record_status(record, rule_profile=_profile())
-        assert result["soil_status"] == "heavy_drought"
+class TestRawOnlyTruthfulness:
+    @pytest.mark.asyncio
+    async def test_summary_result_contains_only_raw_metrics(self):
+        repo = MagicMock()
+        repo.filter_records_async = AsyncMock(
+            return_value=[
+                {
+                    "sn": "SNS00204333",
+                    "city": "南通市",
+                    "county": "如东县",
+                    "create_time": "2026-04-20 10:00:00",
+                    "water20cm": 42.5,
+                }
+            ]
+        )
+        executor = ToolExecutorService(repository=repo)
 
-    def test_hardcoded_waterlogging(self):
-        record = {"water20cm": 85.0, "water40cm": 85.0}
-        result = _evaluate_record_status(record, rule_profile=_profile())
-        assert result["soil_status"] == "waterlogging"
+        result = await executor.execute(
+            tool_name="query_soil_summary",
+            tool_args={"start_time": "2026-04-20 00:00:00", "end_time": "2026-04-20 23:59:59"},
+        )
 
-    def test_normal_status(self):
-        record = {"water20cm": 50.0, "water40cm": 50.0}
-        result = _evaluate_record_status(record, rule_profile=_profile())
-        assert result["soil_status"] not in ("heavy_drought", "waterlogging", "device_fault")
+        assert result["total_records"] == 1
+        assert result["device_count"] == 1
+        assert result["region_count"] == 1
+        for banned_key in ("soil_status", "warning_level", "risk_score", "display_label", "rule_version", "alert_count"):
+            assert banned_key not in result
 
-    def test_custom_threshold_changes_judgment(self):
-        # Raise heavy_drought_max so 25% is now drought
-        record = {"water20cm": 25.0, "water40cm": 25.0}
-        default_result = _evaluate_record_status(record, rule_profile=_profile(heavy_drought_max=20.0))
-        custom_result = _evaluate_record_status(record, rule_profile=_profile(heavy_drought_max=30.0))
-        assert default_result["soil_status"] != "heavy_drought"
-        assert custom_result["soil_status"] == "heavy_drought"
+    @pytest.mark.asyncio
+    async def test_detail_latest_record_does_not_contain_derived_fields(self):
+        repo = MagicMock()
+        repo.filter_records_async = AsyncMock(
+            return_value=[
+                {
+                    "sn": "SNS00204333",
+                    "city": "南通市",
+                    "county": "如东县",
+                    "create_time": "2026-04-20 10:00:00",
+                    "water20cm": 42.5,
+                    "t20cm": 18.2,
+                }
+            ]
+        )
+        executor = ToolExecutorService(repository=repo)
 
-    def test_rule_version_included(self):
-        record = {"water20cm": 50.0}
-        result = _evaluate_record_status(record, rule_profile=_profile())
-        assert "rule_version" in result
-        assert result["rule_version"] == "test@2026-01-01T00:00:00"
+        result = await executor.execute(
+            tool_name="query_soil_detail",
+            tool_args={"start_time": "2026-04-20 00:00:00", "end_time": "2026-04-20 23:59:59"},
+        )
+
+        latest_record = result["latest_record"]
+        for banned_key in ("soil_status", "warning_level", "risk_score", "display_label", "rule_version"):
+            assert banned_key not in latest_record
 
 
 # ── 2. Entity normalization ────────────────────────────────────────────────────
@@ -211,11 +218,7 @@ class TestEmptyResultDiagnosis:
         repo = MagicMock()
         repo.device_record_count_async = AsyncMock(return_value=device_count)
         repo.region_record_count_async = AsyncMock(return_value=region_count)
-        rule_repo = MagicMock()
-        rule_repo.get_active_rule_profile = AsyncMock(return_value=_profile())
-        svc = ToolExecutorService(repository=repo, rule_repository=rule_repo)
-        svc._rule_profile_loaded = True
-        return svc
+        return ToolExecutorService(repository=repo)
 
     @pytest.mark.asyncio
     async def test_normalize_failed_when_low_confidence(self):
@@ -281,19 +284,6 @@ class TestFactCheckAlertMode:
         )
         assert result["failed"] is False
         assert not any("数值核验" in w for w in result["warnings"])
-
-    def test_status_label_not_in_results_warns(self):
-        qt = {"status_counts": {"normal": 5}}
-        result = self._SVC.verify(
-            answer_type="soil_detail_answer",
-            answer_bundle=self._bundle("该设备当前为重旱状态，含水量低。"),
-            query_result=qt,
-            tool_trace=[{"result": qt}],
-            answer_facts={"record_count": 5},
-            resolved_args={},
-        )
-        assert result["failed"] is False
-        assert any("状态核验" in w for w in result["warnings"])
 
     def test_rank_ordinal_wrong_entity_warns(self):
         qt = {"items": [{"name": "如东县", "rank": 1}, {"name": "海安市", "rank": 2}]}

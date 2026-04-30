@@ -729,21 +729,21 @@ class AgentLoopService:
     @staticmethod
     def _metrics_for_tool(tool_name: str) -> list[str]:
         if tool_name == "query_soil_summary":
-            return ["total_records", "avg_water20cm", "alert_count"]
+            return ["total_records", "device_count", "region_count", "avg_water20cm"]
         if tool_name == "query_soil_ranking":
-            return ["avg_risk_score", "alert_count", "record_count"]
+            return ["record_count", "device_count", "avg_water20cm"]
         if tool_name == "query_soil_detail":
-            return ["record_count", "status_summary"]
+            return ["record_count", "avg_water20cm", "latest_create_time"]
         if tool_name == "query_soil_comparison":
-            return ["avg_risk_score", "alert_count", "record_count"]
+            return ["record_count", "device_count", "avg_water20cm"]
         return []
 
     @staticmethod
     def _order_by_for_tool(tool_name: str, resolved_args: dict[str, Any]) -> list[str] | None:
         if tool_name in {"query_soil_ranking", "query_soil_comparison"}:
             if tool_name == "query_soil_comparison":
-                return ["alert_count DESC", "avg_risk_score DESC", "avg_water20cm DESC"]
-            return ["avg_risk_score DESC", "alert_count DESC", f"limit={resolved_args.get('top_n') or 5}"]
+                return ["record_count DESC", "device_count DESC", "latest_create_time DESC"]
+            return ["record_count DESC", "device_count DESC", f"limit={resolved_args.get('top_n') or 5}"]
         return None
 
     @staticmethod

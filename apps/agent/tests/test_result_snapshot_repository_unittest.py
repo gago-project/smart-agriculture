@@ -99,6 +99,32 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
         self.assertTrue(connection.committed)
         self.assertTrue(connection.closed)
 
+    def test_normalized_snapshot_rows_do_not_keep_derived_fields(self) -> None:
+        normalized = ResultSnapshotRepository._normalize_row(
+            {
+                "id": 1,
+                "sn": "SNS00000001",
+                "city": "南通市",
+                "county": "如东县",
+                "create_time": "2026-04-30 00:00:00",
+                "water20cm": 41.2,
+                "soil_status": "heavy_drought",
+                "warning_level": "heavy_drought",
+                "risk_score": 99.0,
+                "display_label": "重旱",
+            }
+        )
+
+        self.assertEqual(normalized["sn"], "SNS00000001")
+        self.assertEqual(normalized["latest_create_time"], "2026-04-30 00:00:00")
+        self.assertNotIn("soil_status", normalized)
+        self.assertNotIn("warning_level", normalized)
+        self.assertNotIn("risk_score", normalized)
+        self.assertNotIn("soil_status", normalized["payload_json"])
+        self.assertNotIn("warning_level", normalized["payload_json"])
+        self.assertNotIn("risk_score", normalized["payload_json"])
+        self.assertNotIn("display_label", normalized["payload_json"])
+
     def test_create_snapshot_serializes_decimal_fields_for_json_columns(self) -> None:
         connection = RecordingConnection()
         repository = ResultSnapshotRepository(repository=SnapshotRepositoryBackedByConnection(connection))
@@ -116,7 +142,7 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
         snapshot_insert_params = connection.executed[0][1]
         item_insert_params = connection.executed[1][1]
         self.assertEqual(json.loads(snapshot_insert_params[5])["threshold"], 41.2)
-        self.assertEqual(json.loads(item_insert_params[10])["water20cm"], 41.2)
+        self.assertEqual(json.loads(item_insert_params[7])["water20cm"], 41.2)
         self.assertTrue(connection.committed)
 
     def test_create_snapshot_keeps_original_error_when_rollback_also_fails(self) -> None:
@@ -145,6 +171,9 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
 
         self.assertEqual(snapshot["snapshot_id"], "snap-1")
         self.assertEqual(snapshot["items"][0]["sn"], "SNS0001")
+        self.assertNotIn("soil_status", snapshot["items"][0])
+        self.assertNotIn("warning_level", snapshot["items"][0])
+        self.assertNotIn("risk_score", snapshot["items"][0])
 
 
 class SnapshotLookupCursor:
@@ -190,9 +219,6 @@ class SnapshotLookupCursor:
                 "city": "南通市",
                 "county": "如东县",
                 "sn": "SNS0001",
-                "soil_status": "heavy_drought",
-                "warning_level": "heavy_drought",
-                "risk_score": 88.2,
                 "latest_create_time": "2026-04-30 00:00:00",
                 "payload_json": "{}",
             }

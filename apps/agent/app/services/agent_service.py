@@ -211,19 +211,14 @@ class SoilAgentService:
         """Return a lightweight dashboard summary for /api/agent/summary."""
         records = self.repository.filter_records()
         latest_time = self.repository.latest_business_time()
-        devices = []
-        risky = 0
-        for record in records[:10]:
-            enriched = {**record, **self.repository.evaluate_status(record)}
-            if enriched["soil_status"] != "not_triggered":
-                risky += 1
-            devices.append(enriched)
+        devices = [dict(record) for record in records[:10]]
         water_values = [float(r["water20cm"]) for r in records if r.get("water20cm") is not None]
         avg_water = round(sum(water_values) / len(water_values), 2) if water_values else None
+        device_count = len({str(record.get("sn") or "").strip() for record in records if str(record.get("sn") or "").strip()})
         return {
             "latest_time": latest_time,
             "total_records": len(records),
-            "risky_devices": risky,
+            "device_count": device_count,
             "avg_water20cm": avg_water,
             "devices": devices,
         }

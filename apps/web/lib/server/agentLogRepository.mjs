@@ -2,10 +2,9 @@ import { withMysqlConnection } from './mysql.mjs';
 
 const MAX_INLINE_EVIDENCE_RESULT_CHARS = 200_000;
 const RESULT_PREVIEW_ROW_LIMIT = 10;
-const RECORD_PREVIEW_COLUMNS = ['create_time', 'city', 'county', 'sn', 'water20cm', 'soil_status', 'warning_level', 'display_label'];
-const REGION_ALERT_PREVIEW_COLUMNS = ['region', 'alert_count'];
-const RANKING_PREVIEW_COLUMNS = ['rank', 'name', 'city', 'county', 'alert_count', 'avg_risk_score', 'avg_water20cm', 'record_count', 'status'];
-const WARNING_PREVIEW_COLUMNS = ['year', 'month', 'day', 'hour', 'city', 'county', 'sn', 'water20cm', 'warning_level', 'display_label'];
+const RECORD_PREVIEW_COLUMNS = ['create_time', 'latest_create_time', 'city', 'county', 'sn', 'water20cm', 't20cm'];
+const REGION_PREVIEW_COLUMNS = ['region', 'city', 'county', 'record_count', 'device_count', 'avg_water20cm', 'latest_create_time'];
+const COMPARISON_PREVIEW_COLUMNS = ['rank', 'name', 'entity', 'city', 'county', 'record_count', 'device_count', 'region_count', 'avg_water20cm', 'latest_create_time'];
 
 function parseJsonValue(value) {
   if (value === null || value === undefined || value === '') {
@@ -42,16 +41,13 @@ function inferPreviewColumns(rows) {
   if (!sample) {
     return [];
   }
-  if ('region' in sample && 'alert_count' in sample) {
-    return pickDefinedColumns(sample, REGION_ALERT_PREVIEW_COLUMNS);
+  if ('region' in sample && ('record_count' in sample || 'device_count' in sample)) {
+    return pickDefinedColumns(sample, REGION_PREVIEW_COLUMNS);
   }
-  if ('name' in sample && ('avg_risk_score' in sample || 'rank' in sample)) {
-    return pickDefinedColumns(sample, RANKING_PREVIEW_COLUMNS);
+  if ('name' in sample || 'entity' in sample) {
+    return pickDefinedColumns(sample, COMPARISON_PREVIEW_COLUMNS);
   }
-  if ('year' in sample && 'warning_level' in sample) {
-    return pickDefinedColumns(sample, WARNING_PREVIEW_COLUMNS);
-  }
-  if ('sn' in sample && ('water20cm' in sample || 'create_time' in sample)) {
+  if ('sn' in sample && ('water20cm' in sample || 'create_time' in sample || 'latest_create_time' in sample)) {
     return pickDefinedColumns(sample, RECORD_PREVIEW_COLUMNS);
   }
   return Object.keys(sample).slice(0, 6);
@@ -98,7 +94,7 @@ function buildResultPreview(value) {
   }
 
   const record = value;
-  const candidateKeys = ['records', 'items', 'comparison', 'alert_records', 'top_alert_regions'];
+  const candidateKeys = ['rows', 'records', 'items', 'comparison', 'top_regions'];
   for (const key of candidateKeys) {
     const rows = Array.isArray(record[key]) ? record[key] : null;
     if (!rows) continue;

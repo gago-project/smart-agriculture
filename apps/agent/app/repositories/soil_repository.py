@@ -23,70 +23,6 @@ class DatabaseQueryError(RuntimeError):
     """Raised when a configured MySQL query fails."""
 
 
-def _safe_float(value: Any) -> float | None:
-    """Convert MySQL decimal/string values to floats for rule calculations."""
-    if value is None:
-        return None
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return None
-
-
-def _evaluate_record_status(
-    record: dict[str, Any],
-    rule_profile: "Any | None" = None,
-) -> dict[str, Any]:
-    """Evaluate warning status for one record using rule_profile thresholds.
-
-    When rule_profile is None (USE_RULE_TABLE=false or during transition), the original
-    hardcoded values are used so existing behaviour is fully preserved.
-    """
-    from app.repositories.rule_repository import _FALLBACK_PROFILE
-
-    profile = rule_profile if rule_profile is not None else _FALLBACK_PROFILE
-    heavy_drought_max: float = profile.heavy_drought_max
-    waterlogging_min: float = profile.waterlogging_min
-    device_fault_water20: float = profile.device_fault_water20
-    device_fault_t20: float = profile.device_fault_t20
-    rule_version: str = profile.rule_version
-
-    water20 = _safe_float(record.get("water20cm")) or 0.0
-    t20 = _safe_float(record.get("t20cm")) or 0.0
-
-    if water20 == device_fault_water20 and t20 == device_fault_t20:
-        return {
-            "soil_status": "device_fault",
-            "warning_level": "device_fault",
-            "display_label": "设备故障",
-            "risk_score": 100.0,
-            "rule_version": rule_version,
-        }
-    if water20 < heavy_drought_max:
-        return {
-            "soil_status": "heavy_drought",
-            "warning_level": "heavy_drought",
-            "display_label": "重旱",
-            "risk_score": round(90 + (heavy_drought_max - water20), 2),
-            "rule_version": rule_version,
-        }
-    if water20 >= waterlogging_min:
-        return {
-            "soil_status": "waterlogging",
-            "warning_level": "waterlogging",
-            "display_label": "涝渍",
-            "risk_score": round(80 + (water20 - waterlogging_min), 2),
-            "rule_version": rule_version,
-        }
-    return {
-        "soil_status": "not_triggered",
-        "warning_level": "none",
-        "display_label": "未达到预警条件",
-        "risk_score": round(max(0.0, 70 - abs(water20 - 85) / 2), 2),
-        "rule_version": rule_version,
-    }
-
-
 @dataclass
 class SoilRepository:
     """Repository that exposes read-only soil fact queries for the Agent."""
@@ -97,8 +33,6 @@ class SoilRepository:
     mysql_user: str | None = None
     mysql_password: str | None = None
     async_database: MySQLDatabase | None = None
-    rule_profile: Any = None  # SoilRuleProfile | None — injected by ToolExecutorService
-
     @classmethod
     def from_env(cls) -> "SoilRepository":
         """Build repository configuration from process environment variables."""
@@ -320,7 +254,7 @@ class SoilRepository:
             with connection.cursor() as cursor:
                 cursor.execute(sql, params)
                 rows = cursor.fetchall()
-                return [{**row, **_evaluate_record_status(row, self.rule_profile)} for row in rows]
+                return [dict(row) for row in rows]
         except Exception as exc:
             raise DatabaseQueryError(f"MySQL 查询失败，已禁止使用种子数据兜底：{exc}") from exc
         finally:
@@ -390,7 +324,7 @@ class SoilRepository:
             async with engine.connect() as connection:
                 result = await connection.execute(sql, params)
                 rows = [dict(row._mapping) for row in result]
-                return [{**row, **_evaluate_record_status(row, self.rule_profile)} for row in rows]
+                return rows
         except Exception:
             return None
         finally:
@@ -661,7 +595,3 @@ class SoilRepository:
     def warning_template_text(self) -> str:
         """Return the default warning template text for rendering services."""
         return DEFAULT_WARNING_TEMPLATE_TEXT
-
-    def evaluate_status(self, record: dict[str, Any]) -> dict[str, Any]:
-        """Expose built-in record status evaluation for dashboard summaries."""
-        return _evaluate_record_status(record)

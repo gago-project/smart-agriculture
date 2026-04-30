@@ -169,9 +169,6 @@ test('chat session and snapshot tables keep the server-backed conversation contr
     'city',
     'county',
     'sn',
-    'soil_status',
-    'warning_level',
-    'risk_score',
     'latest_create_time',
     'payload_json',
   ]);

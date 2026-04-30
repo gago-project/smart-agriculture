@@ -13,6 +13,9 @@ from typing import Any
 from uuid import uuid4
 
 
+_DERIVED_RESULT_KEYS = {"soil_status", "warning_level", "risk_score", "display_label", "rule_version"}
+
+
 def _parse_json_value(value: Any) -> Any:
     """Normalize a DB JSON cell into plain Python data."""
     if value is None or value == "":
@@ -64,6 +67,7 @@ class ResultSnapshotRepository:
 
     @staticmethod
     def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
+        payload_json = {key: value for key, value in row.items() if key not in _DERIVED_RESULT_KEYS}
         return {
             "entity_key": str(
                 row.get("entity_key")
@@ -76,11 +80,8 @@ class ResultSnapshotRepository:
             "city": row.get("city"),
             "county": row.get("county"),
             "sn": row.get("sn"),
-            "soil_status": row.get("soil_status"),
-            "warning_level": row.get("warning_level"),
-            "risk_score": row.get("risk_score"),
             "latest_create_time": row.get("latest_create_time") or row.get("create_time"),
-            "payload_json": row,
+            "payload_json": payload_json,
         }
 
     def _insert_snapshot_items(self, cursor: Any, snapshot_id: str, normalized_rows: list[dict[str, Any]]) -> None:
@@ -88,7 +89,7 @@ class ResultSnapshotRepository:
         batch_size = max(1, int(self.insert_batch_size or 100))
         for start in range(0, len(normalized_rows), batch_size):
             batch = normalized_rows[start : start + batch_size]
-            value_placeholders = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)"] * len(batch))
+            value_placeholders = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s)"] * len(batch))
             values: list[Any] = []
             for offset, row in enumerate(batch, start=start):
                 values.extend(
@@ -99,9 +100,6 @@ class ResultSnapshotRepository:
                         row["city"],
                         row["county"],
                         row["sn"],
-                        row["soil_status"],
-                        row["warning_level"],
-                        row["risk_score"],
                         row["latest_create_time"],
                         _json_dumps(row["payload_json"]),
                     ]
@@ -115,9 +113,6 @@ class ResultSnapshotRepository:
                   city,
                   county,
                   sn,
-                  soil_status,
-                  warning_level,
-                  risk_score,
                   latest_create_time,
                   payload_json
                 ) VALUES {value_placeholders}
@@ -237,8 +232,7 @@ class ResultSnapshotRepository:
                     return None
                 cursor.execute(
                     """
-                    SELECT row_index, entity_key, city, county, sn, soil_status, warning_level,
-                           risk_score,
+                    SELECT row_index, entity_key, city, county, sn,
                            DATE_FORMAT(latest_create_time, '%%Y-%%m-%%d %%H:%%i:%%s') AS latest_create_time,
                            payload_json
                     FROM agent_result_snapshot_item
@@ -257,9 +251,6 @@ class ResultSnapshotRepository:
                             "city": row.get("city"),
                             "county": row.get("county"),
                             "sn": row.get("sn"),
-                            "soil_status": row.get("soil_status"),
-                            "warning_level": row.get("warning_level"),
-                            "risk_score": row.get("risk_score"),
                             "latest_create_time": row.get("latest_create_time"),
                             "payload_json": payload,
                         }

@@ -1,24 +1,14 @@
-"""Tool executor: maps LLM tool-call decisions to structured repository calls.
+"""Tool executor for raw-only soil fact queries."""
 
-This is the only place where LLM-supplied parameters touch real data.
-Each tool returns problem-oriented structured results, not raw records:
-  - query_soil_summary  → aggregated overview stats
-  - query_soil_ranking  → sorted TopN list (already aggregated)
-  - query_soil_detail   → single entity detail with evidence fields
-  - diagnose_empty_result → structured diagnosis (entity vs window)
-"""
 from __future__ import annotations
 
 from collections import defaultdict
 from datetime import datetime
 from typing import Any
 
-from app.repositories.rule_repository import RuleRepository
-from app.repositories.soil_repository import SoilRepository, _evaluate_record_status
 
 MAX_TOP_N = 20
 MAX_RANKING_DAYS = 365
-MAX_ANOMALY_DAYS = 180
 MAX_COMPARISON_ENTITIES = 5
 
 ALLOWED_TOOLS = {
@@ -29,27 +19,17 @@ ALLOWED_TOOLS = {
     "diagnose_empty_result",
 }
 
-_ALERT_STATUSES = {"heavy_drought", "waterlogging", "device_fault"}
-
 
 class ToolValidationError(ValueError):
     """Raised when LLM-supplied tool parameters fail safety validation."""
 
 
 class ToolExecutorService:
-    """Validate and execute a single LLM tool call against SoilRepository."""
+    """Validate and execute one tool call against raw `fact_soil_moisture` data."""
 
-    def __init__(self, repository: SoilRepository, rule_repository: RuleRepository | None = None) -> None:
+    def __init__(self, repository: Any, rule_repository: Any | None = None) -> None:
         self.repository = repository
-        self._rule_repository = rule_repository or RuleRepository.from_env()
-        self._rule_profile_loaded = False
-
-    async def _ensure_rule_profile(self) -> None:
-        """Load rule profile once and inject into repository (lazy, called before first tool exec)."""
-        if not self._rule_profile_loaded:
-            profile = await self._rule_repository.get_active_rule_profile()
-            self.repository.rule_profile = profile
-            self._rule_profile_loaded = True
+        self._rule_repository = rule_repository
 
     async def execute(
         self,
@@ -58,11 +38,6 @@ class ToolExecutorService:
         tool_args: dict[str, Any],
         entity_confidence: str = "high",
     ) -> dict[str, Any]:
-        """Validate params and execute the named tool. Raises ToolValidationError on bad params.
-
-        entity_confidence is passed from ParameterResolverService to inform empty-result diagnosis.
-        """
-        await self._ensure_rule_profile()
         if tool_name not in ALLOWED_TOOLS:
             raise ToolValidationError(f"Unknown tool: {tool_name!r}. Allowed: {sorted(ALLOWED_TOOLS)}")
         self._validate_time_params(tool_args)
@@ -76,13 +51,9 @@ class ToolExecutorService:
             return await self._execute_detail(tool_args, entity_confidence=entity_confidence)
         if tool_name == "query_soil_comparison":
             return await self._execute_comparison(tool_args, entity_confidence=entity_confidence)
-        # diagnose_empty_result (internal use only — not exposed in SOIL_TOOLS)
         return await self._execute_diagnose(tool_args)
 
-    # ── per-tool executors ────────────────────────────────────────────────────
-
     async def _execute_summary(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
-        """Return aggregated overview stats, not raw records."""
         city = args.get("city")
         county = args.get("county")
         sn = args.get("sn")
@@ -91,10 +62,12 @@ class ToolExecutorService:
         output_mode = args.get("output_mode", "normal")
 
         records = await self.repository.filter_records_async(
-            city=city, county=county, sn=sn,
-            start_time=start_time, end_time=end_time,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
         )
-
         if not records:
             empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
@@ -104,56 +77,28 @@ class ToolExecutorService:
                 "output_mode": output_mode,
                 "time_window": {"start_time": start_time, "end_time": end_time},
                 "avg_water20cm": None,
-                "status_counts": {},
-                "alert_count": 0,
-                "top_alert_regions": [],
+                "device_count": 0,
+                "region_count": 0,
+                "latest_create_time": None,
+                "top_regions": [],
                 "empty_result_path": empty_path,
             }
 
-        # Evaluate status for each record
-        enriched = [_evaluate_and_merge(r) for r in records]
-
-        water_vals = [float(r["water20cm"]) for r in enriched if r.get("water20cm") is not None]
-        avg_water = round(sum(water_vals) / len(water_vals), 2) if water_vals else None
-
-        status_counts: dict[str, int] = defaultdict(int)
-        for r in enriched:
-            status_counts[r.get("soil_status", "unknown")] += 1
-
-        alert_count = sum(v for k, v in status_counts.items() if k in _ALERT_STATUSES)
-
-        # Top alert regions (county or city level)
-        county_alerts: dict[str, int] = defaultdict(int)
-        for r in enriched:
-            if r.get("soil_status") in _ALERT_STATUSES:
-                key = r.get("county") or r.get("city") or "未知"
-                county_alerts[key] += 1
-
-        top_alert_regions = [
-            {"region": k, "alert_count": v}
-            for k, v in sorted(county_alerts.items(), key=lambda x: x[1], reverse=True)[:5]
-        ]
-
-        result: dict[str, Any] = {
+        summary = _aggregate_records(records)
+        return {
             "entity_type": "device" if sn else "region",
             "entity_name": sn or county or city or "全局",
-            "total_records": len(enriched),
+            "total_records": summary["record_count"],
             "output_mode": output_mode,
             "time_window": {"start_time": start_time, "end_time": end_time},
-            "avg_water20cm": avg_water,
-            "status_counts": dict(status_counts),
-            "alert_count": alert_count,
-            "top_alert_regions": top_alert_regions,
+            "avg_water20cm": summary["avg_water20cm"],
+            "device_count": summary["device_count"],
+            "region_count": summary["region_count"],
+            "latest_create_time": summary["latest_create_time"],
+            "top_regions": _group_region_rows(records)[:5],
         }
 
-        if output_mode in ("anomaly_focus", "warning_mode"):
-            alert_records = [r for r in enriched if r.get("soil_status") in _ALERT_STATUSES]
-            result["alert_records"] = _slim_records(alert_records[:10])
-
-        return result
-
     async def _execute_ranking(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
-        """Return sorted TopN list, already aggregated and ranked."""
         city = args.get("city")
         county = args.get("county")
         start_time = args["start_time"]
@@ -162,91 +107,71 @@ class ToolExecutorService:
         aggregation = args.get("aggregation", "county")
 
         records = await self.repository.filter_records_async(
-            city=city, county=county,
-            start_time=start_time, end_time=end_time,
+            city=city,
+            county=county,
+            start_time=start_time,
+            end_time=end_time,
         )
-
         if not records:
             empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
                 "aggregation": aggregation,
                 "top_n": top_n,
                 "total_analyzed": 0,
+                "time_window": {"start_time": start_time, "end_time": end_time},
                 "items": [],
                 "empty_result_path": empty_path,
             }
 
-        enriched = [_evaluate_and_merge(r) for r in records]
-
-        # Aggregate by dimension
-        groups: dict[str, list[dict]] = defaultdict(list)
-        for r in enriched:
+        groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        for record in records:
             if aggregation == "city":
-                key = r.get("city") or "未知"
+                key = str(record.get("city") or "未知")
             elif aggregation == "device":
-                key = r.get("sn") or "未知"
-            else:  # county
-                key = r.get("county") or r.get("city") or "未知"
-            groups[key].append(r)
+                key = str(record.get("sn") or "未知")
+            else:
+                key = str(record.get("county") or record.get("city") or "未知")
+            groups[key].append(record)
 
-        items = []
+        items: list[dict[str, Any]] = []
         for name, group_records in groups.items():
-            water_vals = [float(r["water20cm"]) for r in group_records if r.get("water20cm") is not None]
-            avg_water = round(sum(water_vals) / len(water_vals), 2) if water_vals else None
-            status_counts: dict[str, int] = defaultdict(int)
-            for r in group_records:
-                status_counts[r.get("soil_status", "unknown")] += 1
-            alert_count = sum(v for k, v in status_counts.items() if k in _ALERT_STATUSES)
-            dominant_status = max(status_counts.items(), key=lambda x: x[1])[0]
-
-            # Use rule-table risk_score as primary sort key (兼容重旱与涝渍)
-            risk_vals = [float(r["risk_score"]) for r in group_records if r.get("risk_score") is not None]
-            avg_risk = round(sum(risk_vals) / len(risk_vals), 2) if risk_vals else 0.0
-
+            summary = _aggregate_records(group_records)
             item: dict[str, Any] = {
                 "name": name,
-                "record_count": len(group_records),
-                "avg_water20cm": avg_water,
-                "avg_risk_score": avg_risk,
-                "alert_count": alert_count,
-                "status": dominant_status,
-                "status_counts": dict(status_counts),
+                "record_count": summary["record_count"],
+                "device_count": summary["device_count"],
+                "avg_water20cm": summary["avg_water20cm"],
+                "latest_create_time": summary["latest_create_time"],
             }
+            sample = group_records[0]
             if aggregation == "device":
-                # Include city/county context for devices
-                sample = group_records[0]
                 item["city"] = sample.get("city")
                 item["county"] = sample.get("county")
-            else:
-                item["city"] = group_records[0].get("city")
-
+            elif aggregation == "county":
+                item["city"] = sample.get("city")
             items.append(item)
 
-        # Ranking answers follow formal acceptance semantics: alert volume first,
-        # then risk score depth, then moisture severity as a stable tiebreaker.
         items.sort(
-            key=lambda x: (
-                -(x["alert_count"] or 0),
-                -(x["avg_risk_score"] or 0.0),
-                -(x["avg_water20cm"] or 0.0),
-                -(x["record_count"] or 0),
-                str(x.get("name") or ""),
+            key=lambda item: (
+                -int(item.get("record_count") or 0),
+                -int(item.get("device_count") or 0),
+                str(item.get("latest_create_time") or ""),
+                str(item.get("name") or ""),
             )
         )
-
         top_items = items[:top_n]
-        for idx, item in enumerate(top_items, start=1):
-            item["rank"] = idx
+        for index, item in enumerate(top_items, start=1):
+            item["rank"] = index
 
         return {
             "aggregation": aggregation,
             "top_n": top_n,
             "total_analyzed": len(groups),
+            "time_window": {"start_time": start_time, "end_time": end_time},
             "items": top_items,
         }
 
     async def _execute_detail(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
-        """Return single entity detail with evidence fields."""
         city = args.get("city")
         county = args.get("county")
         sn = args.get("sn")
@@ -255,10 +180,12 @@ class ToolExecutorService:
         output_mode = args.get("output_mode", "normal")
 
         records = await self.repository.filter_records_async(
-            city=city, county=county, sn=sn,
-            start_time=start_time, end_time=end_time,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
         )
-
         if not records:
             empty_path = await self._auto_diagnose_empty(args, entity_confidence)
             return {
@@ -268,65 +195,29 @@ class ToolExecutorService:
                 "record_count": 0,
                 "time_window": {"start_time": start_time, "end_time": end_time},
                 "latest_record": None,
-                "alert_records": [],
-                "status_summary": {},
+                "avg_water20cm": None,
+                "device_count": 0,
+                "region_count": 0,
+                "latest_create_time": None,
                 "empty_result_path": empty_path,
             }
 
-        enriched = [_evaluate_and_merge(r) for r in records]
-        # Keep latest-record selection deterministic when multiple devices share
-        # the same business timestamp.
-        enriched.sort(key=lambda r: str(r.get("sn") or ""))
-        enriched.sort(key=lambda r: r.get("create_time") or "", reverse=True)
-        latest = enriched[0]
-
-        status_summary: dict[str, int] = defaultdict(int)
-        for r in enriched:
-            status_summary[r.get("soil_status", "unknown")] += 1
-
-        alert_records = [r for r in enriched if r.get("soil_status") in _ALERT_STATUSES]
-        effective_output_mode = output_mode
-        if sn and output_mode == "normal" and alert_records:
-            effective_output_mode = "anomaly_focus"
-
-        entity_type = "device" if sn else "region"
-        entity_name = sn or county or city or "未知"
-
-        result: dict[str, Any] = {
-            "entity_type": entity_type,
-            "entity_name": entity_name,
-            "output_mode": effective_output_mode,
-            "record_count": len(enriched),
+        summary = _aggregate_records(records)
+        latest_record = _slim_record(_latest_record(records))
+        return {
+            "entity_type": "device" if sn else "region",
+            "entity_name": sn or county or city or "未知",
+            "output_mode": output_mode,
+            "record_count": summary["record_count"],
             "time_window": {"start_time": start_time, "end_time": end_time},
-            "latest_record": _slim_record(latest),
-            "alert_records": _slim_records(alert_records[:5]),
-            "status_summary": dict(status_summary),
-            "alert_count": len(alert_records),
+            "latest_record": latest_record,
+            "avg_water20cm": summary["avg_water20cm"],
+            "device_count": summary["device_count"],
+            "region_count": summary["region_count"],
+            "latest_create_time": summary["latest_create_time"],
         }
 
-        if effective_output_mode == "warning_mode" and alert_records:
-            result["warning_data"] = _warning_fields(alert_records[0])
-        if alert_records:
-            alert_start = min((record.get("create_time") or "") for record in alert_records)
-            alert_end = max((record.get("create_time") or "") for record in alert_records)
-            result["alert_period_summary"] = {
-                "start_time": alert_start or None,
-                "end_time": alert_end or None,
-                "alert_count": len(alert_records),
-                "representative_record": _slim_record(alert_records[0]),
-            }
-
-        return result
-
-    async def _execute_comparison(
-        self, args: dict[str, Any], *, entity_confidence: str = "high"
-    ) -> dict[str, Any]:
-        """Compare soil moisture across multiple entities side-by-side.
-
-        Each entity is queried independently with the same time window and
-        results are sorted by avg_risk_score (highest first). Empty entities
-        are kept in the result so the answer can mention them explicitly.
-        """
+    async def _execute_comparison(self, args: dict[str, Any], *, entity_confidence: str = "high") -> dict[str, Any]:
         entity_type = args.get("entity_type", "region")
         entities: list[dict[str, Any]] = list(args.get("entities") or [])
         start_time = args["start_time"]
@@ -337,6 +228,7 @@ class ToolExecutorService:
                 "entity_type": entity_type,
                 "time_window": {"start_time": start_time, "end_time": end_time},
                 "items": [],
+                "comparison": [],
                 "empty_result_path": "normalize_failed",
             }
 
@@ -357,68 +249,56 @@ class ToolExecutorService:
                 kwargs = {}
 
             records = await self.repository.filter_records_async(
-                start_time=start_time, end_time=end_time, **kwargs,
+                start_time=start_time,
+                end_time=end_time,
+                **kwargs,
             )
-
             if not records:
                 empty_path = await self._auto_diagnose_empty(
                     {**kwargs, "start_time": start_time, "end_time": end_time},
                     entity_confidence,
                 )
-                items.append({
+                items.append(
+                    {
+                        "name": canonical_name or raw_name,
+                        "entity_type": entity_type,
+                        "entity_level": level or entity_type,
+                        "parent_city_name": parent_city_name,
+                        "record_count": 0,
+                        "device_count": 0,
+                        "region_count": 0,
+                        "avg_water20cm": None,
+                        "latest_create_time": None,
+                        "empty_result_path": empty_path,
+                    }
+                )
+                continue
+
+            summary = _aggregate_records(records)
+            items.append(
+                {
                     "name": canonical_name or raw_name,
                     "entity_type": entity_type,
                     "entity_level": level or entity_type,
                     "parent_city_name": parent_city_name,
-                    "record_count": 0,
-                    "avg_water20cm": None,
-                    "avg_risk_score": 0.0,
-                    "alert_count": 0,
-                    "status": "no_data",
-                    "empty_result_path": empty_path,
-                })
-                continue
+                    "record_count": summary["record_count"],
+                    "device_count": summary["device_count"],
+                    "region_count": summary["region_count"],
+                    "avg_water20cm": summary["avg_water20cm"],
+                    "latest_create_time": summary["latest_create_time"],
+                }
+            )
 
-            enriched = [_evaluate_and_merge(r) for r in records]
-
-            water_vals = [float(r["water20cm"]) for r in enriched if r.get("water20cm") is not None]
-            avg_water = round(sum(water_vals) / len(water_vals), 2) if water_vals else None
-
-            risk_vals = [float(r["risk_score"]) for r in enriched if r.get("risk_score") is not None]
-            avg_risk = round(sum(risk_vals) / len(risk_vals), 2) if risk_vals else 0.0
-
-            status_counts: dict[str, int] = defaultdict(int)
-            for r in enriched:
-                status_counts[r.get("soil_status", "unknown")] += 1
-            alert_count = sum(v for k, v in status_counts.items() if k in _ALERT_STATUSES)
-            dominant_status = max(status_counts.items(), key=lambda x: x[1])[0]
-
-            items.append({
-                "name": canonical_name or raw_name,
-                "entity_type": entity_type,
-                "entity_level": level or entity_type,
-                "parent_city_name": parent_city_name,
-                "record_count": len(enriched),
-                "avg_water20cm": avg_water,
-                "avg_risk_score": avg_risk,
-                "alert_count": alert_count,
-                "status": dominant_status,
-                "status_counts": dict(status_counts),
-            })
-
-        # Comparison emphasizes alert volume first, then risk score, then severity depth.
         items.sort(
-            key=lambda x: (
-                -(x["alert_count"] or 0),
-                -(x["avg_risk_score"] or 0.0),
-                -(x["avg_water20cm"] or 0.0),
-                -(x["record_count"] or 0),
+            key=lambda item: (
+                -int(item.get("record_count") or 0),
+                -int(item.get("device_count") or 0),
+                str(item.get("latest_create_time") or ""),
+                str(item.get("name") or ""),
             )
         )
-        for idx, item in enumerate(items, start=1):
-            item["rank"] = idx
-        winner = str(items[0].get("name") or "") if items else ""
-        winner_basis = self._comparison_winner_basis(items)
+        for index, item in enumerate(items, start=1):
+            item["rank"] = index
 
         return {
             "entity_type": entity_type,
@@ -426,26 +306,9 @@ class ToolExecutorService:
             "total_entities": len(entities),
             "items": items,
             "comparison": items,
-            "winner": winner,
-            "winner_basis": winner_basis,
         }
 
-    @staticmethod
-    def _comparison_winner_basis(items: list[dict[str, Any]]) -> str:
-        if len(items) < 2:
-            return "alert_count"
-        left = items[0]
-        right = items[1]
-        if (left.get("alert_count") or 0) != (right.get("alert_count") or 0):
-            return "alert_count"
-        if (left.get("avg_risk_score") or 0.0) != (right.get("avg_risk_score") or 0.0):
-            return "avg_risk_score"
-        if (left.get("avg_water20cm") or 0.0) != (right.get("avg_water20cm") or 0.0):
-            return "avg_water20cm"
-        return "record_count"
-
     async def _execute_diagnose(self, args: dict[str, Any]) -> dict[str, Any]:
-        """Return structured diagnosis: entity_not_found / no_data_in_window / data_exists."""
         scenario = args.get("scenario", "period_exists")
         city = args.get("city")
         county = args.get("county")
@@ -455,12 +318,11 @@ class ToolExecutorService:
 
         if scenario == "region_exists":
             count = await self.repository.region_record_count_async(city=city, county=county)
-            entity_type = "region"
             entity_name = county or city or "未知"
             exists = count > 0
             return {
                 "scenario": scenario,
-                "entity_type": entity_type,
+                "entity_type": "region",
                 "entity_name": entity_name,
                 "entity_exists": exists,
                 "diagnosis": "data_exists" if exists else "entity_not_found",
@@ -484,10 +346,12 @@ class ToolExecutorService:
                 "message": f"设备 {entity_name} {'在系统中存在' if exists else '在系统中不存在，请核对设备编号'}",
             }
 
-        # period_exists
         summary = await self.repository.period_record_summary_async(
-            city=city, county=county, sn=sn,
-            start_time=start_time, end_time=end_time,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
         )
         in_window = summary.get("period_record_count", 0) or 0
         entity_name = sn or county or city or "全域"
@@ -496,7 +360,7 @@ class ToolExecutorService:
             "scenario": scenario,
             "entity_type": "device" if sn else "region",
             "entity_name": entity_name,
-            "entity_exists": True,  # we don't check existence here
+            "entity_exists": True,
             "diagnosis": diagnosis,
             "record_count_all_time": None,
             "record_count_in_window": in_window,
@@ -507,10 +371,7 @@ class ToolExecutorService:
             ),
         }
 
-    # ── empty-result diagnosis ────────────────────────────────────────────────
-
     async def _auto_diagnose_empty(self, args: dict[str, Any], entity_confidence: str) -> str:
-        """Return empty_result_path: normalize_failed / entity_not_found / no_data_in_window."""
         if entity_confidence == "low":
             return "normalize_failed"
         sn = args.get("sn")
@@ -522,17 +383,15 @@ class ToolExecutorService:
         count = await self.repository.region_record_count_async(city=city, county=county)
         return "entity_not_found" if count == 0 else "no_data_in_window"
 
-    # ── validation helpers ────────────────────────────────────────────────────
-
     def _validate_time_params(self, args: dict[str, Any]) -> None:
         for field in ("start_time", "end_time"):
-            val = args.get(field)
-            if not val:
+            value = args.get(field)
+            if not value:
                 raise ToolValidationError(f"Missing required param: {field}")
             try:
-                datetime.strptime(val, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                raise ToolValidationError(f"Invalid datetime format for {field}: {val!r}")
+                datetime.strptime(value, "%Y-%m-%d %H:%M:%S")
+            except ValueError as exc:
+                raise ToolValidationError(f"Invalid datetime format for {field}: {value!r}") from exc
 
     def _validate_tool_specific(self, tool_name: str, args: dict[str, Any]) -> None:
         day_span = self._day_span(args["start_time"], args["end_time"])
@@ -545,13 +404,6 @@ class ToolExecutorService:
             if aggregation == "device" and day_span > MAX_RANKING_DAYS:
                 raise ToolValidationError(
                     f"time_span {day_span} days exceeds {MAX_RANKING_DAYS} for device ranking"
-                )
-
-        if tool_name == "query_soil_summary":
-            output_mode = args.get("output_mode")
-            if output_mode in ("anomaly_focus",) and day_span > MAX_ANOMALY_DAYS:
-                raise ToolValidationError(
-                    f"time_span {day_span} days exceeds {MAX_ANOMALY_DAYS} for anomaly query"
                 )
 
         if tool_name == "query_soil_comparison":
@@ -587,44 +439,91 @@ class ToolExecutorService:
         return max((end.date() - start.date()).days + 1, 1)
 
 
-# ── record helpers ─────────────────────────────────────────────────────────────
-
-def _evaluate_and_merge(record: dict[str, Any]) -> dict[str, Any]:
-    """Return record merged with evaluated status fields."""
-    return {**record, **_evaluate_record_status(record)}
-
-
-def _slim_record(r: dict[str, Any]) -> dict[str, Any]:
-    """Return a minimal evidence-sufficient subset of a record."""
-    return {k: r.get(k) for k in (
-        "sn", "city", "county", "create_time",
-        "water20cm", "water40cm", "water60cm", "water80cm",
-        "t20cm", "t40cm",
-        "soil_status", "warning_level", "display_label",
-    )}
-
-
-def _slim_records(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    return [_slim_record(r) for r in records]
-
-
-def _warning_fields(r: dict[str, Any]) -> dict[str, Any]:
-    """Return fields needed to populate a warning template."""
-    from datetime import datetime as _dt
-    ct = r.get("create_time") or ""
-    try:
-        dt = _dt.strptime(ct, "%Y-%m-%d %H:%M:%S")
-        year, month, day, hour = dt.year, dt.month, dt.day, dt.hour
-    except ValueError:
-        year = month = day = hour = None
+def _aggregate_records(records: list[dict[str, Any]]) -> dict[str, Any]:
+    water_values = [float(record["water20cm"]) for record in records if record.get("water20cm") is not None]
+    device_keys = {str(record.get("sn") or "").strip() for record in records if str(record.get("sn") or "").strip()}
+    region_keys = {
+        (record.get("city"), record.get("county"))
+        for record in records
+        if record.get("city") or record.get("county")
+    }
+    latest_create_time = max((str(record.get("create_time") or "") for record in records), default=None)
     return {
-        "year": year, "month": month, "day": day, "hour": hour,
-        "city": r.get("city"), "county": r.get("county"),
-        "sn": r.get("sn"),
-        "create_time": r.get("create_time"),
-        "water20cm": r.get("water20cm"),
-        "warning_level": r.get("warning_level"),
-        "display_label": r.get("display_label"),
+        "record_count": len(records),
+        "device_count": len(device_keys),
+        "region_count": len(region_keys),
+        "avg_water20cm": round(sum(water_values) / len(water_values), 2) if water_values else None,
+        "latest_create_time": latest_create_time,
+    }
+
+
+def _group_region_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+    for record in records:
+        key = (record.get("city"), record.get("county"))
+        bucket = grouped.setdefault(
+            key,
+            {
+                "region": f"{record.get('city') or ''}{record.get('county') or ''}".strip() or "未知",
+                "city": record.get("city"),
+                "county": record.get("county"),
+                "record_count": 0,
+                "device_keys": set(),
+                "latest_create_time": None,
+                "water_values": [],
+            },
+        )
+        bucket["record_count"] += 1
+        sn = str(record.get("sn") or "").strip()
+        if sn:
+            bucket["device_keys"].add(sn)
+        timestamp = str(record.get("create_time") or "")
+        if timestamp:
+            bucket["latest_create_time"] = max(str(bucket.get("latest_create_time") or ""), timestamp)
+        if record.get("water20cm") is not None:
+            bucket["water_values"].append(float(record["water20cm"]))
+
+    rows = []
+    for bucket in grouped.values():
+        device_keys = bucket.pop("device_keys")
+        water_values = bucket.pop("water_values")
+        bucket["device_count"] = len(device_keys)
+        bucket["avg_water20cm"] = round(sum(water_values) / len(water_values), 2) if water_values else None
+        rows.append(bucket)
+    rows.sort(
+        key=lambda item: (
+            -int(item.get("record_count") or 0),
+            -int(item.get("device_count") or 0),
+            str(item.get("latest_create_time") or ""),
+            str(item.get("region") or ""),
+        )
+    )
+    return rows
+
+
+def _latest_record(records: list[dict[str, Any]]) -> dict[str, Any]:
+    ordered = sorted(records, key=lambda record: str(record.get("sn") or ""))
+    ordered.sort(key=lambda record: str(record.get("create_time") or ""), reverse=True)
+    return ordered[0]
+
+
+def _slim_record(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        key: record.get(key)
+        for key in (
+            "sn",
+            "city",
+            "county",
+            "create_time",
+            "water20cm",
+            "water40cm",
+            "water60cm",
+            "water80cm",
+            "t20cm",
+            "t40cm",
+            "t60cm",
+            "t80cm",
+        )
     }
 
 

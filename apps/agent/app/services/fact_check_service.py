@@ -9,8 +9,7 @@ Checks (original, blocking):
 Checks (new, alert-only — log warnings, never block):
 5. Numeric value consistency: water-content numbers in answer within tool result range ±0.5%.
 6. Time window consistency: dates in answer fall within resolved time window.
-7. Status/level consistency: soil status labels in answer exist in tool result status sets.
-8. Rank ordinal consistency: "第N名" in answer maps to the correct entity in items[N-1].
+7. Rank ordinal consistency: "第N名" in answer maps to the correct entity in items[N-1].
 """
 
 from __future__ import annotations
@@ -23,16 +22,6 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _BUSINESS_ANSWER_TYPES = {"soil_summary_answer", "soil_ranking_answer", "soil_detail_answer"}
-
-_STATUS_LABELS = {
-    "重旱": "heavy_drought",
-    "干旱": "drought",
-    "偏旱": "mild_drought",
-    "适宜": "normal",
-    "偏湿": "mild_wet",
-    "涝渍": "waterlogging",
-    "设备故障": "device_fault",
-}
 
 _NO_DATA_PATTERN = re.compile(r"(无数据|找不到|没有数据|查不到|不存在|暂无记录)", re.IGNORECASE)
 _NUMBER_PATTERN = re.compile(r"\b(\d{1,3}(?:\.\d{1,2})?)\s*%?")
@@ -112,7 +101,6 @@ class FactCheckService:
 
         _check_numeric_values(final_answer, qt, tool_trace or [], warnings)
         _check_time_window(final_answer, rargs, warnings)
-        _check_status_labels(final_answer, qt, tool_trace or [], warnings)
         _check_rank_ordinals(final_answer, qt, tool_trace or [], warnings)
 
         if warnings:
@@ -153,6 +141,14 @@ def _collect_water_values(qt: dict, tool_trace: list) -> list[float]:
                         values.append(float(v))
                     except (TypeError, ValueError):
                         pass
+        for rec in payload.get("records") or []:
+            for wk in ("water20cm", "water40cm", "water60cm", "water80cm"):
+                v = rec.get(wk)
+                if v is not None:
+                    try:
+                        values.append(float(v))
+                    except (TypeError, ValueError):
+                        pass
         latest = payload.get("latest_record") or {}
         for wk in ("water20cm", "water40cm", "water60cm", "water80cm"):
             v = latest.get(wk)
@@ -161,6 +157,16 @@ def _collect_water_values(qt: dict, tool_trace: list) -> list[float]:
                     values.append(float(v))
                 except (TypeError, ValueError):
                     pass
+        for row in payload.get("rows") or []:
+            if not isinstance(row, dict):
+                continue
+            for wk in ("water20cm", "avg_water20cm"):
+                v = row.get(wk)
+                if v is not None:
+                    try:
+                        values.append(float(v))
+                    except (TypeError, ValueError):
+                        pass
         for item in payload.get("items") or []:
             v = item.get("avg_water20cm")
             if v is not None:
@@ -227,53 +233,6 @@ def _check_time_window(final_answer: str, rargs: dict, warnings: list[str]) -> N
             warnings.append(
                 f"时间核验: 回答中的日期 {dt.strftime('%Y-%m-%d')} 不在查询时间窗 "
                 f"{start_str[:10]} ~ {end_str[:10]} 内"
-            )
-
-
-def _collect_status_set(qt: dict, tool_trace: list) -> set[str]:
-    statuses: set[str] = set()
-
-    def _from_result(result: Any) -> None:
-        payload = _as_dict(result)
-        for k in payload.get("status_counts") or {}:
-            statuses.add(k)
-        for rec in payload.get("alert_records") or []:
-            s = rec.get("soil_status")
-            if s:
-                statuses.add(s)
-        latest = payload.get("latest_record") or {}
-        s = latest.get("soil_status")
-        if s:
-            statuses.add(s)
-        for item in payload.get("items") or []:
-            s = item.get("status")
-            if s:
-                statuses.add(s)
-        for k in (payload.get("status_summary") or {}):
-            statuses.add(k)
-
-    _from_result(qt)
-    for entry in tool_trace:
-        result = entry.get("result", {}) if isinstance(entry, dict) else {}
-        if isinstance(result, dict):
-            _from_result(result)
-
-    return statuses
-
-
-def _check_status_labels(
-    final_answer: str,
-    qt: dict,
-    tool_trace: list,
-    warnings: list[str],
-) -> None:
-    status_set = _collect_status_set(qt, tool_trace)
-    if not status_set:
-        return
-    for label, code in _STATUS_LABELS.items():
-        if label in final_answer and code not in status_set:
-            warnings.append(
-                f"状态核验: 回答中提到「{label}」({code})，但工具结果中无该状态记录"
             )
 
 

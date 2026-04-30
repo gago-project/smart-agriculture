@@ -6,7 +6,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import math
 import re
 from collections import defaultdict
 from datetime import datetime, timedelta
@@ -32,12 +31,12 @@ from app.services.parameter_resolver_service import (
 from app.services.time_window_service import TimeWindowService
 
 
-ALERT_STATUSES = {"heavy_drought", "waterlogging", "device_fault"}
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
-LIST_TARGET_FOCUS_DEVICES = "focus_devices"
-LIST_TARGET_ALERT_RECORDS = "alert_records"
-FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "soil_status", "warning_level", "risk_score", "latest_create_time"]
-ALERT_RECORD_COLUMNS = ["sn", "city", "county", "create_time", "water20cm", "soil_status", "warning_level", "risk_score"]
+LIST_TARGET_FOCUS_DEVICES = "devices"
+LIST_TARGET_ALERT_RECORDS = "records"
+FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "latest_create_time", "water20cm", "t20cm"]
+ALERT_RECORD_COLUMNS = ["create_time", "city", "county", "sn", "water20cm", "t20cm"]
+DERIVED_QUERY_KEYS = {"soil_status", "warning_level", "risk_score", "display_label", "rule_version"}
 DOMAIN_INTENT_TOKENS = (
     "墒情",
     "预警",
@@ -238,6 +237,11 @@ class DataAnswerService:
         context = current_context if isinstance(current_context, dict) else {}
         if context.get("closed"):
             return self._closed_turn_context(int(context.get("last_closed_turn_id") or context.get("active_topic_turn_id") or 0))
+        derived_sets = dict(context.get("derived_sets") or {})
+        if derived_sets.get("focus_devices_snapshot_id") and not derived_sets.get("device_snapshot_id"):
+            derived_sets["device_snapshot_id"] = derived_sets["focus_devices_snapshot_id"]
+        if derived_sets.get("alert_records_snapshot_id") and not derived_sets.get("record_snapshot_id"):
+            derived_sets["record_snapshot_id"] = derived_sets["alert_records_snapshot_id"]
         normalized = {
             "context_version": CONTEXT_VERSION,
             "topic_family": context.get("topic_family"),
@@ -246,7 +250,7 @@ class DataAnswerService:
             "primary_query_spec": context.get("primary_query_spec") or {},
             "time_window": context.get("time_window") or {},
             "resolved_entities": context.get("resolved_entities") or [],
-            "derived_sets": context.get("derived_sets") or {},
+            "derived_sets": derived_sets,
             "compare_winner_entity": context.get("compare_winner_entity"),
             "closed": False,
             "query_state": context.get("query_state"),
@@ -430,8 +434,8 @@ class DataAnswerService:
         grain = str(primary_query_spec.get("grain") or "")
         source_turn_id = int(context.get("active_topic_turn_id") or 0)
         targets: list[dict[str, Any]] = []
-        focus_snapshot_id = derived_sets.get("focus_devices_snapshot_id")
-        alert_snapshot_id = derived_sets.get("alert_records_snapshot_id")
+        focus_snapshot_id = derived_sets.get("device_snapshot_id") or derived_sets.get("focus_devices_snapshot_id")
+        alert_snapshot_id = derived_sets.get("record_snapshot_id") or derived_sets.get("alert_records_snapshot_id")
 
         if capability == "summary":
             if alert_snapshot_id:
@@ -445,7 +449,7 @@ class DataAnswerService:
                         source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
                         group_by=None,
                         count=None,
-                        label="预警记录",
+                        label="记录",
                         source_turn_id=source_turn_id,
                         last_active_turn_id=source_turn_id,
                     )
@@ -462,7 +466,7 @@ class DataAnswerService:
                             source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                             group_by=None,
                             count=None,
-                            label="重点关注点位",
+                            label="点位",
                             source_turn_id=source_turn_id,
                             last_active_turn_id=source_turn_id,
                         ),
@@ -494,7 +498,7 @@ class DataAnswerService:
                     source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                     group_by=None,
                     count=None,
-                    label="重点关注点位",
+                    label="点位",
                     source_turn_id=source_turn_id,
                     last_active_turn_id=source_turn_id,
                 )
@@ -719,28 +723,28 @@ class DataAnswerService:
         metrics = block.get("metrics") or {}
         return [
             self._action_target(
-                target_key=f"target_{turn_id}_alert_records",
+                target_key=f"target_{turn_id}_records",
                 capability="list",
                 grain="record_list",
                 subject_kind="record",
-                source_snapshot_id=block.get("alert_records_snapshot_id"),
+                source_snapshot_id=block.get("record_snapshot_id"),
                 source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
                 group_by=None,
-                count=int(metrics.get("alert_record_count") or 0),
-                label=f"{int(metrics.get('alert_record_count') or 0)}条预警记录",
+                count=int(metrics.get("record_count") or 0),
+                label=f"{int(metrics.get('record_count') or 0)}条记录",
                 source_turn_id=turn_id,
                 last_active_turn_id=turn_id,
             ),
             self._action_target(
-                target_key=f"target_{turn_id}_focus_devices",
+                target_key=f"target_{turn_id}_devices",
                 capability="list",
                 grain="device_list",
                 subject_kind="device",
-                source_snapshot_id=block.get("focus_devices_snapshot_id"),
+                source_snapshot_id=block.get("device_snapshot_id"),
                 source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                 group_by=None,
-                count=int(metrics.get("alert_device_count") or 0),
-                label=f"{int(metrics.get('alert_device_count') or 0)}个重点关注点位",
+                count=int(metrics.get("device_count") or 0),
+                label=f"{int(metrics.get('device_count') or 0)}个点位",
                 source_turn_id=turn_id,
                 last_active_turn_id=turn_id,
             ),
@@ -749,11 +753,11 @@ class DataAnswerService:
                 capability="group",
                 grain="region_group",
                 subject_kind="region",
-                source_snapshot_id=block.get("focus_devices_snapshot_id"),
+                source_snapshot_id=block.get("device_snapshot_id"),
                 source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                 group_by="region",
-                count=int(metrics.get("alert_region_count") or 0),
-                label=f"{int(metrics.get('alert_region_count') or 0)}个地区",
+                count=int(metrics.get("region_count") or 0),
+                label=f"{int(metrics.get('region_count') or 0)}个地区",
                 source_turn_id=turn_id,
                 last_active_turn_id=turn_id,
             ),
@@ -797,7 +801,7 @@ class DataAnswerService:
     ) -> list[dict[str, Any]]:
         return [
             self._action_target(
-                target_key=f"target_{turn_id}_winner_focus_devices",
+                target_key=f"target_{turn_id}_devices",
                 capability="list",
                 grain="device_list",
                 subject_kind="device",
@@ -805,7 +809,7 @@ class DataAnswerService:
                 source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                 group_by=None,
                 count=count,
-                label=f"{count}个重点关注点位",
+                label=f"{count}个点位",
                 source_turn_id=turn_id,
                 last_active_turn_id=turn_id,
             )
@@ -1528,22 +1532,21 @@ class DataAnswerService:
         return await self.repository.filter_records_async(**self._query_filters_from_args(resolved_args))
 
     @staticmethod
+    def _raw_row(row: dict[str, Any]) -> dict[str, Any]:
+        return {key: value for key, value in row.items() if key not in DERIVED_QUERY_KEYS}
+
+    @staticmethod
     def _focus_device_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         latest_by_sn: dict[str, dict[str, Any]] = {}
         for record in records:
-            if record.get("soil_status") not in ALERT_STATUSES:
-                continue
             sn = str(record.get("sn") or "")
             if not sn:
                 continue
             create_time = str(record.get("create_time") or "")
             current = latest_by_sn.get(sn)
-            if current is None:
-                latest_by_sn[sn] = record
-                continue
-            current_score = _safe_float(current.get("risk_score")) or 0.0
-            next_score = _safe_float(record.get("risk_score")) or 0.0
-            if next_score > current_score or (math.isclose(next_score, current_score) and create_time > str(current.get("create_time") or "")):
+            if current is None or create_time > str(current.get("create_time") or "") or (
+                create_time == str(current.get("create_time") or "") and sn < str(current.get("sn") or "")
+            ):
                 latest_by_sn[sn] = record
         rows = []
         for record in latest_by_sn.values():
@@ -1553,31 +1556,19 @@ class DataAnswerService:
                     "city": record.get("city"),
                     "county": record.get("county"),
                     "sn": record.get("sn"),
-                    "soil_status": record.get("soil_status"),
-                    "warning_level": record.get("warning_level"),
-                    "risk_score": record.get("risk_score"),
                     "latest_create_time": record.get("create_time"),
+                    "water20cm": record.get("water20cm"),
+                    "t20cm": record.get("t20cm"),
                 }
             )
-        rows.sort(
-            key=lambda item: (
-                -(_safe_float(item.get("risk_score")) or 0.0),
-                str(item.get("latest_create_time") or ""),
-                str(item.get("sn") or ""),
-            ),
-            reverse=False,
-        )
         rows.sort(key=lambda item: str(item.get("sn") or ""))
         rows.sort(key=lambda item: str(item.get("latest_create_time") or ""), reverse=True)
-        rows.sort(key=lambda item: _safe_float(item.get("risk_score")) or 0.0, reverse=True)
         return rows
 
     @staticmethod
     def _alert_record_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
         rows = []
         for record in records:
-            if record.get("soil_status") not in ALERT_STATUSES:
-                continue
             rows.append(
                 {
                     "entity_key": str(record.get("id") or f"{record.get('sn') or ''}:{record.get('create_time') or ''}"),
@@ -1587,14 +1578,11 @@ class DataAnswerService:
                     "sn": record.get("sn"),
                     "create_time": record.get("create_time"),
                     "water20cm": record.get("water20cm"),
-                    "soil_status": record.get("soil_status"),
-                    "warning_level": record.get("warning_level"),
-                    "risk_score": record.get("risk_score"),
+                    "t20cm": record.get("t20cm"),
                 }
             )
         rows.sort(key=lambda item: str(item.get("sn") or ""))
         rows.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
-        rows.sort(key=lambda item: _safe_float(item.get("risk_score")) or 0.0, reverse=True)
         return rows
 
     @staticmethod
@@ -1607,17 +1595,35 @@ class DataAnswerService:
                 {
                     "city": row.get("city"),
                     "county": row.get("county"),
-                    "alert_device_count": 0,
-                    "max_risk_score": 0.0,
+                    "device_keys": set(),
+                    "record_count": 0,
+                    "latest_create_time": row.get("latest_create_time") or row.get("create_time"),
+                    "water_values": [],
                 },
             )
-            bucket["alert_device_count"] += 1
-            bucket["max_risk_score"] = max(bucket["max_risk_score"], _safe_float(row.get("risk_score")) or 0.0)
-        result = list(grouped.values())
+            sn = str(row.get("sn") or "").strip()
+            if sn:
+                bucket["device_keys"].add(sn)
+            bucket["record_count"] += 1
+            bucket["latest_create_time"] = max(
+                str(bucket.get("latest_create_time") or ""),
+                str(row.get("latest_create_time") or row.get("create_time") or ""),
+            )
+            water20 = _safe_float(row.get("water20cm"))
+            if water20 is not None:
+                bucket["water_values"].append(water20)
+        result = []
+        for bucket in grouped.values():
+            device_keys = bucket.pop("device_keys")
+            bucket["device_count"] = len(device_keys)
+            water_values = bucket.pop("water_values")
+            bucket["avg_water20cm"] = round(sum(water_values) / len(water_values), 2) if water_values else None
+            result.append(bucket)
         result.sort(
             key=lambda item: (
-                -int(item.get("alert_device_count") or 0),
-                -(_safe_float(item.get("max_risk_score")) or 0.0),
+                -int(item.get("record_count") or 0),
+                -int(item.get("device_count") or 0),
+                str(item.get("latest_create_time") or ""),
                 str(item.get("county") or ""),
                 str(item.get("city") or ""),
             )
@@ -1628,14 +1634,18 @@ class DataAnswerService:
     def _summary_metrics(records: list[dict[str, Any]], focus_rows: list[dict[str, Any]]) -> dict[str, Any]:
         water_values = [_safe_float(record.get("water20cm")) for record in records]
         valid_water = [value for value in water_values if value is not None]
-        alert_records = [record for record in records if record.get("soil_status") in ALERT_STATUSES]
-        alert_regions = {(row.get("city"), row.get("county")) for row in focus_rows if row.get("city") or row.get("county")}
+        region_keys = {
+            (record.get("city"), record.get("county"))
+            for record in records
+            if record.get("city") or record.get("county")
+        }
+        latest_create_time = max((str(record.get("create_time") or "") for record in records), default=None)
         return {
             "record_count": len(records),
+            "device_count": len(focus_rows),
+            "region_count": len(region_keys),
             "avg_water20cm": round(sum(valid_water) / len(valid_water), 2) if valid_water else None,
-            "alert_record_count": len(alert_records),
-            "alert_device_count": len(focus_rows),
-            "alert_region_count": len(alert_regions),
+            "latest_create_time": latest_create_time,
         }
 
     async def _create_focus_snapshot(
@@ -1725,12 +1735,11 @@ class DataAnswerService:
                 "grain": snapshot_config["grain"],
                 "filters": {
                     **((primary_query_spec.get("filters") or {})),
-                    "alert_only": True,
                     "source_snapshot_id": None,
                 },
                 "page": {"page": 1, "page_size": 50},
             },
-            rule_version=str(records[0].get("rule_version") or "") if records else None,
+            rule_version=None,
             rows=rows,
             snapshot_kind=snapshot_config["snapshot_kind"],
         )
@@ -1771,9 +1780,9 @@ class DataAnswerService:
             )
 
         block_id = f"block_summary_{turn_id}"
-        focus_rows = self._focus_device_rows(records)
-        alert_rows = self._alert_record_rows(records)
-        metrics = self._summary_metrics(records, focus_rows)
+        device_rows = self._focus_device_rows(records)
+        record_rows = self._alert_record_rows(records)
+        metrics = self._summary_metrics(records, device_rows)
         query_spec = self._build_query_spec(
             capability="summary",
             grain="aggregate",
@@ -1782,25 +1791,24 @@ class DataAnswerService:
             source_turn_id=turn_id,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
-        rule_version = str(records[0].get("rule_version") or "") if records else None
-        snapshot = await self._create_focus_snapshot(
+        device_snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
             block_id=block_id,
-            query_spec={**query_spec, "grain": "device_list", "filters": {**query_spec["filters"], "alert_only": True}},
-            rule_version=rule_version,
-            rows=focus_rows,
+            query_spec={**query_spec, "capability": "list", "grain": "device_list"},
+            rule_version=None,
+            rows=device_rows,
         )
-        alert_snapshot = await self._create_focus_snapshot(
+        record_snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
             block_id=block_id,
-            query_spec={**query_spec, "capability": "list", "grain": "record_list", "filters": {**query_spec["filters"], "alert_only": True}},
-            rule_version=rule_version,
-            rows=alert_rows,
+            query_spec={**query_spec, "capability": "list", "grain": "record_list"},
+            rule_version=None,
+            rows=record_rows,
             snapshot_kind=LIST_TARGET_ALERT_RECORDS,
         )
-        top_regions = self._top_regions_from_focus_rows(focus_rows)
+        top_regions = self._top_regions_from_focus_rows(record_rows)
         label = self._entity_label(resolved_entities) or "当前整体墒情"
         summary_text = self._render_summary_text(
             label=label,
@@ -1817,8 +1825,8 @@ class DataAnswerService:
             "time_window": time_window,
             "metrics": metrics,
             "top_regions": top_regions,
-            "focus_devices_snapshot_id": snapshot["snapshot_id"],
-            "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
+            "device_snapshot_id": device_snapshot["snapshot_id"],
+            "record_snapshot_id": record_snapshot["snapshot_id"],
         }
         base_context = {
             "topic_family": "data",
@@ -1828,9 +1836,9 @@ class DataAnswerService:
             "time_window": time_window,
             "resolved_entities": resolved_entities,
             "derived_sets": {
-                "focus_devices_snapshot_id": snapshot["snapshot_id"],
-                "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
-                "focus_regions_snapshot_id": None,
+                "device_snapshot_id": device_snapshot["snapshot_id"],
+                "record_snapshot_id": record_snapshot["snapshot_id"],
+                "region_group_snapshot_id": None,
             },
             "compare_winner_entity": None,
             "closed": False,
@@ -1858,8 +1866,8 @@ class DataAnswerService:
             "time_window": time_window,
             "metrics": metrics,
             "top_regions": top_regions,
-            "focus_devices_snapshot_id": snapshot["snapshot_id"],
-            "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
+            "device_snapshot_id": device_snapshot["snapshot_id"],
+            "record_snapshot_id": record_snapshot["snapshot_id"],
         }
         return {
             "turn_id": turn_id,
@@ -1869,7 +1877,7 @@ class DataAnswerService:
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
-            "query_ref": {"has_query": True, "snapshot_ids": [snapshot["snapshot_id"], alert_snapshot["snapshot_id"]]},
+            "query_ref": {"has_query": True, "snapshot_ids": [device_snapshot["snapshot_id"], record_snapshot["snapshot_id"]]},
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [
@@ -1881,7 +1889,7 @@ class DataAnswerService:
                     query_spec=query_spec,
                     executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
                     row_count=len(records),
-                    snapshot_id=snapshot["snapshot_id"],
+                    snapshot_id=device_snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
                     executed_result=executed_result,
@@ -1940,23 +1948,12 @@ class DataAnswerService:
                 guidance_reason="clarification",
             )
 
-        rows = [item.get("payload_json") or {} for item in snapshot.get("items") or []]
+        rows = [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []]
         follow_up_mode = "inherit"
         filter_entities = await self._extract_entities(message)
         if filter_entities["county"] or filter_entities["city"] or filter_entities["sn"]:
             rows = self._filter_snapshot_rows(rows, filter_entities)
             follow_up_mode = "subset"
-        elif "更差那边" in message and current_context.get("compare_winner_entity"):
-            winner = current_context["compare_winner_entity"]
-            rows = self._filter_snapshot_rows(
-                rows,
-                {
-                    "city": [winner] if winner.endswith("市") else [],
-                    "county": [winner] if winner.endswith(("县", "区")) else [],
-                    "sn": [],
-                },
-            )
-            follow_up_mode = "drilldown"
         query_spec = {
             **(current_context.get("primary_query_spec") or {}),
             "capability": "list",
@@ -1965,21 +1962,21 @@ class DataAnswerService:
             "filters": {
                 **((current_context.get("primary_query_spec") or {}).get("filters") or {}),
                 "source_snapshot_id": source_snapshot_id,
-                "alert_only": True,
             },
+            "sort": {"field": snapshot_config["sort_field"], "direction": "desc"},
             "provenance": {
                 "source_turn_id": current_context.get("active_topic_turn_id") or turn_id,
                 "follow_up_mode": follow_up_mode,
             },
         }
         next_snapshot_id = source_snapshot_id
-        if follow_up_mode in {"subset", "drilldown"}:
+        if follow_up_mode == "subset":
             next_snapshot = await self._create_focus_snapshot(
                 session_id=session_id,
                 turn_id=turn_id,
                 block_id=block_id,
                 query_spec=query_spec,
-                rule_version=snapshot.get("rule_version"),
+                rule_version=None,
                 rows=rows,
                 snapshot_kind=snapshot_config["snapshot_kind"],
             )
@@ -1996,7 +1993,7 @@ class DataAnswerService:
                 "page": 1,
                 "page_size": 50,
                 "total_count": len(rows),
-                "total_pages": 0 if not rows else math.ceil(len(rows) / 50),
+                "total_pages": 0 if not rows else ((len(rows) - 1) // 50) + 1,
             },
         }
         resolved_entities = self._merge_context_entities(current_context, filter_entities)
@@ -2059,9 +2056,9 @@ class DataAnswerService:
             ),
         )
         final_text = (
-            f"已列出当前条件下的 {len(rows)} 条预警记录。"
+            f"已列出当前条件下的 {len(rows)} 条记录。"
             if list_target == LIST_TARGET_ALERT_RECORDS
-            else f"已列出当前条件下需要重点关注的 {len(rows)} 个点位。"
+            else f"已列出当前条件下的 {len(rows)} 个点位。"
         )
         return {
             "turn_id": turn_id,
@@ -2127,13 +2124,43 @@ class DataAnswerService:
 
         group_by = resolved_group_by or self._resolve_group_by(message)
         grouped: dict[str, dict[str, Any]] = {}
-        for row in [item.get("payload_json") or {} for item in snapshot.get("items") or []]:
+        for row in [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []]:
             key = self._group_key_for_row(row, group_by)
-            bucket = grouped.setdefault(key, {"group_key": key, "device_count": 0, "max_risk_score": 0.0})
-            bucket["device_count"] += 1
-            bucket["max_risk_score"] = max(bucket["max_risk_score"], _safe_float(row.get("risk_score")) or 0.0)
-        rows = list(grouped.values())
-        rows.sort(key=lambda item: (-int(item["device_count"]), -float(item["max_risk_score"]), item["group_key"]))
+            bucket = grouped.setdefault(
+                key,
+                {
+                    "group_key": key,
+                    "record_count": 0,
+                    "device_keys": set(),
+                    "latest_create_time": None,
+                    "water_values": [],
+                },
+            )
+            bucket["record_count"] += 1
+            sn = str(row.get("sn") or "").strip()
+            if sn:
+                bucket["device_keys"].add(sn)
+            timestamp = str(row.get("latest_create_time") or row.get("create_time") or "")
+            if timestamp:
+                bucket["latest_create_time"] = max(str(bucket.get("latest_create_time") or ""), timestamp)
+            water20 = _safe_float(row.get("water20cm"))
+            if water20 is not None:
+                bucket["water_values"].append(water20)
+        rows = []
+        for bucket in grouped.values():
+            device_keys = bucket.pop("device_keys")
+            water_values = bucket.pop("water_values")
+            bucket["device_count"] = len(device_keys)
+            bucket["avg_water20cm"] = round(sum(water_values) / len(water_values), 2) if water_values else None
+            rows.append(bucket)
+        rows.sort(
+            key=lambda item: (
+                -int(item.get("record_count") or 0),
+                -int(item.get("device_count") or 0),
+                str(item.get("latest_create_time") or ""),
+                str(item.get("group_key") or ""),
+            )
+        )
         block_id = f"block_group_{turn_id}"
         query_spec = {
             **(current_context.get("primary_query_spec") or {}),
@@ -2151,7 +2178,7 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "group_table",
-            "title": "覆盖地区汇总" if group_by == "region" else "点位分组汇总",
+            "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
             "group_by": group_by,
             "rows": rows,
         }
@@ -2232,7 +2259,9 @@ class DataAnswerService:
             return "region"
         if "县" in message or "区" in message:
             return "county"
-        return "soil_status"
+        if "市" in message:
+            return "city"
+        return "region"
 
     @staticmethod
     def _group_key_for_row(row: dict[str, Any], group_by: str) -> str:
@@ -2242,6 +2271,10 @@ class DataAnswerService:
             if city and county:
                 return f"{city}-{county}"
             return city or county or "未知"
+        if group_by == "county":
+            return str(row.get("county") or row.get("city") or "未知")
+        if group_by == "city":
+            return str(row.get("city") or "未知")
         return str(row.get(group_by) or "未知")
 
     @staticmethod
@@ -2250,7 +2283,9 @@ class DataAnswerService:
             return "地区"
         if group_by == "county":
             return "县区"
-        return "状态"
+        if group_by == "city":
+            return "城市"
+        return "分组"
 
     async def _reply_detail(
         self,
@@ -2284,7 +2319,7 @@ class DataAnswerService:
                 text="当前条件下没有查到对应的详情数据，你可以换一个地区、设备或扩大时间范围再试。",
                 current_context=current_context,
             )
-        latest_record = records[0]
+        latest_record = self._raw_row(records[0])
         focus_rows = self._focus_device_rows(records)
         metrics = self._summary_metrics(records, focus_rows)
         block_id = f"block_detail_{turn_id}"
@@ -2314,8 +2349,9 @@ class DataAnswerService:
             "time_window": time_window,
             "resolved_entities": resolved_entities,
             "derived_sets": {
-                "focus_devices_snapshot_id": None,
-                "focus_regions_snapshot_id": None,
+                "device_snapshot_id": None,
+                "record_snapshot_id": None,
+                "region_group_snapshot_id": None,
             },
             "compare_winner_entity": None,
             "closed": False,
@@ -2412,9 +2448,6 @@ class DataAnswerService:
             )
 
         compared = []
-        winner_rows: list[dict[str, Any]] = []
-        winner_name = ""
-        winner_score = None
         for name in names[:2]:
             filters = {
                 "city": name if name.endswith("市") else None,
@@ -2426,28 +2459,16 @@ class DataAnswerService:
             records = await self.repository.filter_records_async(**filters)
             focus_rows = self._focus_device_rows(records)
             metrics = self._summary_metrics(records, focus_rows)
-            avg_risk = round(
-                sum((_safe_float(row.get("risk_score")) or 0.0) for row in focus_rows) / len(focus_rows),
-                2,
-            ) if focus_rows else 0.0
             compared.append(
                 {
                     "entity": name,
-                    "alert_device_count": metrics["alert_device_count"],
-                    "alert_record_count": metrics["alert_record_count"],
-                    "avg_risk_score": avg_risk,
                     "record_count": metrics["record_count"],
+                    "device_count": metrics["device_count"],
+                    "region_count": metrics["region_count"],
+                    "avg_water20cm": metrics["avg_water20cm"],
+                    "latest_create_time": metrics["latest_create_time"],
                 }
             )
-            candidate_score = (
-                metrics["alert_device_count"],
-                metrics["alert_record_count"],
-                avg_risk,
-            )
-            if winner_score is None or candidate_score > winner_score:
-                winner_score = candidate_score
-                winner_name = name
-                winner_rows = focus_rows
         block_id = f"block_compare_{turn_id}"
         query_spec = {
             "spec_id": f"qs_{turn_id}_compare",
@@ -2456,20 +2477,11 @@ class DataAnswerService:
             "grain": "entity_compare",
             "time_window": time_window,
             "entities": {"city": names, "county": [], "sn": []},
-            "filters": {"alert_only": False, "status_in": [], "source_snapshot_id": None},
-            "sort": {"field": "risk_score", "direction": "desc"},
+            "filters": {"source_snapshot_id": None},
+            "sort": {"field": "entity", "direction": "asc"},
             "page": {"page": 1, "page_size": 50},
             "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
         }
-        winner_snapshot = await self._create_focus_snapshot(
-            session_id=session_id,
-            turn_id=turn_id,
-            block_id=block_id,
-            query_spec={**query_spec, "capability": "list", "grain": "device_list"},
-            rule_version=None,
-            rows=winner_rows,
-            snapshot_kind="focus_devices",
-        )
         block = {
             "block_id": block_id,
             "block_type": "compare_card",
@@ -2477,8 +2489,6 @@ class DataAnswerService:
             "title": "对比结果",
             "time_window": time_window,
             "rows": compared,
-            "winner": winner_name,
-            "winner_basis": "alert_device_count -> alert_record_count -> avg_risk_score",
         }
         base_context = {
             "topic_family": "data",
@@ -2487,19 +2497,11 @@ class DataAnswerService:
             "primary_query_spec": query_spec,
             "time_window": time_window,
             "resolved_entities": [{"kind": "city", "canonical_name": name} for name in names[:2]],
-            "derived_sets": {
-                "focus_devices_snapshot_id": winner_snapshot["snapshot_id"],
-                "focus_regions_snapshot_id": None,
-            },
-            "compare_winner_entity": winner_name,
+            "derived_sets": {},
+            "compare_winner_entity": None,
             "closed": False,
         }
-        slots = {
-            "province": None,
-            "city": winner_name if winner_name.endswith("市") else None,
-            "county": winner_name if winner_name.endswith(("县", "区")) else None,
-            "sn": winner_name if winner_name.startswith("SNS") else None,
-        }
+        slots = {"province": None, "city": None, "county": None, "sn": None}
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="compare",
@@ -2527,21 +2529,17 @@ class DataAnswerService:
             query_state=query_state,
             parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
-            action_targets=self._build_compare_action_targets(
-                turn_id=turn_id,
-                snapshot_id=winner_snapshot["snapshot_id"],
-                count=len(winner_rows),
-            ),
+            action_targets=[],
         )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "compare",
-            "final_text": f"在当前时间范围内，{winner_name} 更需要优先关注，比较依据是预警点位数、预警记录数和平均风险分数。",
+            "final_text": f"已按相同时间范围整理 {names[0]} 和 {names[1]} 的原始统计对比，可继续查看其中一个对象的详情。",
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
-            "query_ref": {"has_query": True, "snapshot_ids": [winner_snapshot["snapshot_id"]]},
+            "query_ref": {"has_query": True, "snapshot_ids": []},
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [
@@ -2561,11 +2559,11 @@ class DataAnswerService:
                         for name in names[:2]
                     ),
                     row_count=sum(int(item["record_count"]) for item in compared),
-                    snapshot_id=winner_snapshot["snapshot_id"],
+                    snapshot_id=None,
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": compared, "winner": winner_name},
-                    result_digest={"winner": winner_name},
+                    executed_result={"rows": compared},
+                    result_digest={"entities": names[:2]},
                 )
             ],
         }
@@ -2607,6 +2605,7 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "rule_card",
+            "display_mode": "evidence_only",
             "rule_code": row.get("rule_code"),
             "rule_name": row.get("rule_name"),
             "updated_at": row.get("updated_at"),
@@ -2690,6 +2689,7 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "template_card",
+            "display_mode": "evidence_only",
             "template_id": row.get("template_id"),
             "template_name": row.get("template_name"),
             "template_text": row.get("template_text"),
@@ -2804,26 +2804,28 @@ class DataAnswerService:
     def _list_snapshot_config(list_target: str) -> dict[str, Any]:
         if list_target == LIST_TARGET_ALERT_RECORDS:
             return {
-                "snapshot_key": "alert_records_snapshot_id",
+                "snapshot_key": "record_snapshot_id",
                 "snapshot_kind": LIST_TARGET_ALERT_RECORDS,
                 "grain": "record_list",
-                "title": "预警记录详情",
-                "label": "预警记录",
+                "title": "记录详情",
+                "label": "记录",
                 "columns": ALERT_RECORD_COLUMNS,
+                "sort_field": "create_time",
             }
         return {
-            "snapshot_key": "focus_devices_snapshot_id",
+            "snapshot_key": "device_snapshot_id",
             "snapshot_kind": LIST_TARGET_FOCUS_DEVICES,
             "grain": "device_list",
-            "title": "重点关注点位",
-            "label": "重点关注点位",
+            "title": "点位详情",
+            "label": "点位",
             "columns": FOCUS_DEVICE_COLUMNS,
+            "sort_field": "latest_create_time",
         }
 
     def _group_source_snapshot_key(self, current_context: dict[str, Any]) -> str:
         if self._current_list_grain(current_context) == "record_list":
-            return "alert_records_snapshot_id"
-        return "focus_devices_snapshot_id"
+            return "record_snapshot_id"
+        return "device_snapshot_id"
 
     @staticmethod
     def _follow_up_mode_from_operation(operation: str) -> str:
@@ -2872,12 +2874,8 @@ class DataAnswerService:
                 "county": [resolved_args["county"]] if resolved_args.get("county") else [],
                 "sn": [resolved_args["sn"]] if resolved_args.get("sn") else [],
             },
-            "filters": {
-                "alert_only": False,
-                "status_in": [],
-                "source_snapshot_id": None,
-            },
-            "sort": {"field": "risk_score", "direction": "desc"},
+            "filters": {"source_snapshot_id": None},
+            "sort": {"field": "latest_create_time" if grain == "device_list" else "create_time", "direction": "desc"},
             "page": {"page": 1, "page_size": 50},
             "provenance": {
                 "source_turn_id": source_turn_id,
@@ -2905,12 +2903,8 @@ class DataAnswerService:
                 "county": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "county"],
                 "sn": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "device"],
             },
-            "filters": {
-                "alert_only": False,
-                "status_in": [],
-                "source_snapshot_id": None,
-            },
-            "sort": {"field": "risk_score", "direction": "desc"},
+            "filters": {"source_snapshot_id": None},
+            "sort": {"field": "create_time", "direction": "desc"},
             "page": {"page": 1, "page_size": 50},
             "provenance": {
                 "source_turn_id": source_turn_id,
@@ -2936,15 +2930,16 @@ class DataAnswerService:
     ) -> str:
         scope = label or "当前整体墒情"
         avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
+        latest_time = str(metrics.get("latest_create_time") or "暂无")
         text = (
             f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的墒情概况如下："
             f"20cm平均相对含水量约 {avg_text}，"
-            f"共有 {metrics['alert_record_count']} 条预警相关记录，涉及 {metrics['alert_device_count']} 个重点关注点位，"
-            f"覆盖 {metrics['alert_region_count']} 个地区。"
+            f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 个点位，"
+            f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
         )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
-        text += " 如需继续下钻，可以直接回复：列出需要重点关注的点位，或列出预警记录详情。"
+        text += " 如需继续查看，可以直接回复：列出点位详情、列出记录详情，或按地区汇总。"
         return text
 
     @staticmethod
@@ -2955,14 +2950,14 @@ class DataAnswerService:
         entity_confidence: str,
         resolved_entities: list[dict[str, Any]],
     ) -> str:
-        status = str(latest_record.get("display_label") or latest_record.get("soil_status") or "未知")
         water20 = latest_record.get("water20cm")
         location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
+        latest_time = str(latest_record.get("create_time") or latest_record.get("latest_create_time") or "暂无")
         text = (
             f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的最新详情如下："
-            f"最近一条记录时间为 {latest_record.get('create_time')}，"
+            f"最近一条记录时间为 {latest_time}，"
             f"{f'位于 {location}，' if location else ''}"
-            f"20cm含水量 {water20}%，当前状态 {status}。"
+            f"20cm含水量 {water20}%。"
         )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
