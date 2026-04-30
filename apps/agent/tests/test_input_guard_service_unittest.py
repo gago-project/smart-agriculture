@@ -74,6 +74,14 @@ class InputGuardServiceTest(unittest.TestCase):
         self.assertEqual(result.suggested_answer_type, "guidance_answer")
         self.assertEqual(result.guidance_reason, "clarification")
 
+    def test_short_noisy_chinese_without_business_signal_returns_safe_hint(self) -> None:
+        result = self.service.classify("比你好")
+
+        self.assertFalse(result.allow_business_flow)
+        self.assertEqual(result.input_type, "meaningless_input")
+        self.assertEqual(result.guidance_reason, "safe_hint")
+        self.assertIn("墒情", result.suggested_answer)
+
     def test_closing_variant_with_prefix_should_end_conversation(self) -> None:
         result = self.service.classify("好的，先这样")
 

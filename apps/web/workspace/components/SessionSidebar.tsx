@@ -121,88 +121,110 @@ export function SessionSidebar({
     <aside className="sidebar" ref={sidebarRef}>
       <div className="sidebar-brand">
         <div className="sidebar-brand-mark">DC</div>
-        <div>
+        <div className="sidebar-brand-copy">
+          <span className="sidebar-brand-eyebrow">Smart Agriculture</span>
           <strong>AI 农情工作台</strong>
           <p>服务端会话</p>
         </div>
       </div>
       <button className="new-chat" onClick={() => void onCreateSession()}>
-        + 新建会话
+        <span className="new-chat-icon">+</span>
+        <span>新建会话</span>
       </button>
       <div className="sidebar-section-title">最近会话</div>
       <div className="session-list" aria-label="会话列表">
         {sessions.length === 0 ? <p className="session-empty">新建一个会话，开始提问。</p> : null}
-        {sessions.map((session) => (
-          <div key={session.id} className={`session-item ${session.id === activeSessionId ? 'active' : ''}`}>
-            {editingSessionId === session.id ? (
-              <div className="session-item-main">
-                <input
-                  ref={renameInputRef}
-                  className="session-rename-input"
-                  value={renameDraft}
-                  disabled={savingSessionId === session.id}
-                  aria-label={`修改会话名称 ${session.title}`}
-                  onChange={(event) => setRenameDraft(event.target.value)}
-                  onKeyDown={(event) => handleRenameKeyDown(event, session)}
-                  onBlur={() => {
-                    if (skipBlurSubmitRef.current) {
-                      skipBlurSubmitRef.current = false;
-                      return;
-                    }
-                    void submitRename(session);
-                  }}
-                />
-                <span className="session-item-meta">
-                  {session.lastTurnId > 0 ? `${session.lastTurnId} 轮对话` : '空会话'}
-                </span>
-              </div>
-            ) : (
-              <button className="session-item-main" aria-label={session.title} onClick={() => onSwitchSession(session.id)}>
-                <span className="session-item-title">{session.title}</span>
-                <span className="session-item-meta">
-                  {session.lastTurnId > 0 ? `${session.lastTurnId} 轮对话` : '空会话'}
-                </span>
-              </button>
-            )}
-            <div className="session-item-actions" data-session-menu-root="true">
-              <button
-                className="session-item-action"
-                type="button"
-                aria-label={`更多操作 ${session.title}`}
-                aria-haspopup="menu"
-                aria-expanded={menuSessionId === session.id}
-                onClick={(event) => handleMenuToggle(event, session.id)}
-              >
-                ...
-              </button>
-              {menuSessionId === session.id ? (
-                <div className="session-item-menu">
-                  <button
-                    className="session-item-menu-action"
-                    type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      startRename(session);
-                    }}
-                  >
-                    修改名称
+        {sessions.map((session) => {
+          const isMenuOpen = menuSessionId === session.id;
+
+          return (
+            <div
+              key={session.id}
+              className={`session-item ${session.id === activeSessionId ? 'active' : ''}`}
+              data-menu-open={isMenuOpen ? 'true' : 'false'}
+            >
+              <div className="session-item-surface">
+                {editingSessionId === session.id ? (
+                  <div className="session-item-main">
+                    <div className="session-item-title-row">
+                      <input
+                        ref={renameInputRef}
+                        className="session-rename-input"
+                        value={renameDraft}
+                        disabled={savingSessionId === session.id}
+                        aria-label={`修改会话名称 ${session.title}`}
+                        onChange={(event) => setRenameDraft(event.target.value)}
+                        onKeyDown={(event) => handleRenameKeyDown(event, session)}
+                        onBlur={() => {
+                          if (skipBlurSubmitRef.current) {
+                            skipBlurSubmitRef.current = false;
+                            return;
+                          }
+                          void submitRename(session);
+                        }}
+                      />
+                    </div>
+                    <div className="session-item-meta-row">
+                      <span className="session-item-meta">
+                        {session.lastTurnId > 0 ? `${session.lastTurnId} 轮对话` : '空会话'}
+                      </span>
+                      {session.id === activeSessionId ? <span className="session-item-status">当前</span> : null}
+                    </div>
+                  </div>
+                ) : (
+                  <button className="session-item-main" aria-label={session.title} onClick={() => onSwitchSession(session.id)}>
+                    <div className="session-item-title-row">
+                      <span className="session-item-title">{session.title}</span>
+                    </div>
+                    <div className="session-item-meta-row">
+                      <span className="session-item-meta">
+                        {session.lastTurnId > 0 ? `${session.lastTurnId} 轮对话` : '空会话'}
+                      </span>
+                      {session.id === activeSessionId ? <span className="session-item-status">当前</span> : null}
+                    </div>
                   </button>
+                )}
+                <div className="session-item-actions" data-session-menu-root="true">
                   <button
-                    className="session-item-menu-action danger"
+                    className="session-item-action"
                     type="button"
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      setMenuSessionId(null);
-                      void onDeleteSession(session.id);
-                    }}
+                    aria-label={`更多操作 ${session.title}`}
+                    aria-haspopup="menu"
+                    aria-expanded={isMenuOpen}
+                    onClick={(event) => handleMenuToggle(event, session.id)}
                   >
-                    归档
+                    ⋯
                   </button>
+                  {isMenuOpen ? (
+                    <div className="session-item-menu" data-session-menu-root="true">
+                      <button
+                        className="session-item-menu-action"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          startRename(session);
+                        }}
+                      >
+                        修改名称
+                      </button>
+                      <button
+                        className="session-item-menu-action danger"
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          setMenuSessionId(null);
+                          void onDeleteSession(session.id);
+                        }}
+                      >
+                        归档
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
-              ) : null}
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </aside>
   );

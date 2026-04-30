@@ -7,6 +7,20 @@ import unittest
 from tests.support_repositories import SeedSoilRepository
 
 
+class FakeLlmInputGuard:
+    def __init__(self, intercepted_inputs: set[str] | None = None) -> None:
+        self.intercepted_inputs = intercepted_inputs or set()
+        self.calls: list[str] = []
+
+    async def classify(self, text: str):
+        from app.services.llm_input_guard_service import LlmInputGuardResult
+
+        self.calls.append(text)
+        if text in self.intercepted_inputs:
+            return LlmInputGuardResult(decision="intercept", reason="noise", confidence=0.95)
+        return LlmInputGuardResult(decision="allow", reason="noise", confidence=0.0)
+
+
 class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
     """Verify summary/list follow-up and topic isolation behavior."""
 
@@ -21,6 +35,20 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
                 "region_level": "province",
                 "parent_city_name": None,
                 "alias_source": "seed",
+            },
+            {
+                "alias_name": "南京",
+                "canonical_name": "南京市",
+                "region_level": "city",
+                "parent_city_name": None,
+                "alias_source": "seed",
+            },
+            {
+                "alias_name": "南京市",
+                "canonical_name": "南京市",
+                "region_level": "city",
+                "parent_city_name": None,
+                "alias_source": "canonical",
             },
             {
                 "alias_name": "南通",
@@ -65,7 +93,10 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
                 "alias_source": "canonical",
             },
         ]
-        self.service = DataAnswerService(repository=repository)
+        self.guard = FakeLlmInputGuard(
+            intercepted_inputs={"上岛咖啡京东卡", "京东卡可以提现吗", "今天午饭吃什么"}
+        )
+        self.service = DataAnswerService(repository=repository, llm_input_guard=self.guard)
 
     async def test_summary_then_list_follow_up_uses_focus_snapshot(self) -> None:
         summary = await self.service.reply(
@@ -140,6 +171,39 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertGreater(len(listing["blocks"][0]["rows"]), 1)
 
+    async def test_record_list_follow_up_can_group_covered_regions(self) -> None:
+        summary = await self.service.reply(
+            message="江苏最近墒情情况如何",
+            session_id="summary-region-group",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        listing = await self.service.reply(
+            message="列出44条预警记录详情",
+            session_id="summary-region-group",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        grouped = await self.service.reply(
+            message="覆盖哪13个地区",
+            session_id="summary-region-group",
+            turn_id=3,
+            current_context=listing["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+        self.assertEqual(len(grouped["blocks"][0]["rows"]), summary["blocks"][0]["metrics"]["alert_region_count"])
+        self.assertIn("地区", grouped["final_text"])
+        self.assertNotIn("当前整体墒情", grouped["final_text"])
+
     async def test_legacy_summary_context_without_alert_snapshot_rebuilds_record_list(self) -> None:
         summary = await self.service.reply(
             message="江苏最近墒情情况如何",
@@ -185,6 +249,49 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["answer_kind"], "guidance")
         self.assertEqual(reply["capability"], "none")
         self.assertIn("支持", reply["final_text"])
+
+    async def test_short_noisy_chinese_returns_safe_hint_instead_of_time_clarification(self) -> None:
+        reply = await self.service.reply(
+            message="比你好",
+            session_id="short-noisy-input",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["capability"], "none")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "safe_hint")
+        self.assertNotIn("你想查看的时间段是", reply["final_text"])
+
+    async def test_llm_guard_intercepts_non_business_noun_phrase_before_time_clarification(self) -> None:
+        reply = await self.service.reply(
+            message="上岛咖啡京东卡",
+            session_id="llm-guard-noise",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["capability"], "none")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "safe_hint")
+        self.assertNotIn("你想查看的时间段是", reply["final_text"])
+        self.assertIn("墒情", reply["final_text"])
+
+    async def test_llm_guard_intercepts_non_business_question_before_time_clarification(self) -> None:
+        for turn_id, message in enumerate(("京东卡可以提现吗", "今天午饭吃什么"), start=1):
+            reply = await self.service.reply(
+                message=message,
+                session_id="llm-guard-noise-questions",
+                turn_id=turn_id,
+                current_context=None,
+                timezone="Asia/Shanghai",
+            )
+
+            self.assertEqual(reply["answer_kind"], "guidance")
+            self.assertEqual(reply["blocks"][0]["guidance_reason"], "safe_hint")
+            self.assertNotIn("你想查看的时间段是", reply["final_text"])
 
     async def test_province_summary_keeps_jiangsu_scope_label(self) -> None:
         reply = await self.service.reply(
@@ -238,6 +345,97 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["capability"], "summary")
         self.assertIn("江苏省", follow_up["final_text"])
         self.assertTrue(follow_up["query_ref"]["has_query"])
+        self.assertFalse(self.guard.calls)
+
+    async def test_time_only_follow_up_reuses_prior_city_scope(self) -> None:
+        summary = await self.service.reply(
+            message="最近南京墒情情况",
+            session_id="nanjing-time-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近一个月",
+            session_id="nanjing-time-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertIn("南京市", follow_up["final_text"])
+        self.assertFalse(self.guard.calls)
+
+    async def test_global_scope_question_does_not_inherit_prior_city_scope(self) -> None:
+        summary = await self.service.reply(
+            message="最近南京墒情情况",
+            session_id="nanjing-global-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近一个月最严重的地方",
+            session_id="nanjing-global-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertNotIn("南京市", follow_up["final_text"])
+        self.assertFalse(self.guard.calls)
+
+    async def test_explicit_province_follow_up_overrides_prior_city_scope(self) -> None:
+        summary = await self.service.reply(
+            message="最近一个月南京墒情情况",
+            session_id="nanjing-province-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="整个江苏",
+            session_id="nanjing-province-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertIn("江苏省", follow_up["final_text"])
+        self.assertNotIn("南京市", follow_up["final_text"])
+        self.assertFalse(self.guard.calls)
+
+    async def test_later_explicit_city_in_same_message_overrides_earlier_city_reference(self) -> None:
+        summary = await self.service.reply(
+            message="最近一个月南京墒情情况",
+            session_id="city-override-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="我第一个问的是南京，后面都是问别的。我现在问南通，最近墒情怎么样",
+            session_id="city-override-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertIn("南通市", follow_up["final_text"])
+        self.assertNotIn("南京市", follow_up["final_text"])
+        self.assertFalse(self.guard.calls)
 
     async def test_rule_topic_does_not_bleed_into_data_follow_up(self) -> None:
         rule = await self.service.reply(

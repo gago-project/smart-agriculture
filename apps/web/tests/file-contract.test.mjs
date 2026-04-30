@@ -159,6 +159,8 @@ test('session sidebar uses a dropdown menu with inline rename and archive action
   const apiSource = readFileSync(new URL('../workspace/services/chatApi.ts', import.meta.url), 'utf8');
   const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 
+  assert.match(sidebarSource, /session-item-surface/);
+  assert.match(sidebarSource, /session-item-status/);
   assert.match(sidebarSource, /session-item-action/);
   assert.match(sidebarSource, /session-item-menu/);
   assert.match(sidebarSource, /修改名称/);
@@ -170,6 +172,18 @@ test('session sidebar uses a dropdown menu with inline rename and archive action
   assert.match(apiSource, /export async function renameChatSession/);
   assert.match(apiSource, /method:\s*'PATCH'/);
   assert.match(globalsSource, /\.session-rename-input/);
+});
+
+test('session sidebar menu anchors to the action button instead of pushing card layout', () => {
+  const sidebarSource = readFileSync(new URL('../workspace/components/SessionSidebar.tsx', import.meta.url), 'utf8');
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(sidebarSource, /className="session-item-menu"/);
+  assert.match(sidebarSource, /className="session-item-menu"[\s\S]*data-session-menu-root="true"/);
+  assert.match(globalsSource, /\.session-item-actions\s*\{[\s\S]*?position:\s*relative;/);
+  assert.match(globalsSource, /\.session-item-menu\s*\{[\s\S]*?position:\s*absolute;/);
+  assert.match(globalsSource, /\.session-item-menu\s*\{[\s\S]*?top:\s*calc\(100%\s*\+\s*8px\);/);
+  assert.match(globalsSource, /\.session-item-menu\s*\{[\s\S]*?right:\s*0;/);
 });
 
 test('chat panel no longer renders AI involvement badge in message list', () => {

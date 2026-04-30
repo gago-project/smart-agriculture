@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import math
 import re
 from collections import defaultdict
@@ -14,6 +15,7 @@ from typing import Any
 from app.repositories.result_snapshot_repository import ResultSnapshotRepository
 from app.repositories.soil_repository import DatabaseQueryError, SoilRepository
 from app.services.input_guard_service import InputGuardService
+from app.services.llm_input_guard_service import LlmInputGuardService
 from app.services.parameter_resolver_service import (
     CONFIDENCE_MEDIUM,
     CONFIDENCE_LOW,
@@ -28,6 +30,39 @@ LIST_TARGET_FOCUS_DEVICES = "focus_devices"
 LIST_TARGET_ALERT_RECORDS = "alert_records"
 FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "soil_status", "warning_level", "risk_score", "latest_create_time"]
 ALERT_RECORD_COLUMNS = ["sn", "city", "county", "create_time", "water20cm", "soil_status", "warning_level", "risk_score"]
+DOMAIN_INTENT_TOKENS = (
+    "墒情",
+    "预警",
+    "异常",
+    "情况",
+    "数据",
+    "点位",
+    "设备",
+    "记录",
+    "详情",
+    "明细",
+    "排名",
+    "严重",
+    "规则",
+    "模板",
+)
+TIME_ONLY_FOLLOW_UP_PATTERNS = (
+    re.compile(r"^(?:最近|近|过去|前)?\s*[0-9一二两三四五六七八九十百]+\s*(?:天|周|月|年|个月)\s*(?:呢)?$", re.IGNORECASE),
+    re.compile(r"^(?:今天|昨天|前天|上周|这周|本周|这个月|本月|上个月|今年|最近)\s*(?:呢)?$", re.IGNORECASE),
+)
+CONTEXTUAL_FOLLOW_UP_MARKERS = ("这些", "这里", "这里的", "上面的", "刚才", "那个情况", "这种情况", "那边", "这边")
+GLOBAL_SCOPE_RESET_MARKERS = ("整体", "全省", "整个", "全部", "哪里", "哪个地方", "最严重", "排名", "排行", "top", "Top", "哪些地方", "哪些地区")
+LLM_GUARD_CONFIDENCE_THRESHOLD = 0.8
+SAFE_HINT_TEXT = "我可以帮你查墒情概况、异常点位、预警规则和模板。你可以直接说地区、设备或时间范围，例如：南京最近7天墒情怎么样。"
+LLM_GUARD_DOMAIN_TOKENS = DOMAIN_INTENT_TOKENS + ("土壤", "含水量")
+QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需要", "最近", "最新")
+REGION_GROUP_REQUEST_PATTERNS = (
+    re.compile(r"(覆盖|涉及).*(地区|区域)"),
+    re.compile(r"(哪些|哪[0-9一二两三四五六七八九十百]*个).*(地区|区域)"),
+)
+
+
+logger = logging.getLogger(__name__)
 
 
 def _safe_float(value: Any) -> float | None:
@@ -48,12 +83,14 @@ class DataAnswerService:
         repository: SoilRepository | Any | None = None,
         snapshot_repository: ResultSnapshotRepository | None = None,
         input_guard: InputGuardService | None = None,
+        llm_input_guard: LlmInputGuardService | Any | None = None,
         time_window_service: TimeWindowService | None = None,
         parameter_resolver: ParameterResolverService | None = None,
     ) -> None:
         self.repository = repository or SoilRepository.from_env()
         self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
         self.input_guard = input_guard or InputGuardService()
+        self.llm_input_guard = llm_input_guard
         self.time_window_service = time_window_service or TimeWindowService()
         self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
 
@@ -102,6 +139,23 @@ class DataAnswerService:
 
         if self._is_detail_request(text, context):
             return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        if await self._should_return_safe_hint_before_summary(text, context):
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=SAFE_HINT_TEXT,
+                current_context=context,
+                guidance_reason="safe_hint",
+            )
+
+        llm_guard_result = await self._maybe_run_llm_input_guard(
+            text=text,
+            context=context,
+            session_id=session_id,
+            turn_id=turn_id,
+        )
+        if llm_guard_result is not None:
+            return llm_guard_result
 
         return await self._reply_summary(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
 
@@ -245,7 +299,9 @@ class DataAnswerService:
 
     @staticmethod
     def _is_group_request(text: str) -> bool:
-        return "归类" in text or "汇总" in text
+        if "归类" in text or "汇总" in text:
+            return True
+        return any(pattern.search(text) for pattern in REGION_GROUP_REQUEST_PATTERNS)
 
     @staticmethod
     def _is_compare_request(text: str) -> bool:
@@ -257,6 +313,73 @@ class DataAnswerService:
         if context.get("topic_family") == "data" and text.endswith("呢"):
             return True
         return "详情" in text or "明细" in text
+
+    async def _should_return_safe_hint_before_summary(self, text: str, context: dict[str, Any]) -> bool:
+        """在新话题里识别无实体、无时间、无数据意图的短噪声，避免误澄清时间。"""
+        if context.get("topic_family") == "data":
+            return False
+        compact = text.replace(" ", "")
+        if len(compact) > 6:
+            return False
+        if any(token in text for token in DOMAIN_INTENT_TOKENS):
+            return False
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(text, latest_business_time)
+        if time_evidence.has_time_signal or time_evidence.clarify_reason:
+            return False
+        entities = await self._extract_entities(text)
+        return not any(entities.get(key) for key in ("province", "city", "county", "sn"))
+
+    async def _maybe_run_llm_input_guard(
+        self,
+        *,
+        text: str,
+        context: dict[str, Any],
+        session_id: str,
+        turn_id: int,
+    ) -> dict[str, Any] | None:
+        if not self.llm_input_guard:
+            return None
+        if not await self._should_use_llm_input_guard(text, context):
+            return None
+
+        result = await self.llm_input_guard.classify(text)
+        if result.decision != "intercept" or result.confidence < LLM_GUARD_CONFIDENCE_THRESHOLD:
+            return None
+
+        logger.info(
+            "LLM input guard intercepted session_id=%s turn_id=%s decision=%s reason=%s confidence=%.2f input_preview=%r",
+            session_id,
+            turn_id,
+            result.decision,
+            result.reason,
+            result.confidence,
+            text[:40],
+        )
+        return self._build_guidance_response(
+            turn_id=turn_id,
+            text=SAFE_HINT_TEXT,
+            current_context=context,
+            guidance_reason="safe_hint",
+        )
+
+    async def _should_use_llm_input_guard(self, text: str, context: dict[str, Any]) -> bool:
+        if context.get("topic_family") == "data":
+            return False
+        if SN_PATTERN.search(text):
+            return False
+        if any(token in text for token in LLM_GUARD_DOMAIN_TOKENS):
+            return False
+        if context.get("topic_family") in {"rule", "template"} and any(
+            token in text for token in ("规则", "模板", "这些点位", "点位", "详情")
+        ):
+            return False
+
+        entities = await self._extract_entities(text)
+        has_region_scope = any(entities.get(key) for key in ("province", "city", "county"))
+        if has_region_scope and any(token in text for token in QUERY_CUE_TOKENS):
+            return False
+        return True
 
     async def _latest_business_time(self) -> str:
         latest = await self.repository.latest_business_time_async()
@@ -274,7 +397,10 @@ class DataAnswerService:
         region_matches: list[dict[str, Any]] = []
         for row in sorted(alias_rows, key=lambda item: len(str(item.get("alias_name") or "")), reverse=True):
             alias_name = str(row.get("alias_name") or "").strip()
-            if not alias_name or alias_name not in text:
+            if not alias_name:
+                continue
+            match_start = text.rfind(alias_name)
+            if match_start < 0:
                 continue
             region_level = str(row.get("region_level") or "").strip()
             region_matches.append(
@@ -283,16 +409,24 @@ class DataAnswerService:
                     "canonical_name": str(row.get("canonical_name") or "").strip(),
                     "region_level": region_level,
                     "parent_city_name": row.get("parent_city_name"),
+                    "match_start": match_start,
+                    "match_length": len(alias_name),
                 }
             )
-        deduped: list[dict[str, Any]] = []
-        seen = set()
+        best_matches: dict[tuple[str, str, Any], dict[str, Any]] = {}
         for item in region_matches:
             key = (item["canonical_name"], item["region_level"], item.get("parent_city_name"))
-            if key in seen:
-                continue
-            seen.add(key)
-            deduped.append(item)
+            existing = best_matches.get(key)
+            if existing is None or item["match_start"] > existing["match_start"] or (
+                item["match_start"] == existing["match_start"] and item["match_length"] > existing["match_length"]
+            ):
+                best_matches[key] = item
+
+        deduped = sorted(
+            best_matches.values(),
+            key=lambda item: (int(item.get("match_start") or -1), -int(item.get("match_length") or 0)),
+        )
+        seen = set(best_matches)
 
         if "江苏省" in text or "江苏" in text:
             province_alias = "江苏省" if "江苏省" in text else "江苏"
@@ -348,6 +482,23 @@ class DataAnswerService:
 
         return [entity for entity in current_context.get("resolved_entities") or [] if entity.get("canonical_name")]
 
+    @staticmethod
+    def _should_inherit_entities_from_context(message: str, time_evidence: Any) -> bool:
+        normalized = str(message or "").strip()
+        if not normalized:
+            return False
+        if any(marker in normalized for marker in GLOBAL_SCOPE_RESET_MARKERS):
+            return False
+        if any(marker in normalized for marker in CONTEXTUAL_FOLLOW_UP_MARKERS):
+            return True
+        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+            return True
+        return bool(
+            getattr(time_evidence, "has_time_signal", False)
+            and normalized.endswith("呢")
+            and any(token in normalized for token in DOMAIN_INTENT_TOKENS)
+        )
+
     async def _resolve_filters(
         self,
         *,
@@ -358,17 +509,24 @@ class DataAnswerService:
     ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], str]:
         latest_business_time = await self._latest_business_time()
         entities = await self._extract_entities(message)
+        time_evidence = self.time_window_service.resolve(message, latest_business_time)
         raw_args: dict[str, Any] = {}
         if entities["sn"]:
-            raw_args["sn"] = entities["sn"][0]
+            raw_args["sn"] = entities["sn"][-1]
         if entities["province"]:
-            raw_args["province"] = entities["province"][0]
+            raw_args["province"] = entities["province"][-1]
         if entities["county"]:
-            raw_args["county"] = entities["county"][0]
+            raw_args["county"] = entities["county"][-1]
         elif entities["city"]:
-            raw_args["city"] = entities["city"][0]
-        elif allow_inherit_entities and current_context.get("topic_family") == "data":
-            for entity in current_context.get("resolved_entities") or []:
+            raw_args["city"] = entities["city"][-1]
+        has_explicit_scope = bool(raw_args.get("province") or raw_args.get("county") or raw_args.get("city") or raw_args.get("sn"))
+        if (
+            not has_explicit_scope
+            and allow_inherit_entities
+            and current_context.get("topic_family") == "data"
+            and self._should_inherit_entities_from_context(message, time_evidence)
+        ):
+            for entity in reversed(current_context.get("resolved_entities") or []):
                 if entity.get("kind") == "province" and not raw_args.get("province"):
                     raw_args["province"] = entity.get("canonical_name")
                 if entity.get("kind") == "county" and not raw_args.get("county"):
@@ -387,7 +545,6 @@ class DataAnswerService:
                     "end_time": time_window["end_time"],
                 }
 
-        time_evidence = self.time_window_service.resolve(message, latest_business_time)
         resolved = await self.parameter_resolver.resolve(
             tool_name=tool_name,
             raw_args=raw_args,
@@ -960,10 +1117,10 @@ class DataAnswerService:
                 guidance_reason="clarification",
             )
 
-        group_by = "county" if "县" in message or "区" in message else "soil_status"
+        group_by = self._resolve_group_by(message)
         grouped: dict[str, dict[str, Any]] = {}
         for row in [item.get("payload_json") or {} for item in snapshot.get("items") or []]:
-            key = str(row.get(group_by) or "未知")
+            key = self._group_key_for_row(row, group_by)
             bucket = grouped.setdefault(key, {"group_key": key, "device_count": 0, "max_risk_score": 0.0})
             bucket["device_count"] += 1
             bucket["max_risk_score"] = max(bucket["max_risk_score"], _safe_float(row.get("risk_score")) or 0.0)
@@ -973,7 +1130,7 @@ class DataAnswerService:
         query_spec = {
             **(current_context.get("primary_query_spec") or {}),
             "capability": "group",
-            "grain": "region_group" if group_by == "county" else "aggregate",
+            "grain": "region_group" if group_by in {"county", "region"} else "aggregate",
             "filters": {
                 **((current_context.get("primary_query_spec") or {}).get("filters") or {}),
                 "source_snapshot_id": snapshot_id,
@@ -987,7 +1144,7 @@ class DataAnswerService:
             "block_id": block_id,
             "block_type": "group_table",
             "display_mode": "evidence_only",
-            "title": "点位分组汇总",
+            "title": "覆盖地区汇总" if group_by == "region" else "点位分组汇总",
             "group_by": group_by,
             "rows": rows,
         }
@@ -1002,7 +1159,7 @@ class DataAnswerService:
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "group",
-            "final_text": f"已按{ '县区' if group_by == 'county' else '状态' }完成汇总，共 {len(rows)} 组。",
+            "final_text": f"已按{self._group_label(group_by)}完成汇总，共 {len(rows)} 组。",
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
@@ -1029,6 +1186,32 @@ class DataAnswerService:
                 )
             ],
         }
+
+    @staticmethod
+    def _resolve_group_by(message: str) -> str:
+        if "地区" in message or "区域" in message:
+            return "region"
+        if "县" in message or "区" in message:
+            return "county"
+        return "soil_status"
+
+    @staticmethod
+    def _group_key_for_row(row: dict[str, Any], group_by: str) -> str:
+        if group_by == "region":
+            city = str(row.get("city") or "").strip()
+            county = str(row.get("county") or "").strip()
+            if city and county:
+                return f"{city}-{county}"
+            return city or county or "未知"
+        return str(row.get(group_by) or "未知")
+
+    @staticmethod
+    def _group_label(group_by: str) -> str:
+        if group_by == "region":
+            return "地区"
+        if group_by == "county":
+            return "县区"
+        return "状态"
 
     async def _reply_detail(
         self,

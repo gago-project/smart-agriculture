@@ -17,6 +17,7 @@ from app.llm.qwen_client import QwenClient
 from app.repositories.session_context_repository import SessionContextRepository
 from app.services.data_answer_service import DataAnswerService
 from app.services.agent_service import SoilAgentService
+from app.services.llm_input_guard_service import LlmInputGuardService
 
 
 @lru_cache(maxsize=1)
@@ -38,4 +39,10 @@ def get_agent_service() -> SoilAgentService:
 @lru_cache(maxsize=1)
 def get_data_answer_service() -> DataAnswerService:
     """Return the deterministic data-answer service used by `/chat-v2`."""
-    return DataAnswerService()
+    guard_client = QwenClient(
+        api_key=os.getenv("QWEN_API_KEY", ""),
+        model="qwen-turbo",
+        fallback_models=["qwen-turbo"],
+        timeout_seconds=3.0,
+    )
+    return DataAnswerService(llm_input_guard=LlmInputGuardService(guard_client, timeout_seconds=3.0))

@@ -4,10 +4,10 @@ import unittest
 
 from fastapi import HTTPException
 
-from app.api.routers.chat import chat
+from app.api.routers.chat import chat, chat_v2
 from app.api.routers.debug import summary
 from app.repositories.soil_repository import DatabaseUnavailableError
-from app.schemas.request import ChatRequest
+from app.schemas.request import ChatRequest, ChatV2Request
 
 
 class DatabaseFailingService:
@@ -20,6 +20,43 @@ class DatabaseFailingService:
     def get_summary_payload(self):
         """Return summary payload."""
         raise DatabaseUnavailableError("mysql down")
+
+
+class DatabaseFailingDataAnswerService:
+    async def reply(self, *args, **kwargs):
+        del args, kwargs
+        raise DatabaseUnavailableError("mysql down")
+
+
+class ChatV2GuidanceService:
+    async def reply(self, *args, **kwargs):
+        del args, kwargs
+        return {
+            "turn_id": 1,
+            "answer_kind": "guidance",
+            "capability": "none",
+            "final_text": "我可以帮你查墒情数据、异常点位、预警规则或模板。",
+            "blocks": [
+                {
+                    "block_id": "block_guidance_1",
+                    "block_type": "guidance_card",
+                    "text": "我可以帮你查墒情数据、异常点位、预警规则或模板。",
+                    "guidance_reason": "safe_hint",
+                }
+            ],
+            "topic": {"topic_family": None, "active_topic_turn_id": None, "primary_block_id": None},
+            "turn_context": {},
+            "query_ref": {"has_query": False, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [],
+        }
+
+
+class ChatV2ValueErrorService:
+    async def reply(self, *args, **kwargs):
+        del args, kwargs
+        raise ValueError("bad request")
 
 
 class AgentApiTest(unittest.IsolatedAsyncioTestCase):
@@ -41,6 +78,32 @@ class AgentApiTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(caught.exception.status_code, 503)
         self.assertIn("数据库不可用", str(caught.exception.detail))
+
+    async def test_chat_v2_returns_guidance_payload_without_error(self):
+        request = ChatV2Request(message="上岛咖啡京东卡", session_id="s1", turn_id=1)
+
+        result = await chat_v2(request, service=ChatV2GuidanceService())
+
+        self.assertEqual(result["answer_kind"], "guidance")
+        self.assertEqual(result["blocks"][0]["guidance_reason"], "safe_hint")
+
+    async def test_chat_v2_returns_503_when_database_is_unavailable(self):
+        request = ChatV2Request(message="最近墒情怎么样", session_id="s1", turn_id=1)
+
+        with self.assertRaises(HTTPException) as caught:
+            await chat_v2(request, service=DatabaseFailingDataAnswerService())
+
+        self.assertEqual(caught.exception.status_code, 503)
+        self.assertIn("数据库不可用", str(caught.exception.detail))
+
+    async def test_chat_v2_returns_400_when_value_error_is_raised(self):
+        request = ChatV2Request(message="最近墒情怎么样", session_id="s1", turn_id=1)
+
+        with self.assertRaises(HTTPException) as caught:
+            await chat_v2(request, service=ChatV2ValueErrorService())
+
+        self.assertEqual(caught.exception.status_code, 400)
+        self.assertIn("bad request", str(caught.exception.detail))
 
 
 if __name__ == "__main__":

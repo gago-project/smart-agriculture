@@ -86,6 +86,8 @@ class InputGuardService:
         "支持什么",
         "你是谁",
     )
+    greeting_fragments = ("你好", "您好", "在吗", "在不在", "hello", "hi")
+    casual_smalltalk_fragments = ("哈哈", "呵呵", "嘿嘿")
 
     def classify(self, text: str) -> InputGuardResult:
         """对单条用户消息做分类；若不应进业务流，则附带建议回复与终态动作。"""
@@ -109,6 +111,15 @@ class InputGuardService:
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
                 suggested_answer="你好，我可以帮助查询土壤墒情、分析异常、生成预警模板，并提供保守的管理建议。",
+                guidance_reason="safe_hint",
+            )
+        if self._is_greeting_like_smalltalk(normalized, compact):
+            return InputGuardResult(
+                allow_business_flow=False,
+                input_type="meaningless_input",
+                terminal_action="safe_end",
+                suggested_answer_type="guidance_answer",
+                suggested_answer="我可以继续帮你查墒情数据、异常点位、预警规则或模板。你也可以直接说地区、设备或时间范围。",
                 guidance_reason="safe_hint",
             )
         # 能力/身份询问：用固定话术概括支持范围。
@@ -208,6 +219,16 @@ class InputGuardService:
         if normalized.endswith("呢") and self._contains_business_signal(normalized):
             return True
         return any(marker in normalized for marker in self.colloquial_markers)
+
+    def _is_greeting_like_smalltalk(self, normalized: str, compact: str) -> bool:
+        """识别夹杂问候词或口水话的短噪声输入，避免误入业务澄清。"""
+        if self._contains_business_signal(normalized) or self._has_explicit_time_signal(normalized):
+            return False
+        if len(compact) > 6:
+            return False
+        if any(fragment in normalized.lower() for fragment in self.greeting_fragments):
+            return True
+        return any(fragment in normalized for fragment in self.casual_smalltalk_fragments)
 
     def _is_pure_closing(self, text: str) -> bool:
         """仅在无业务信号时，将结束语判定为关闭会话。"""
