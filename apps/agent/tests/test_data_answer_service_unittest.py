@@ -122,6 +122,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             intercepted_inputs={"上岛咖啡京东卡", "京东卡可以提现吗", "今天午饭吃什么"}
         )
         self.follow_up_guard = FakeLlmFollowUpResolver()
+        self.repository = repository
         self.service = DataAnswerService(
             repository=repository,
             llm_input_guard=self.guard,
@@ -1293,7 +1294,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["capability"], "template")
         self.assertEqual(template["turn_context"]["topic_family"], "template")
         self.assertEqual(template["blocks"][0]["block_type"], "template_card")
-        self.assertNotIn("display_mode", template["blocks"][0])
+        self.assertEqual(template["blocks"][0]["display_mode"], "evidence_only")
         self.assertTrue(template["blocks"][0]["template_text"])
 
     async def test_typo_template_request_does_not_fall_back_to_time_clarification(self) -> None:
@@ -1333,6 +1334,109 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["turn_context"]["topic_family"], "template")
         self.assertEqual(template["blocks"][0]["block_type"], "template_card")
         self.assertNotIn("你想查看的时间段是", template["final_text"])
+
+    async def test_template_output_for_triggered_device_warning_renders_real_notice(self) -> None:
+        self.repository.records.append(
+            {
+                "id": 990001,
+                "sn": "SNS00213807",
+                "gatewayid": "GW-TEST-1",
+                "sensorid": "S-TEST-1",
+                "unitid": "U-TEST-1",
+                "city": "南京市",
+                "county": "江宁区",
+                "time": "2026-04-13 23:59:58",
+                "create_time": "2026-04-13 23:59:58",
+                "water20cm": 30.0,
+                "water40cm": 31.0,
+                "water60cm": 32.0,
+                "water80cm": 33.0,
+                "t20cm": 18.0,
+                "t40cm": 17.0,
+                "t60cm": 16.0,
+                "t80cm": 15.0,
+                "water20cmfieldstate": 1,
+                "water40cmfieldstate": 1,
+                "water60cmfieldstate": 1,
+                "water80cmfieldstate": 1,
+                "t20cmfieldstate": 1,
+                "t40cmfieldstate": 1,
+                "t60cmfieldstate": 1,
+                "t80cmfieldstate": 1,
+                "lat": 32.0,
+                "lon": 118.0,
+            }
+        )
+
+        reply = await self.service.reply(
+            message="按模板输出 SNS00213807 最新预警",
+            session_id="template-render-warning",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "template")
+        self.assertIn("SNS00213807", reply["final_text"])
+        self.assertIn("30.0%", reply["final_text"])
+        self.assertIn("heavy_drought", reply["final_text"])
+        self.assertNotIn("mock", reply["final_text"].lower())
+        self.assertEqual(reply["blocks"][0]["block_type"], "template_card")
+        self.assertEqual(reply["blocks"][0]["display_mode"], "evidence_only")
+        self.assertEqual(reply["blocks"][0]["warning_level"], "heavy_drought")
+        self.assertEqual(reply["blocks"][0]["rendered_text"], reply["final_text"])
+        self.assertEqual(reply["blocks"][0]["latest_record"]["sn"], "SNS00213807")
+
+    async def test_template_output_for_non_warning_device_returns_no_warning_notice(self) -> None:
+        self.repository.records.append(
+            {
+                "id": 990002,
+                "sn": "SNS00213808",
+                "gatewayid": "GW-TEST-2",
+                "sensorid": "S-TEST-2",
+                "unitid": "U-TEST-2",
+                "city": "南京市",
+                "county": "江宁区",
+                "time": "2026-04-13 23:59:57",
+                "create_time": "2026-04-13 23:59:57",
+                "water20cm": 90.0,
+                "water40cm": 91.0,
+                "water60cm": 92.0,
+                "water80cm": 93.0,
+                "t20cm": 18.0,
+                "t40cm": 17.0,
+                "t60cm": 16.0,
+                "t80cm": 15.0,
+                "water20cmfieldstate": 1,
+                "water40cmfieldstate": 1,
+                "water60cmfieldstate": 1,
+                "water80cmfieldstate": 1,
+                "t20cmfieldstate": 1,
+                "t40cmfieldstate": 1,
+                "t60cmfieldstate": 1,
+                "t80cmfieldstate": 1,
+                "lat": 32.0,
+                "lon": 118.0,
+            }
+        )
+
+        reply = await self.service.reply(
+            message="按模板输出 SNS00213808 最新预警",
+            session_id="template-render-no-warning",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "template")
+        self.assertIn("SNS00213808", reply["final_text"])
+        self.assertIn("未触发预警", reply["final_text"])
+        self.assertNotIn("heavy_drought", reply["final_text"])
+        self.assertIsNone(reply["blocks"][0]["warning_level"])
+        self.assertIsNone(reply["blocks"][0]["rendered_text"])
+        self.assertEqual(reply["blocks"][0]["latest_record"]["sn"], "SNS00213808")
 
     async def test_legacy_context_is_upgraded_to_context_v3(self) -> None:
         summary = await self.service.reply(

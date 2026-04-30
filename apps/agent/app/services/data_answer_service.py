@@ -3155,7 +3155,6 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
-        del message
         row = await self.repository.warning_template_row_async()
         if not row:
             return self._build_fallback_response(
@@ -3164,10 +3163,19 @@ class DataAnswerService:
                 text="当前模板不可用，请联系管理员检查配置。",
                 current_context=current_context,
             )
+        if await self._should_render_template_output(message=message, current_context=current_context):
+            return await self._reply_template_output(
+                message=message,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=current_context,
+                template_row=row,
+            )
         block_id = f"block_template_{turn_id}"
         block = {
             "block_id": block_id,
             "block_type": "template_card",
+            "display_mode": "evidence_only",
             "template_id": row.get("template_id"),
             "template_name": row.get("template_name"),
             "template_text": row.get("template_text"),
@@ -3228,6 +3236,220 @@ class DataAnswerService:
                     executed_result={"template": row},
                     result_digest={"template_id": row.get("template_id"), "version": row.get("version")},
                 )
+            ],
+        }
+
+    async def _should_render_template_output(
+        self,
+        *,
+        message: str,
+        current_context: dict[str, Any],
+    ) -> bool:
+        entities = await self._extract_entities(message)
+        if any(entities.get(key) for key in ("province", "city", "county", "sn")):
+            return True
+        query_state = current_context.get("query_state") or {}
+        return current_context.get("topic_family") == "data" and str(query_state.get("capability") or "") == "detail"
+
+    async def _reply_template_output(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+        template_row: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_detail",
+                current_context=current_context,
+                turn_id=turn_id,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="template",
+                grain="template_output",
+                clarify_text=str(exc),
+            )
+
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(message, latest_business_time)
+        latest_only = "最新" in message and not getattr(time_evidence, "has_time_signal", False)
+        latest_records = await self.repository.filter_records_async(
+            city=resolved_args.get("city"),
+            county=resolved_args.get("county"),
+            sn=resolved_args.get("sn"),
+            start_time=None if latest_only else resolved_args.get("start_time"),
+            end_time=None if latest_only else resolved_args.get("end_time"),
+            limit=1,
+        )
+        if not latest_records:
+            label = self._entity_label(resolved_entities) or str(
+                resolved_args.get("sn") or resolved_args.get("county") or resolved_args.get("city") or "当前对象"
+            )
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="template",
+                text=f"{label}当前没有可用于模板输出的监测数据，请确认设备、地区或时间范围后再试。",
+                current_context=current_context,
+            )
+
+        latest_record = self._raw_row(latest_records[0])
+        warning_level = self._resolve_warning_level(
+            latest_record,
+            await self.repository.warning_rule_row_async(),
+        )
+        render_fields = self._build_template_render_fields(latest_record, warning_level)
+        rendered_text = None
+        effective_time_window = {} if latest_only else time_window
+        block_id = f"block_template_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "template_card",
+            "display_mode": "evidence_only",
+            "template_id": template_row.get("template_id"),
+            "template_name": template_row.get("template_name"),
+            "template_text": template_row.get("template_text"),
+            "required_fields_json": template_row.get("required_fields_json"),
+            "version": template_row.get("version"),
+            "updated_at": template_row.get("updated_at"),
+            "warning_level": warning_level,
+            "latest_record": latest_record,
+            "render_fields": render_fields,
+            "rendered_text": None,
+        }
+
+        label = self._entity_label(resolved_entities) or str(latest_record.get("sn") or "当前对象")
+        if warning_level:
+            rendered_text = self._render_warning_template_text(
+                template_text=str(template_row.get("template_text") or ""),
+                render_fields=render_fields,
+            )
+            block["rendered_text"] = rendered_text
+            final_text = rendered_text
+        else:
+            final_text = self._render_no_warning_template_text(
+                label=label,
+                time_window=effective_time_window,
+                latest_record=latest_record,
+            )
+
+        query_spec = self._build_query_spec(
+            capability="detail",
+            grain="entity_detail",
+            time_window=effective_time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": effective_time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "device_snapshot_id": None,
+                "record_snapshot_id": None,
+                "region_group_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="detail",
+            grain="entity_detail",
+            slots=resolution_meta["slots"],
+            time_window=effective_time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(
+                turn_id=turn_id,
+                block={"block_type": "detail_card", "title": label, "latest_record": latest_record},
+            ),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        fact_sql = self.repository.build_filter_records_audit_sql(
+            city=resolved_args.get("city"),
+            county=resolved_args.get("county"),
+            sn=resolved_args.get("sn"),
+            start_time=None if latest_only else resolved_args.get("start_time"),
+            end_time=None if latest_only else resolved_args.get("end_time"),
+            limit=1,
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "template",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="detail",
+                    query_spec=query_spec,
+                    executed_sql_text=fact_sql,
+                    row_count=len(latest_records),
+                    snapshot_id=None,
+                    time_window=effective_time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"latest_record": latest_record, "warning_level": warning_level},
+                    result_digest={"latest_sn": latest_record.get("sn"), "warning_level": warning_level},
+                ),
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=2,
+                    query_type="template",
+                    query_spec={
+                        "spec_id": f"qs_{turn_id}_template_render",
+                        "dataset": "warning_template",
+                        "capability": "template",
+                        "grain": "template_render",
+                        "time_window": effective_time_window,
+                        "entities": {
+                            "city": [resolved_args["city"]] if resolved_args.get("city") else [],
+                            "county": [resolved_args["county"]] if resolved_args.get("county") else [],
+                            "sn": [resolved_args["sn"]] if resolved_args.get("sn") else [],
+                        },
+                        "filters": {"template_id": template_row.get("template_id")},
+                        "sort": {"field": "updated_at", "direction": "desc"},
+                        "page": {"page": 1, "page_size": 1},
+                        "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+                    },
+                    executed_sql_text=self.repository.build_warning_template_audit_sql(),
+                    row_count=1,
+                    snapshot_id=None,
+                    time_window=effective_time_window,
+                    filters={"template_id": template_row.get("template_id")},
+                    executed_result={
+                        "template_id": template_row.get("template_id"),
+                        "rendered_text": rendered_text,
+                        "warning_level": warning_level,
+                    },
+                    result_digest={"template_id": template_row.get("template_id"), "warning_level": warning_level},
+                ),
             ],
         }
 
@@ -3448,6 +3670,92 @@ class DataAnswerService:
             f"其中重旱条件为 {thresholds.get('heavy_drought', '未配置')}，"
             f"涝渍条件为 {thresholds.get('waterlogging', '未配置')}，"
             f"设备故障条件为 {thresholds.get('device_fault', '未配置')}。"
+        )
+
+    @staticmethod
+    def _resolve_warning_level(latest_record: dict[str, Any], rule_row: dict[str, Any] | None) -> str | None:
+        rule_definition = (rule_row or {}).get("rule_definition_json") or {}
+        if isinstance(rule_definition, str):
+            try:
+                rule_definition = json.loads(rule_definition)
+            except json.JSONDecodeError:
+                rule_definition = {}
+        rules = list((rule_definition or {}).get("rules") or [])
+        rules.sort(key=lambda item: int(item.get("priority") or 999))
+        water20 = _safe_float(latest_record.get("water20cm"))
+        t20 = _safe_float(latest_record.get("t20cm"))
+        for item in rules:
+            warning_level = str(item.get("warning_level") or "")
+            condition = str(item.get("condition") or "")
+            if warning_level == "device_fault" and water20 == 0 and t20 == 0:
+                return warning_level
+            if warning_level == "heavy_drought" and "<" in condition and water20 is not None:
+                try:
+                    if water20 < float(condition.split("<")[-1].strip()):
+                        return warning_level
+                except ValueError:
+                    continue
+            if warning_level == "waterlogging" and ">=" in condition and water20 is not None:
+                try:
+                    if water20 >= float(condition.split(">=")[-1].strip()):
+                        return warning_level
+                except ValueError:
+                    continue
+        return None
+
+    @staticmethod
+    def _build_template_render_fields(latest_record: dict[str, Any], warning_level: str | None) -> dict[str, Any]:
+        create_time = str(latest_record.get("create_time") or "")
+        try:
+            create_dt = datetime.strptime(create_time[:19], "%Y-%m-%d %H:%M:%S")
+            year = create_dt.year
+            month = create_dt.month
+            day = create_dt.day
+            hour = create_dt.hour
+        except ValueError:
+            year = create_time[:4] if len(create_time) >= 4 else ""
+            month = create_time[5:7] if len(create_time) >= 7 else ""
+            day = create_time[8:10] if len(create_time) >= 10 else ""
+            hour = create_time[11:13] if len(create_time) >= 13 else ""
+        return {
+            "year": year,
+            "month": month,
+            "day": day,
+            "hour": hour,
+            "city": latest_record.get("city") or "",
+            "county": latest_record.get("county") or "",
+            "sn": latest_record.get("sn") or "",
+            "water20cm": latest_record.get("water20cm"),
+            "warning_level": warning_level or "",
+        }
+
+    @staticmethod
+    def _render_warning_template_text(template_text: str, render_fields: dict[str, Any]) -> str:
+        normalized = re.sub(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", r"{\1}", template_text)
+        safe_fields = {
+            key: ("" if value is None else str(value))
+            for key, value in render_fields.items()
+        }
+        return normalized.format_map(safe_fields)
+
+    @staticmethod
+    def _render_no_warning_template_text(
+        *,
+        label: str,
+        time_window: dict[str, Any],
+        latest_record: dict[str, Any],
+    ) -> str:
+        latest_time = str(latest_record.get("create_time") or "暂无")
+        water20 = latest_record.get("water20cm")
+        prefix = label or str(latest_record.get("sn") or "当前对象")
+        if time_window.get("start_time") and time_window.get("end_time"):
+            return (
+                f"{prefix}在{time_window['start_time'][:10]}至{time_window['end_time'][:10]}范围内的最新数据未触发预警，"
+                f"当前不输出预警模板。最近一条记录时间为 {latest_time}，20cm含水量 {water20}%。"
+            )
+        return (
+            f"{prefix}最新数据未触发预警，当前不输出预警模板。"
+            f"最近一条记录时间为 {latest_time}，20cm含水量 {water20}%。"
         )
 
     @staticmethod

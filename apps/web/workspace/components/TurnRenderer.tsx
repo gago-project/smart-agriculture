@@ -173,26 +173,6 @@ function CompareBlock({ block }: { block: ChatBlock }) {
   );
 }
 
-const TEMPLATE_MOCK_PREVIEW =
-  '2026 年 XX 月 XX 日 XX 时 XXX市 XXX区 SN 编号 SNS00XXXXXX 土壤墒情仪监测到相对含水量 XX%，预警等级 XXX，请大田/设施大棚/林果相关主体关注。';
-
-function TemplateBlock({ block }: { block: ChatBlock }) {
-  const templateName = toLabelValue(block.template_name || block.title || '预警模板');
-
-  return (
-    <section className="turn-block template-card">
-      <div className="template-card-meta">
-        <strong>{templateName}</strong>
-        <span className="template-card-note">以下内容为 mock 示例，非真实数据，仅用于展示模板效果。</span>
-      </div>
-      <div className="template-card-preview">
-        <span className="template-card-badge">模板示意</span>
-        <p className="template-card-body">{TEMPLATE_MOCK_PREVIEW}</p>
-      </div>
-    </section>
-  );
-}
-
 function RuleBlock({ block }: { block: ChatBlock }) {
   return (
     <section className="turn-block">
@@ -267,7 +247,7 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
           return <RuleBlock key={block.block_id} block={block} />;
         }
         if (block.block_type === 'template_card') {
-          return <TemplateBlock key={block.block_id} block={block} />;
+          return null;
         }
         if (block.block_type === 'guidance_card' || block.block_type === 'fallback_card') {
           return null;
