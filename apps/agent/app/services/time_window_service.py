@@ -24,7 +24,8 @@ _CHINESE_NUMBERS = {
 _ABSOLUTE_TIME_PATTERNS = (
     re.compile(r"\d{4}\s*-\s*\d{1,2}\s*-\s*\d{1,2}"),
     re.compile(r"\d{4}\s*/\s*\d{1,2}\s*/\s*\d{1,2}"),
-    re.compile(r"\d{1,2}\s*月\s*\d{1,2}\s*日"),
+    re.compile(r"(?:\d{2}|\d{4})\s*年\s*\d{1,2}\s*月\s*\d{1,2}\s*[日号]?"),
+    re.compile(r"\d{1,2}\s*月\s*\d{1,2}\s*[日号]"),
     re.compile(r"\d{4}\s*年\s*\d{1,2}\s*月"),
     re.compile(r"去年\s*\d{1,2}\s*月"),
 )
@@ -37,6 +38,12 @@ _AMBIGUOUS_PATTERNS = (
 
 _ABSOLUTE_YEAR_MONTH_PATTERN = re.compile(r"(?P<year>\d{4})\s*年\s*(?P<month>\d{1,2})\s*月")
 _LAST_YEAR_MONTH_PATTERN = re.compile(r"去年\s*(?P<month>\d{1,2})\s*月")
+_SINGLE_FULL_DATE_PATTERNS = (
+    re.compile(r"(?P<year>\d{4})\s*-\s*(?P<month>\d{1,2})\s*-\s*(?P<day>\d{1,2})"),
+    re.compile(r"(?P<year>\d{4})\s*/\s*(?P<month>\d{1,2})\s*/\s*(?P<day>\d{1,2})"),
+    re.compile(r"(?P<year>\d{2}|\d{4})\s*年\s*(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*[日号]?"),
+)
+_SINGLE_MONTH_DAY_PATTERN = re.compile(r"(?P<month>\d{1,2})\s*月\s*(?P<day>\d{1,2})\s*[日号]")
 _FULL_DATE_RANGE_PATTERNS = (
     re.compile(
         r"(?P<y1>\d{4})\s*-\s*(?P<m1>\d{1,2})\s*-\s*(?P<d1>\d{1,2})\s*(?:到|至|-)\s*"
@@ -128,6 +135,17 @@ class TimeWindowService:
             )
             return self._window("rule_absolute", start, end)
 
+        for pattern in _SINGLE_FULL_DATE_PATTERNS:
+            match = pattern.search(text)
+            if not match:
+                continue
+            year = self._normalize_year(match.group("year"), anchor)
+            month = int(match.group("month"))
+            day = int(match.group("day"))
+            start = datetime(year, month, day, 0, 0, 0)
+            end = datetime(year, month, day, 23, 59, 59)
+            return self._window("rule_absolute", start, end)
+
         month_day_match = _MONTH_DAY_RANGE_PATTERN.search(text)
         if month_day_match:
             if anchor is None:
@@ -144,6 +162,28 @@ class TimeWindowService:
                 anchor.year,
                 int(month_day_match.group("m2")),
                 int(month_day_match.group("d2")),
+                23,
+                59,
+                59,
+            )
+            return self._window("rule_absolute", start, end)
+
+        single_month_day_match = _SINGLE_MONTH_DAY_PATTERN.search(text)
+        if single_month_day_match:
+            if anchor is None:
+                return TimeWindowResolution(has_time_signal=True, clarify_reason="missing_latest_business_time")
+            start = datetime(
+                anchor.year,
+                int(single_month_day_match.group("month")),
+                int(single_month_day_match.group("day")),
+                0,
+                0,
+                0,
+            )
+            end = datetime(
+                anchor.year,
+                int(single_month_day_match.group("month")),
+                int(single_month_day_match.group("day")),
                 23,
                 59,
                 59,
@@ -230,6 +270,15 @@ class TimeWindowService:
         if anchor is None:
             return TimeWindowResolution(has_time_signal=True, clarify_reason="missing_latest_business_time")
         return None
+
+    @staticmethod
+    def _normalize_year(raw: str, anchor: datetime | None) -> int:
+        if len(raw) == 4:
+            return int(raw)
+        if anchor is not None:
+            century = anchor.year // 100
+            return century * 100 + int(raw)
+        return 2000 + int(raw)
 
     @staticmethod
     def _parse_number(raw: str) -> int | None:

@@ -30,6 +30,7 @@ export default function App() {
     createSession,
     switchSession,
     deleteSession,
+    renameSession,
     retryForMessage,
     sendQuestion,
     selectedAssistantMessage,
@@ -121,6 +122,7 @@ export default function App() {
         activeSessionId={activeSessionId}
         onCreateSession={createSession}
         onSwitchSession={switchSession}
+        onRenameSession={renameSession}
         onDeleteSession={deleteSession}
       />
       <main className="main">

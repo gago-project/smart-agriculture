@@ -79,6 +79,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(summary["answer_kind"], "business")
         self.assertEqual(summary["capability"], "summary")
         self.assertEqual(summary["blocks"][0]["block_type"], "summary_card")
+        self.assertEqual(summary["blocks"][0]["display_mode"], "evidence_only")
         self.assertTrue(summary["query_ref"]["has_query"])
         self.assertTrue(summary["turn_context"]["derived_sets"]["focus_devices_snapshot_id"])
 
@@ -94,8 +95,83 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing["answer_kind"], "business")
         self.assertEqual(listing["capability"], "list")
         self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
+        self.assertNotIn("display_mode", listing["blocks"][0])
         self.assertEqual(listing["blocks"][0]["pagination"]["snapshot_id"], focus_snapshot_id)
         self.assertGreaterEqual(listing["blocks"][0]["pagination"]["total_count"], 0)
+
+    async def test_detail_block_is_kept_for_evidence_but_marked_hidden_in_chat(self) -> None:
+        detail = await self.service.reply(
+            message="如东县详情",
+            session_id="detail-hidden-block",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(detail["answer_kind"], "business")
+        self.assertEqual(detail["capability"], "detail")
+        self.assertEqual(detail["blocks"][0]["block_type"], "detail_card")
+        self.assertEqual(detail["blocks"][0]["display_mode"], "evidence_only")
+
+    async def test_summary_then_alert_record_follow_up_returns_record_list(self) -> None:
+        summary = await self.service.reply(
+            message="江苏最近墒情情况如何",
+            session_id="summary-record-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        listing = await self.service.reply(
+            message="这44条预警记录详情",
+            session_id="summary-record-list",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(listing["answer_kind"], "business")
+        self.assertEqual(listing["capability"], "list")
+        self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
+        self.assertIn("预警记录", listing["blocks"][0]["title"])
+        self.assertEqual(
+            listing["blocks"][0]["pagination"]["total_count"],
+            summary["blocks"][0]["metrics"]["alert_record_count"],
+        )
+        self.assertGreater(len(listing["blocks"][0]["rows"]), 1)
+
+    async def test_legacy_summary_context_without_alert_snapshot_rebuilds_record_list(self) -> None:
+        summary = await self.service.reply(
+            message="江苏最近墒情情况如何",
+            session_id="legacy-summary-record-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        legacy_context = {
+            **summary["turn_context"],
+            "derived_sets": {
+                "focus_devices_snapshot_id": summary["turn_context"]["derived_sets"].get("focus_devices_snapshot_id"),
+                "focus_regions_snapshot_id": None,
+            },
+        }
+
+        listing = await self.service.reply(
+            message="这44条预警记录详情",
+            session_id="legacy-summary-record-list",
+            turn_id=2,
+            current_context=legacy_context,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(listing["answer_kind"], "business")
+        self.assertEqual(listing["capability"], "list")
+        self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
+        self.assertEqual(
+            listing["blocks"][0]["pagination"]["total_count"],
+            summary["blocks"][0]["metrics"]["alert_record_count"],
+        )
+        self.assertTrue(listing["turn_context"]["derived_sets"].get("alert_records_snapshot_id"))
 
     async def test_capability_question_returns_guidance_instead_of_time_clarification(self) -> None:
         reply = await self.service.reply(

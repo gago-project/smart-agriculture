@@ -34,6 +34,7 @@ export interface ChatBlock {
     | 'template_card'
     | 'guidance_card'
     | 'fallback_card';
+  display_mode?: 'chat' | 'evidence_only';
   title?: string;
   text?: string;
   columns?: string[];

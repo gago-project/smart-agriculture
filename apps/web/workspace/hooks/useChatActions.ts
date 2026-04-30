@@ -4,6 +4,7 @@ import {
   createChatSession,
   fetchChatSession,
   fetchChatSessions,
+  renameChatSession,
   sendChat,
 } from '../services/chatApi';
 import { useChatStore } from '../store/chatStore';
@@ -237,6 +238,22 @@ export function useChatActions() {
     deleteSessionFromStore(sessionId);
   }, [deleteSessionFromStore]);
 
+  const renameSession = useCallback(async (sessionId: string, title: string) => {
+    setError(null);
+    try {
+      const result = await renameChatSession(sessionId, title);
+      patchSession(sessionId, {
+        title: result.title,
+        updatedAt: Date.now(),
+      });
+      return result;
+    } catch (caughtError) {
+      const message = caughtError instanceof Error ? caughtError.message : '会话名称更新失败';
+      setError(message);
+      throw caughtError instanceof Error ? caughtError : new Error(message);
+    }
+  }, [patchSession]);
+
   const selectAssistantMessage = useCallback((message: Message) => {
     if (!activeSessionId || !isAssistantMessageSelectable(message)) {
       return;
@@ -318,6 +335,7 @@ export function useChatActions() {
     createSession,
     switchSession,
     deleteSession,
+    renameSession,
     selectAssistantMessage,
     sendQuestion,
     retryForMessage,

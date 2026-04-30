@@ -9,6 +9,18 @@ test('server-backed chat session routes exist for sessions archive and block pag
   assert.equal(existsSync(new URL('../app/api/agent/chat-block/route.ts', import.meta.url)), true);
 });
 
+test('chat session detail route also supports renaming the session title', () => {
+  const routeSource = readFileSync(new URL('../app/api/agent/sessions/[sessionId]/route.ts', import.meta.url), 'utf8');
+  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(routeSource, /export async function PATCH/);
+  assert.match(routeSource, /payload\?\.title/);
+  assert.match(routeSource, /renameChatSession/);
+  assert.match(repositorySource, /export async function renameChatSession/);
+  assert.match(repositorySource, /UPDATE agent_chat_session/);
+  assert.match(repositorySource, /SET title = \?, updated_at = NOW\(\)/);
+});
+
 test('agent chat route uses client_message_id and no longer derives turn_id from local history', () => {
   const routeSource = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
 

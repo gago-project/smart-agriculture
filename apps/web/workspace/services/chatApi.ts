@@ -71,6 +71,14 @@ export async function fetchChatSession(sessionId: string): Promise<ChatSessionDe
   return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
 }
 
+export async function renameChatSession(sessionId: string, title: string): Promise<{ session_id: string; title: string }> {
+  return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  });
+}
+
 export async function archiveChatSession(sessionId: string): Promise<{ session_id: string; archived: boolean }> {
   return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' });
 }

@@ -519,6 +519,8 @@ body,
   border-radius: 18px;
   padding: 14px 16px;
   max-width: calc(100% - 24px);
+  min-width: 0;
+  overflow: hidden;
   background: var(--assistant-bubble);
   border: 1px solid var(--border);
 }
@@ -560,6 +562,131 @@ body,
 .message p {
   margin: 0;
   line-height: 1.7;
+  overflow-wrap: anywhere;
+}
+
+.turn-block-list {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+  min-width: 0;
+}
+
+.turn-block {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: var(--panel-soft);
+  min-width: 0;
+}
+
+.turn-block-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.turn-block-header strong {
+  font-size: 15px;
+}
+
+.turn-block-header span {
+  color: var(--muted);
+  font-size: 12px;
+  text-align: right;
+}
+
+.turn-block-metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px;
+}
+
+.turn-block-metrics div {
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  font-size: 13px;
+}
+
+.turn-block-table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #ffffff;
+}
+
+.turn-block-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: collapse;
+}
+
+.turn-block-table th,
+.turn-block-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.turn-block-table th {
+  background: var(--panel-soft);
+  font-weight: 700;
+}
+
+.turn-block-pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.turn-block-pagination button {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 6px 10px;
+  background: #ffffff;
+  color: var(--text);
+  font: inherit;
+}
+
+.turn-block-pagination button:disabled {
+  opacity: 0.45;
+}
+
+.turn-block-empty,
+.turn-block-error {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+  background: #ffffff;
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.turn-block-error {
+  border-style: solid;
+  border-color: rgba(239, 68, 68, 0.22);
+  color: #b91c1c;
+}
+
+.turn-block-pre {
+  margin: 0;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .ai-badge {

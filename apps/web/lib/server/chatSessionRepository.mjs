@@ -718,6 +718,25 @@ export async function getChatSessionDetail({ ownerUserId, sessionId }) {
   });
 }
 
+export async function renameChatSession({ ownerUserId, sessionId, title }) {
+  const sessionTitle = buildSessionTitle(title);
+  return await withMysqlConnection(async (connection) => {
+    const [result] = await connection.execute(
+      `UPDATE agent_chat_session
+       SET title = ?, updated_at = NOW()
+       WHERE session_id = ? AND owner_user_id = ? AND archived_at IS NULL`,
+      [sessionTitle, sessionId, ownerUserId],
+    );
+    if (!result.affectedRows) {
+      throw new Error('会话不存在、已归档或无权限访问');
+    }
+    return {
+      session_id: sessionId,
+      title: sessionTitle,
+    };
+  });
+}
+
 export async function archiveChatSession({ ownerUserId, sessionId }) {
   return await withMysqlConnection(async (connection) => {
     const [result] = await connection.execute(

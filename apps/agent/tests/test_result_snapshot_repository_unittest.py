@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 import unittest
+from decimal import Decimal
 
 from app.repositories.result_snapshot_repository import ResultSnapshotRepository
 
@@ -96,6 +98,26 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
         self.assertEqual(len(item_inserts), 3)
         self.assertTrue(connection.committed)
         self.assertTrue(connection.closed)
+
+    def test_create_snapshot_serializes_decimal_fields_for_json_columns(self) -> None:
+        connection = RecordingConnection()
+        repository = ResultSnapshotRepository(repository=SnapshotRepositoryBackedByConnection(connection))
+
+        repository.create_snapshot(
+            session_id="session-1",
+            source_turn_id=1,
+            source_block_id="block_summary_1",
+            snapshot_kind="focus_devices",
+            query_spec={"capability": "summary", "threshold": Decimal("41.20")},
+            rule_version="rule-v1",
+            rows=[{"sn": "SNS00000001", "city": "南通市", "county": "如东县", "water20cm": Decimal("41.20")}],
+        )
+
+        snapshot_insert_params = connection.executed[0][1]
+        item_insert_params = connection.executed[1][1]
+        self.assertEqual(json.loads(snapshot_insert_params[5])["threshold"], 41.2)
+        self.assertEqual(json.loads(item_insert_params[10])["water20cm"], 41.2)
+        self.assertTrue(connection.committed)
 
     def test_create_snapshot_keeps_original_error_when_rollback_also_fails(self) -> None:
         connection = RecordingConnection(fail_on_execute_index=2, rollback_raises=True)

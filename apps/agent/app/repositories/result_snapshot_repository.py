@@ -7,7 +7,8 @@ import asyncio
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
+from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +23,20 @@ def _parse_json_value(value: Any) -> Any:
         except json.JSONDecodeError:
             return value
     return value
+
+
+def _json_default(value: Any) -> Any:
+    """Convert DB-native scalar values into JSON-safe primitives."""
+    if isinstance(value, Decimal):
+        return float(value)
+    if isinstance(value, (datetime, date)):
+        return value.isoformat(sep=" ")
+    raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")
+
+
+def _json_dumps(value: Any, *, sort_keys: bool = False) -> str:
+    """Serialize snapshot JSON columns with Decimal/date support."""
+    return json.dumps(value, ensure_ascii=False, default=_json_default, sort_keys=sort_keys)
 
 
 @dataclass
@@ -88,7 +103,7 @@ class ResultSnapshotRepository:
                         row["warning_level"],
                         row["risk_score"],
                         row["latest_create_time"],
-                        json.dumps(row["payload_json"], ensure_ascii=False),
+                        _json_dumps(row["payload_json"]),
                     ]
                 )
             cursor.execute(
@@ -133,7 +148,7 @@ class ResultSnapshotRepository:
             "snapshot_kind": snapshot_kind,
             "query_spec_json": query_spec,
             "query_spec_hash": hashlib.sha1(
-                json.dumps(query_spec, ensure_ascii=False, sort_keys=True).encode("utf-8")
+                _json_dumps(query_spec, sort_keys=True).encode("utf-8")
             ).hexdigest(),
             "rule_version": rule_version,
             "total_count": len(normalized_rows),
@@ -170,7 +185,7 @@ class ResultSnapshotRepository:
                         source_turn_id,
                         source_block_id,
                         snapshot_kind,
-                        json.dumps(query_spec, ensure_ascii=False),
+                        _json_dumps(query_spec),
                         payload["query_spec_hash"],
                         rule_version,
                         len(normalized_rows),

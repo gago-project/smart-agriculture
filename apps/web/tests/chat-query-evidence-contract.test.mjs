@@ -18,6 +18,24 @@ test('chat panel supports selecting assistant replies for evidence review', () =
   assert.match(chatPanelSource, /message\.role === 'assistant'/);
 });
 
+test('assistant text replies are not duplicated by plain-text turn blocks', () => {
+  const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
+  const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+
+  assert.match(chatPanelSource, /<p>\{message\.content \|\| \(message\.status === 'streaming' \? '\.\.\.' : ''\)\}<\/p>/);
+  assert.match(turnRendererSource, /block\.display_mode === 'evidence_only'/);
+  assert.match(turnRendererSource, /block\.block_type === 'guidance_card' \|\| block\.block_type === 'fallback_card'/);
+  assert.match(turnRendererSource, /return null;/);
+});
+
+test('chat turn tables keep message width constrained and scroll horizontally', () => {
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(globalsSource, /\.message\s*\{[\s\S]*min-width:\s*0/);
+  assert.match(globalsSource, /\.turn-block-table-wrap\s*\{[\s\S]*overflow-x:\s*auto/);
+  assert.match(globalsSource, /\.turn-block-table\s*\{[\s\S]*(width:\s*max-content|min-width:\s*100%)/);
+});
+
 test('chat store persists selected assistant message ids by session', () => {
   const chatStoreSource = readFileSync(new URL('../workspace/store/chatStore.ts', import.meta.url), 'utf8');
 

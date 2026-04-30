@@ -24,6 +24,10 @@ from app.services.time_window_service import TimeWindowService
 
 ALERT_STATUSES = {"heavy_drought", "waterlogging", "device_fault"}
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
+LIST_TARGET_FOCUS_DEVICES = "focus_devices"
+LIST_TARGET_ALERT_RECORDS = "alert_records"
+FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "soil_status", "warning_level", "risk_score", "latest_create_time"]
+ALERT_RECORD_COLUMNS = ["sn", "city", "county", "create_time", "water20cm", "soil_status", "warning_level", "risk_score"]
 
 
 def _safe_float(value: Any) -> float | None:
@@ -81,8 +85,15 @@ class DataAnswerService:
         if self._is_template_request(text):
             return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
 
-        if self._is_list_request(text):
-            return await self._reply_list(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        list_target = self._resolve_list_target(text, context)
+        if list_target:
+            return await self._reply_list(
+                message=text,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+                list_target=list_target,
+            )
         if self._is_group_request(text):
             return await self._reply_group(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
 
@@ -167,8 +178,33 @@ class DataAnswerService:
         return "模板" in text
 
     @staticmethod
-    def _is_list_request(text: str) -> bool:
-        return any(token in text for token in ("列出", "这些点位", "重点关注的点位", "设备名单"))
+    def _current_list_grain(context: dict[str, Any]) -> str:
+        return str((context.get("primary_query_spec") or {}).get("grain") or "")
+
+    def _resolve_list_target(self, text: str, context: dict[str, Any]) -> str | None:
+        normalized = (text or "").strip()
+        if not normalized:
+            return None
+
+        prior_grain = self._current_list_grain(context)
+        has_data_context = context.get("topic_family") == "data"
+        has_follow_up_reference = any(token in normalized for token in ("这些", "这44条", "这44个", "这里的", "刚才", "上面的"))
+        has_list_verb = any(token in normalized for token in ("列出", "列一下", "展示", "查看", "看看", "名单", "列表"))
+        mentions_record = "记录" in normalized or ("数据" in normalized and "规则" not in normalized and "模板" not in normalized)
+        mentions_device = any(token in normalized for token in ("点位", "设备"))
+        mentions_focus_devices = any(token in normalized for token in ("重点关注的点位", "重点关注点位", "设备名单"))
+
+        if mentions_record and any(token in normalized for token in ("预警", "异常", "条", "详情", "明细", "列出", "展示")):
+            return LIST_TARGET_ALERT_RECORDS
+        if mentions_focus_devices:
+            return LIST_TARGET_FOCUS_DEVICES
+        if has_data_context and prior_grain == "record_list" and has_follow_up_reference:
+            return LIST_TARGET_ALERT_RECORDS
+        if mentions_device and (has_list_verb or has_follow_up_reference or "只看" in normalized or "筛" in normalized):
+            return LIST_TARGET_FOCUS_DEVICES
+        if has_data_context and has_list_verb:
+            return LIST_TARGET_ALERT_RECORDS if prior_grain == "record_list" else LIST_TARGET_FOCUS_DEVICES
+        return None
 
     @staticmethod
     def _is_group_request(text: str) -> bool:
@@ -376,6 +412,31 @@ class DataAnswerService:
         return rows
 
     @staticmethod
+    def _alert_record_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows = []
+        for record in records:
+            if record.get("soil_status") not in ALERT_STATUSES:
+                continue
+            rows.append(
+                {
+                    "entity_key": str(record.get("id") or f"{record.get('sn') or ''}:{record.get('create_time') or ''}"),
+                    "record_id": record.get("id"),
+                    "city": record.get("city"),
+                    "county": record.get("county"),
+                    "sn": record.get("sn"),
+                    "create_time": record.get("create_time"),
+                    "water20cm": record.get("water20cm"),
+                    "soil_status": record.get("soil_status"),
+                    "warning_level": record.get("warning_level"),
+                    "risk_score": record.get("risk_score"),
+                }
+            )
+        rows.sort(key=lambda item: str(item.get("sn") or ""))
+        rows.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
+        rows.sort(key=lambda item: _safe_float(item.get("risk_score")) or 0.0, reverse=True)
+        return rows
+
+    @staticmethod
     def _top_regions_from_focus_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
         grouped: dict[tuple[str | None, str | None], dict[str, Any]] = {}
         for row in rows:
@@ -440,6 +501,81 @@ class DataAnswerService:
         except Exception as exc:
             raise DatabaseQueryError(f"结果快照写入失败：{exc}") from exc
 
+    @staticmethod
+    def _resolved_args_from_context(current_context: dict[str, Any]) -> dict[str, Any] | None:
+        primary_query_spec = current_context.get("primary_query_spec") or {}
+        time_window = current_context.get("time_window") or primary_query_spec.get("time_window") or {}
+        start_time = time_window.get("start_time")
+        end_time = time_window.get("end_time")
+        if not start_time or not end_time:
+            return None
+
+        entities = primary_query_spec.get("entities") or {}
+        city = next(iter(entities.get("city") or []), None)
+        county = next(iter(entities.get("county") or []), None)
+        sn = next(iter(entities.get("sn") or []), None)
+
+        if not city and not county and not sn:
+            for entity in current_context.get("resolved_entities") or []:
+                if entity.get("kind") == "city" and not city:
+                    city = entity.get("canonical_name")
+                elif entity.get("kind") == "county" and not county:
+                    county = entity.get("canonical_name")
+                elif entity.get("kind") == "device" and not sn:
+                    sn = entity.get("canonical_name")
+
+        return {
+            "city": city,
+            "county": county,
+            "sn": sn,
+            "start_time": start_time,
+            "end_time": end_time,
+        }
+
+    async def _recover_snapshot_from_context(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        block_id: str,
+        current_context: dict[str, Any],
+        snapshot_config: dict[str, Any],
+    ) -> tuple[dict[str, Any], str] | tuple[None, None]:
+        primary_query_spec = current_context.get("primary_query_spec") or {}
+        if ((primary_query_spec.get("filters") or {}).get("source_snapshot_id")):
+            return None, None
+
+        resolved_args = self._resolved_args_from_context(current_context)
+        if not resolved_args:
+            return None, None
+
+        records = await self._query_records(resolved_args)
+        rows = self._alert_record_rows(records) if snapshot_config["grain"] == "record_list" else self._focus_device_rows(records)
+        if not rows:
+            return None, None
+
+        snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={
+                **primary_query_spec,
+                "capability": "list",
+                "grain": snapshot_config["grain"],
+                "filters": {
+                    **((primary_query_spec.get("filters") or {})),
+                    "alert_only": True,
+                    "source_snapshot_id": None,
+                },
+                "page": {"page": 1, "page_size": 50},
+            },
+            rule_version=str(records[0].get("rule_version") or "") if records else None,
+            rows=rows,
+            snapshot_kind=snapshot_config["snapshot_kind"],
+        )
+        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        return snapshot, audit_sql
+
     async def _reply_summary(
         self,
         *,
@@ -464,6 +600,7 @@ class DataAnswerService:
 
         block_id = f"block_summary_{turn_id}"
         focus_rows = self._focus_device_rows(records)
+        alert_rows = self._alert_record_rows(records)
         metrics = self._summary_metrics(records, focus_rows)
         query_spec = self._build_query_spec(
             capability="summary",
@@ -482,6 +619,15 @@ class DataAnswerService:
             rule_version=rule_version,
             rows=focus_rows,
         )
+        alert_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "record_list", "filters": {**query_spec["filters"], "alert_only": True}},
+            rule_version=rule_version,
+            rows=alert_rows,
+            snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+        )
         top_regions = self._top_regions_from_focus_rows(focus_rows)
         label = self._entity_label(resolved_entities) or "当前整体墒情"
         summary_text = self._render_summary_text(
@@ -494,11 +640,13 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "summary_card",
+            "display_mode": "evidence_only",
             "title": label,
             "time_window": time_window,
             "metrics": metrics,
             "top_regions": top_regions,
             "focus_devices_snapshot_id": snapshot["snapshot_id"],
+            "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
         }
         turn_context = {
             "topic_family": "data",
@@ -509,6 +657,7 @@ class DataAnswerService:
             "resolved_entities": resolved_entities,
             "derived_sets": {
                 "focus_devices_snapshot_id": snapshot["snapshot_id"],
+                "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
                 "focus_regions_snapshot_id": None,
             },
             "compare_winner_entity": None,
@@ -519,6 +668,7 @@ class DataAnswerService:
             "metrics": metrics,
             "top_regions": top_regions,
             "focus_devices_snapshot_id": snapshot["snapshot_id"],
+            "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
         }
         return {
             "turn_id": turn_id,
@@ -528,7 +678,7 @@ class DataAnswerService:
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
-            "query_ref": {"has_query": True, "snapshot_ids": [snapshot["snapshot_id"]]},
+            "query_ref": {"has_query": True, "snapshot_ids": [snapshot["snapshot_id"], alert_snapshot["snapshot_id"]]},
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [
@@ -556,6 +706,7 @@ class DataAnswerService:
         session_id: str,
         turn_id: int,
         current_context: dict[str, Any],
+        list_target: str,
     ) -> dict[str, Any]:
         if current_context.get("topic_family") != "data":
             return self._build_guidance_response(
@@ -565,19 +716,29 @@ class DataAnswerService:
                 guidance_reason="clarification",
             )
 
-        source_snapshot_id = (
-            current_context.get("derived_sets", {}).get("focus_devices_snapshot_id")
-            or current_context.get("derived_sets", {}).get("focus_regions_snapshot_id")
-        )
+        snapshot_config = self._list_snapshot_config(list_target)
+        block_id = f"block_list_{turn_id}"
+        source_snapshot_id = current_context.get("derived_sets", {}).get(snapshot_config["snapshot_key"])
+        source_sql = None
+        snapshot = None
+        if source_snapshot_id:
+            snapshot = await self.snapshot_repository.get_snapshot_async(source_snapshot_id)
+        if not snapshot:
+            snapshot, source_sql = await self._recover_snapshot_from_context(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                current_context=current_context,
+                snapshot_config=snapshot_config,
+            )
+            source_snapshot_id = snapshot["snapshot_id"] if snapshot else None
         if not source_snapshot_id:
             return self._build_guidance_response(
                 turn_id=turn_id,
-                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再追问这些点位。",
+                text=f"当前没有可继承的{snapshot_config['label']}上下文，请先查询一轮墒情数据后再继续追问。",
                 current_context=current_context,
                 guidance_reason="clarification",
             )
-
-        snapshot = await self.snapshot_repository.get_snapshot_async(source_snapshot_id)
         if not snapshot:
             return self._build_guidance_response(
                 turn_id=turn_id,
@@ -603,12 +764,10 @@ class DataAnswerService:
                 },
             )
             follow_up_mode = "drilldown"
-
-        block_id = f"block_list_{turn_id}"
         query_spec = {
             **(current_context.get("primary_query_spec") or {}),
             "capability": "list",
-            "grain": "device_list",
+            "grain": snapshot_config["grain"],
             "page": {"page": 1, "page_size": 50},
             "filters": {
                 **((current_context.get("primary_query_spec") or {}).get("filters") or {}),
@@ -629,15 +788,15 @@ class DataAnswerService:
                 query_spec=query_spec,
                 rule_version=snapshot.get("rule_version"),
                 rows=rows,
-                snapshot_kind="focus_devices",
+                snapshot_kind=snapshot_config["snapshot_kind"],
             )
             next_snapshot_id = next_snapshot["snapshot_id"]
         page_rows = rows[:50]
         block = {
             "block_id": block_id,
             "block_type": "list_table",
-            "title": "重点关注点位",
-            "columns": ["city", "county", "sn", "soil_status", "warning_level", "risk_score", "latest_create_time"],
+            "title": snapshot_config["title"],
+            "columns": snapshot_config["columns"],
             "rows": page_rows,
             "pagination": {
                 "snapshot_id": next_snapshot_id,
@@ -648,6 +807,10 @@ class DataAnswerService:
             },
         }
         resolved_entities = self._merge_context_entities(current_context, filter_entities)
+        derived_sets = {
+            **(current_context.get("derived_sets") or {}),
+            snapshot_config["snapshot_key"]: next_snapshot_id,
+        }
         turn_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -655,14 +818,15 @@ class DataAnswerService:
             "primary_query_spec": query_spec,
             "time_window": current_context.get("time_window") or {},
             "resolved_entities": resolved_entities,
-            "derived_sets": {
-                "focus_devices_snapshot_id": next_snapshot_id,
-                "focus_regions_snapshot_id": None,
-            },
+            "derived_sets": derived_sets,
             "compare_winner_entity": current_context.get("compare_winner_entity"),
             "closed": False,
         }
-        final_text = f"已列出当前条件下需要重点关注的 {len(rows)} 个点位。"
+        final_text = (
+            f"已列出当前条件下的 {len(rows)} 条预警记录。"
+            if list_target == LIST_TARGET_ALERT_RECORDS
+            else f"已列出当前条件下需要重点关注的 {len(rows)} 个点位。"
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -681,7 +845,7 @@ class DataAnswerService:
                     query_index=1,
                     query_type="list",
                     query_spec=query_spec,
-                    executed_sql_text=(
+                    executed_sql_text=source_sql or (
                         "SELECT payload_json FROM agent_result_snapshot_item "
                         f"WHERE snapshot_id = '{source_snapshot_id}' ORDER BY row_index ASC"
                     ),
@@ -711,7 +875,7 @@ class DataAnswerService:
                 guidance_reason="clarification",
             )
 
-        snapshot_id = current_context.get("derived_sets", {}).get("focus_devices_snapshot_id")
+        snapshot_id = current_context.get("derived_sets", {}).get(self._group_source_snapshot_key(current_context))
         snapshot = await self.snapshot_repository.get_snapshot_async(snapshot_id) if snapshot_id else None
         if not snapshot:
             return self._build_guidance_response(
@@ -747,6 +911,7 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "group_table",
+            "display_mode": "evidence_only",
             "title": "点位分组汇总",
             "group_by": group_by,
             "rows": rows,
@@ -827,6 +992,7 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "detail_card",
+            "display_mode": "evidence_only",
             "title": label,
             "time_window": time_window,
             "metrics": metrics,
@@ -975,6 +1141,7 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "compare_card",
+            "display_mode": "evidence_only",
             "title": "对比结果",
             "time_window": time_window,
             "rows": compared,
@@ -1253,6 +1420,31 @@ class DataAnswerService:
         return current_context.get("resolved_entities") or []
 
     @staticmethod
+    def _list_snapshot_config(list_target: str) -> dict[str, Any]:
+        if list_target == LIST_TARGET_ALERT_RECORDS:
+            return {
+                "snapshot_key": "alert_records_snapshot_id",
+                "snapshot_kind": LIST_TARGET_ALERT_RECORDS,
+                "grain": "record_list",
+                "title": "预警记录详情",
+                "label": "预警记录",
+                "columns": ALERT_RECORD_COLUMNS,
+            }
+        return {
+            "snapshot_key": "focus_devices_snapshot_id",
+            "snapshot_kind": LIST_TARGET_FOCUS_DEVICES,
+            "grain": "device_list",
+            "title": "重点关注点位",
+            "label": "重点关注点位",
+            "columns": FOCUS_DEVICE_COLUMNS,
+        }
+
+    def _group_source_snapshot_key(self, current_context: dict[str, Any]) -> str:
+        if self._current_list_grain(current_context) == "record_list":
+            return "alert_records_snapshot_id"
+        return "focus_devices_snapshot_id"
+
+    @staticmethod
     def _filter_snapshot_rows(rows: list[dict[str, Any]], filter_entities: dict[str, Any]) -> list[dict[str, Any]]:
         city_values = {value for value in filter_entities.get("city") or []}
         county_values = {value for value in filter_entities.get("county") or []}
@@ -1328,7 +1520,7 @@ class DataAnswerService:
         )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
-        text += " 如需继续下钻，可以直接回复：列出需要重点关注的点位。"
+        text += " 如需继续下钻，可以直接回复：列出需要重点关注的点位，或列出预警记录详情。"
         return text
 
     @staticmethod

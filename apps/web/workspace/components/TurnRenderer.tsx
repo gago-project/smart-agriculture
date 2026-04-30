@@ -201,10 +201,18 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
     return null;
   }
 
+  const visibleBlocks = turn.blocks.filter((block) => block?.display_mode !== 'evidence_only');
+  if (visibleBlocks.length === 0) {
+    return null;
+  }
+
   return (
     <div className="turn-block-list">
-      {turn.blocks.map((block) => {
+      {visibleBlocks.map((block) => {
         if (!block?.block_id) {
+          return null;
+        }
+        if (block.display_mode === 'evidence_only') {
           return null;
         }
         if (block.block_type === 'summary_card') {
@@ -235,6 +243,9 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
         }
         if (block.block_type === 'rule_card' || block.block_type === 'template_card') {
           return <RuleOrTemplateBlock key={block.block_id} block={block} />;
+        }
+        if (block.block_type === 'guidance_card' || block.block_type === 'fallback_card') {
+          return null;
         }
         return <SimpleTextBlock key={block.block_id} block={block} />;
       })}

@@ -153,6 +153,25 @@ test('workspace user menu uses final dropdown class names', () => {
   assert.match(menuSource, /targetPath !== currentPath/);
 });
 
+test('session sidebar uses a dropdown menu with inline rename and archive actions', () => {
+  const sidebarSource = readFileSync(new URL('../workspace/components/SessionSidebar.tsx', import.meta.url), 'utf8');
+  const actionsSource = readFileSync(new URL('../workspace/hooks/useChatActions.ts', import.meta.url), 'utf8');
+  const apiSource = readFileSync(new URL('../workspace/services/chatApi.ts', import.meta.url), 'utf8');
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(sidebarSource, /session-item-action/);
+  assert.match(sidebarSource, /session-item-menu/);
+  assert.match(sidebarSource, /修改名称/);
+  assert.match(sidebarSource, /归档/);
+  assert.match(sidebarSource, /session-rename-input/);
+  assert.match(sidebarSource, /onKeyDown/);
+  assert.match(actionsSource, /renameSession/);
+  assert.match(actionsSource, /patchSession\(sessionId,\s*\{\s*title:/);
+  assert.match(apiSource, /export async function renameChatSession/);
+  assert.match(apiSource, /method:\s*'PATCH'/);
+  assert.match(globalsSource, /\.session-rename-input/);
+});
+
 test('chat panel no longer renders AI involvement badge in message list', () => {
   const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
 
