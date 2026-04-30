@@ -1460,6 +1460,65 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("缺少可继承的时间范围", second["final_text"])
         self.assertNotIn("请直接补充具体时间段", second["final_text"])
 
+    async def test_global_template_latest_warning_query_ignores_previous_device_context(self) -> None:
+        self.repository.records.append(
+            {
+                "id": 990004,
+                "sn": "SNS00990001",
+                "gatewayid": "GW-TEST-4",
+                "sensorid": "S-TEST-4",
+                "unitid": "U-TEST-4",
+                "city": "扬州市",
+                "county": "邗江区",
+                "time": "2026-04-13 23:59:59",
+                "create_time": "2026-04-13 23:59:59",
+                "water20cm": 30.0,
+                "water40cm": 31.0,
+                "water60cm": 32.0,
+                "water80cm": 33.0,
+                "t20cm": 18.0,
+                "t40cm": 17.0,
+                "t60cm": 16.0,
+                "t80cm": 15.0,
+                "water20cmfieldstate": 1,
+                "water40cmfieldstate": 1,
+                "water60cmfieldstate": 1,
+                "water80cmfieldstate": 1,
+                "t20cmfieldstate": 1,
+                "t40cmfieldstate": 1,
+                "t60cmfieldstate": 1,
+                "t80cmfieldstate": 1,
+                "lat": 32.0,
+                "lon": 119.0,
+            }
+        )
+
+        first = await self.service.reply(
+            message="按模板输出 SNS00213807 最新预警",
+            session_id="template-global-warning",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        second = await self.service.reply(
+            message="按模板输出任何一条最新预警",
+            session_id="template-global-warning",
+            turn_id=2,
+            current_context=first["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(second["answer_kind"], "business")
+        self.assertEqual(second["capability"], "template")
+        self.assertIn("SNS00990001", second["final_text"])
+        self.assertIn("30.0%", second["final_text"])
+        self.assertIn("heavy_drought", second["final_text"])
+        self.assertEqual(second["blocks"][0]["warning_level"], "heavy_drought")
+        self.assertEqual(second["blocks"][0]["latest_record"]["sn"], "SNS00990001")
+        self.assertEqual(second["turn_context"]["query_state"]["slots"]["sn"], "SNS00990001")
+        self.assertNotIn("SNS00213807当前没有符合预警条件", second["final_text"])
+
     async def test_template_output_for_device_without_warning_history_returns_no_warning_history_notice(self) -> None:
         self.repository.records.append(
             {

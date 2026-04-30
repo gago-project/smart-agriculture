@@ -109,6 +109,7 @@ FOLLOW_UP_TARGET_LIMIT = 5
 DETAIL_HINT_TOKENS = ("详情", "明细")
 LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
+GLOBAL_TEMPLATE_WARNING_ANY_MARKERS = ("任何一条", "任意一条", "任一条", "随便一条")
 LIST_TABLE_PAGE_SIZE = 10
 
 
@@ -3245,11 +3246,76 @@ class DataAnswerService:
         message: str,
         current_context: dict[str, Any],
     ) -> bool:
+        if self._is_global_template_warning_query(message):
+            return True
         entities = await self._extract_entities(message)
         if any(entities.get(key) for key in ("province", "city", "county", "sn")):
             return True
         query_state = current_context.get("query_state") or {}
         return current_context.get("topic_family") == "data" and str(query_state.get("capability") or "") == "detail"
+
+    @staticmethod
+    def _is_global_template_warning_query(message: str) -> bool:
+        text = str(message or "")
+        return (
+            any(token in text for token in TEMPLATE_TOKENS)
+            and "预警" in text
+            and any(marker in text for marker in GLOBAL_TEMPLATE_WARNING_ANY_MARKERS)
+        )
+
+    @staticmethod
+    def _resolved_entities_from_record(record: dict[str, Any]) -> list[dict[str, Any]]:
+        resolved_entities: list[dict[str, Any]] = []
+        city = record.get("city")
+        county = record.get("county")
+        sn = record.get("sn")
+        if city:
+            resolved_entities.append({"kind": "city", "canonical_name": city})
+        if county:
+            resolved_entities.append({"kind": "county", "canonical_name": county})
+        if sn:
+            resolved_entities.append({"kind": "device", "canonical_name": sn})
+        return resolved_entities
+
+    def _record_resolution_meta(
+        self,
+        *,
+        record: dict[str, Any],
+        time_window: dict[str, Any],
+    ) -> tuple[dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+        resolved_args = {
+            "city": record.get("city"),
+            "county": record.get("county"),
+            "sn": record.get("sn"),
+            "start_time": time_window.get("start_time"),
+            "end_time": time_window.get("end_time"),
+        }
+        resolved_entities = self._resolved_entities_from_record(record)
+        slots = self._slots_from_resolved_entities(resolved_entities)
+        explicit_slots = {key for key, value in slots.items() if value}
+        resolution_meta = {
+            "slots": slots,
+            "entity_confidence": CONFIDENCE_HIGH,
+            "time_confidence": CONFIDENCE_HIGH,
+            "slot_source": self._slot_source_map(
+                slots=slots,
+                explicit_slots=explicit_slots,
+                inherited_slots=set(),
+                corrected_slots=set(),
+                time_source=str(time_window.get("source") or "latest_warning_record"),
+                operation="standalone",
+            ),
+            "slot_confidence": self._slot_confidence_map(
+                slots=slots,
+                entity_confidence=CONFIDENCE_HIGH,
+                time_confidence=CONFIDENCE_HIGH,
+            ),
+            "operation": "standalone",
+            "parent_target_key": None,
+            "selected_ref": None,
+            "rejected_candidates": [],
+        }
+        return resolved_args, resolved_entities, resolution_meta
 
     async def _reply_template_output(
         self,
@@ -3260,37 +3326,65 @@ class DataAnswerService:
         current_context: dict[str, Any],
         template_row: dict[str, Any],
     ) -> dict[str, Any]:
-        try:
-            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
-                message=message,
-                tool_name="query_soil_detail",
-                current_context=current_context,
-                turn_id=turn_id,
-            )
-        except ValueError as exc:
-            return await self._build_filter_clarification_response(
-                message=message,
-                turn_id=turn_id,
-                current_context=current_context,
-                capability="template",
-                grain="template_output",
-                clarify_text=str(exc),
-            )
+        is_global_template_warning_query = self._is_global_template_warning_query(message)
+        latest_only = False
+        time_window: dict[str, Any] = {}
+        resolved_args: dict[str, Any] = {}
+        resolved_entities: list[dict[str, Any]] = []
+        resolution_meta: dict[str, Any] = {}
+        query_filters = {
+            "city": None,
+            "county": None,
+            "sn": None,
+            "start_time": None,
+            "end_time": None,
+        }
 
-        latest_business_time = await self._latest_business_time()
-        time_evidence = self.time_window_service.resolve(message, latest_business_time)
-        latest_only = "最新" in message and not getattr(time_evidence, "has_time_signal", False)
-        candidate_records = await self.repository.filter_records_async(
-            city=resolved_args.get("city"),
-            county=resolved_args.get("county"),
-            sn=resolved_args.get("sn"),
-            start_time=None if latest_only else resolved_args.get("start_time"),
-            end_time=None if latest_only else resolved_args.get("end_time"),
-            limit=None,
-        )
+        if is_global_template_warning_query:
+            latest_only = True
+            candidate_records = await self.repository.filter_records_async(limit=None)
+        else:
+            try:
+                resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                    message=message,
+                    tool_name="query_soil_detail",
+                    current_context=current_context,
+                    turn_id=turn_id,
+                )
+            except ValueError as exc:
+                return await self._build_filter_clarification_response(
+                    message=message,
+                    turn_id=turn_id,
+                    current_context=current_context,
+                    capability="template",
+                    grain="template_output",
+                    clarify_text=str(exc),
+                )
+
+            latest_business_time = await self._latest_business_time()
+            time_evidence = self.time_window_service.resolve(message, latest_business_time)
+            latest_only = "最新" in message and not getattr(time_evidence, "has_time_signal", False)
+            query_filters = {
+                "city": resolved_args.get("city"),
+                "county": resolved_args.get("county"),
+                "sn": resolved_args.get("sn"),
+                "start_time": None if latest_only else resolved_args.get("start_time"),
+                "end_time": None if latest_only else resolved_args.get("end_time"),
+            }
+            candidate_records = await self.repository.filter_records_async(
+                city=query_filters["city"],
+                county=query_filters["county"],
+                sn=query_filters["sn"],
+                start_time=query_filters["start_time"],
+                end_time=query_filters["end_time"],
+                limit=None,
+            )
         if not candidate_records:
-            label = self._entity_label(resolved_entities) or str(
-                resolved_args.get("sn") or resolved_args.get("county") or resolved_args.get("city") or "当前对象"
+            label = (
+                "当前范围"
+                if is_global_template_warning_query
+                else self._entity_label(resolved_entities)
+                or str(resolved_args.get("sn") or resolved_args.get("county") or resolved_args.get("city") or "当前对象")
             )
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -3306,16 +3400,26 @@ class DataAnswerService:
             rule_row=rule_row,
         )
         source_record = warning_record or latest_record
-        render_fields = self._build_template_render_fields(source_record, warning_level)
-        rendered_text = None
-        effective_time_window = (
-            self._record_time_window(
+        if is_global_template_warning_query:
+            effective_time_window = self._record_time_window(
                 source_record,
                 source="latest_warning_record" if warning_record else "latest_record",
             )
-            if latest_only
-            else time_window
-        )
+            resolved_args, resolved_entities, resolution_meta = self._record_resolution_meta(
+                record=source_record,
+                time_window=effective_time_window,
+            )
+        else:
+            effective_time_window = (
+                self._record_time_window(
+                    source_record,
+                    source="latest_warning_record" if warning_record else "latest_record",
+                )
+                if latest_only
+                else time_window
+            )
+        render_fields = self._build_template_render_fields(source_record, warning_level)
+        rendered_text = None
         block_id = f"block_template_{turn_id}"
         block = {
             "block_id": block_id,
@@ -3333,7 +3437,11 @@ class DataAnswerService:
             "rendered_text": None,
         }
 
-        label = self._entity_label(resolved_entities) or str(source_record.get("sn") or "当前对象")
+        label = (
+            "当前范围"
+            if is_global_template_warning_query and not warning_level
+            else self._entity_label(resolved_entities) or str(source_record.get("sn") or "当前对象")
+        )
         if warning_level:
             rendered_text = self._render_warning_template_text(
                 template_text=str(template_row.get("template_text") or ""),
@@ -3394,11 +3502,11 @@ class DataAnswerService:
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
         fact_sql = self.repository.build_filter_records_audit_sql(
-            city=resolved_args.get("city"),
-            county=resolved_args.get("county"),
-            sn=resolved_args.get("sn"),
-            start_time=None if latest_only else resolved_args.get("start_time"),
-            end_time=None if latest_only else resolved_args.get("end_time"),
+            city=query_filters["city"],
+            county=query_filters["county"],
+            sn=query_filters["sn"],
+            start_time=query_filters["start_time"],
+            end_time=query_filters["end_time"],
             limit=None,
         )
         return {
@@ -3423,7 +3531,7 @@ class DataAnswerService:
                     row_count=len(candidate_records),
                     snapshot_id=None,
                     time_window=effective_time_window,
-                    filters=query_spec["filters"],
+                    filters=query_filters,
                     executed_result={
                         "latest_record": latest_record,
                         "matched_warning_record": warning_record,

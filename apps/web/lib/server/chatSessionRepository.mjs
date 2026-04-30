@@ -94,7 +94,7 @@ async function loadSnapshotRows(connection, snapshotId, page, pageSize) {
   const safePage = Math.max(1, toPositiveInt(page, 1));
   const safePageSize = Math.min(SNAPSHOT_PAGE_SIZE_DEFAULT, Math.max(1, toPositiveInt(pageSize, SNAPSHOT_PAGE_SIZE_DEFAULT)));
   const offset = (safePage - 1) * safePageSize;
-  const [rows] = await connection.execute(
+  const [rows] = await connection.query(
     `SELECT payload_json
      FROM agent_result_snapshot_item
      WHERE snapshot_id = ?

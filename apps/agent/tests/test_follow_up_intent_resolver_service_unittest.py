@@ -146,6 +146,17 @@ class FollowUpIntentResolverServiceTest(unittest.TestCase):
 
         self.assertEqual(result.operation, "standalone")
 
+    def test_global_template_warning_query_without_entity_is_treated_as_standalone(self) -> None:
+        result = self.service.resolve(
+            text="按模板输出任何一条最新预警",
+            current_context=self.base_context,
+            extracted_entities={"province": [], "city": [], "county": [], "sn": []},
+            time_has_signal=False,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "standalone")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -66,6 +66,19 @@ test('chat session repository clamps list block page size to 10 for snapshot pag
   assert.match(repositorySource, /Math\.min\(SNAPSHOT_PAGE_SIZE_DEFAULT,\s*Math\.max\(1,\s*toPositiveInt\(pagination\.page_size,\s*SNAPSHOT_PAGE_SIZE_DEFAULT\)\)\)/);
 });
 
+test('chat session snapshot pagination avoids prepared execute for LIMIT/OFFSET', () => {
+  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(
+    repositorySource,
+    /const \[rows\] = await connection\.query\([\s\S]*WHERE snapshot_id = \?[\s\S]*ORDER BY row_index ASC[\s\S]*LIMIT \? OFFSET \?/,
+  );
+  assert.doesNotMatch(
+    repositorySource,
+    /const \[rows\] = await connection\.execute\([\s\S]*WHERE snapshot_id = \?[\s\S]*ORDER BY row_index ASC[\s\S]*LIMIT \? OFFSET \?/,
+  );
+});
+
 test('chat session repository prevents overlapping in-flight turns in the same session', () => {
   const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
 
