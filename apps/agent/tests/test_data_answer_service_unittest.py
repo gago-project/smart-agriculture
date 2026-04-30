@@ -341,6 +341,39 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
         self.assertEqual(len(grouped["blocks"][0]["rows"]), region_count)
 
+    async def test_record_list_follow_up_can_switch_to_involved_device_list(self) -> None:
+        summary = await self.service.reply(
+            message="如东县最近怎么样",
+            session_id="record-list-to-device-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        record_count = summary["blocks"][0]["metrics"]["record_count"]
+        device_count = summary["blocks"][0]["metrics"]["device_count"]
+
+        record_list = await self.service.reply(
+            message=f"{record_count}条数据给我一下",
+            session_id="record-list-to-device-list",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="涉及的点位数据呢",
+            session_id="record-list-to-device-list",
+            turn_id=3,
+            current_context=record_list["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "list")
+        self.assertEqual(follow_up["blocks"][0]["block_type"], "list_table")
+        self.assertIn("点位", follow_up["blocks"][0]["title"])
+        self.assertEqual(follow_up["blocks"][0]["pagination"]["total_count"], device_count)
+
     async def test_focus_device_follow_up_treats_region_detail_phrase_as_group_request(self) -> None:
         summary = await self.service.reply(
             message="江苏最近墒情情况如何",
@@ -819,6 +852,123 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("南通市如东县", third["final_text"])
         self.assertIn("2026-04-07", third["final_text"])
 
+    async def test_detail_time_only_follow_up_keeps_detail_capability(self) -> None:
+        detail = await self.service.reply(
+            message="SNS00204333 最近怎么样",
+            session_id="detail-time-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那最近30天呢",
+            session_id="detail-time-follow-up",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "detail")
+        self.assertEqual(follow_up["blocks"][0]["block_type"], "detail_card")
+        self.assertIn("SNS00204333", follow_up["final_text"])
+
+    async def test_detail_explicit_new_region_follow_up_keeps_detail_capability(self) -> None:
+        detail = await self.service.reply(
+            message="如东县详情",
+            session_id="detail-object-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那海安市呢",
+            session_id="detail-object-follow-up",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "detail")
+        self.assertEqual(follow_up["blocks"][0]["block_type"], "detail_card")
+        self.assertIn("海安市", follow_up["final_text"])
+
+    async def test_summary_to_detail_then_time_only_follow_up_stays_detail(self) -> None:
+        summary = await self.service.reply(
+            message="南通最近7天墒情怎么样",
+            session_id="summary-detail-time-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        detail = await self.service.reply(
+            message="如东县详情",
+            session_id="summary-detail-time-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那最近30天呢",
+            session_id="summary-detail-time-follow-up",
+            turn_id=3,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "detail")
+        self.assertEqual(follow_up["blocks"][0]["block_type"], "detail_card")
+        self.assertIn("如东县", follow_up["final_text"])
+
+    async def test_detail_context_full_summary_question_resets_to_summary(self) -> None:
+        detail = await self.service.reply(
+            message="如东县详情",
+            session_id="detail-to-summary-reset",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        fresh = await self.service.reply(
+            message="海安市最近怎么样",
+            session_id="detail-to-summary-reset",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(fresh["answer_kind"], "business")
+        self.assertEqual(fresh["capability"], "summary")
+        self.assertEqual(fresh["blocks"][0]["block_type"], "summary_card")
+        self.assertIn("海安市", fresh["final_text"])
+
+    async def test_detail_context_prefixed_full_summary_question_still_resets_to_summary(self) -> None:
+        detail = await self.service.reply(
+            message="如东县详情",
+            session_id="detail-to-prefixed-summary-reset",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        fresh = await self.service.reply(
+            message="那海安市最近怎么样",
+            session_id="detail-to-prefixed-summary-reset",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(fresh["answer_kind"], "business")
+        self.assertEqual(fresh["capability"], "summary")
+        self.assertEqual(fresh["blocks"][0]["block_type"], "summary_card")
+        self.assertIn("海安市", fresh["final_text"])
+
     async def test_correction_follow_up_replaces_previous_region_without_reasking_time(self) -> None:
         summary = await self.service.reply(
             message="如东县最近7天墒情怎么样",
@@ -1105,7 +1255,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["capability"], "template")
         self.assertEqual(template["turn_context"]["topic_family"], "template")
         self.assertEqual(template["blocks"][0]["block_type"], "template_card")
-        self.assertEqual(template["blocks"][0]["display_mode"], "evidence_only")
+        self.assertNotIn("display_mode", template["blocks"][0])
+        self.assertTrue(template["blocks"][0]["template_text"])
 
     async def test_typo_template_request_does_not_fall_back_to_time_clarification(self) -> None:
         reply = await self.service.reply(

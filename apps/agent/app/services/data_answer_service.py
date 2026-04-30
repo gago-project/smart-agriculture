@@ -29,6 +29,7 @@ from app.services.parameter_resolver_service import (
     ParameterResolverService,
 )
 from app.services.time_window_service import TimeWindowService
+from app.services.turn_route_decision_service import TurnRouteDecisionService
 
 
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
@@ -137,6 +138,7 @@ class DataAnswerService:
         time_window_service: TimeWindowService | None = None,
         parameter_resolver: ParameterResolverService | None = None,
         follow_up_intent_resolver: FollowUpIntentResolverService | None = None,
+        turn_route_decision_service: TurnRouteDecisionService | None = None,
     ) -> None:
         self.repository = repository or SoilRepository.from_env()
         self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
@@ -147,6 +149,7 @@ class DataAnswerService:
         self.time_window_service = time_window_service or TimeWindowService()
         self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
         self.follow_up_intent_resolver = follow_up_intent_resolver or FollowUpIntentResolverService()
+        self.turn_route_decision_service = turn_route_decision_service or TurnRouteDecisionService()
 
     async def reply(
         self,
@@ -187,38 +190,79 @@ class DataAnswerService:
             )
 
         entities = await self._extract_entities(text)
-        if self._should_route_explicit_detail(text, entities):
-            return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
-        if self._is_group_request(text) and await self._should_treat_group_request_as_standalone(
+        has_explicit_detail = self._should_route_explicit_detail(text, entities)
+        is_group_request = self._is_group_request(text)
+        should_group_standalone = False
+        if is_group_request:
+            should_group_standalone = await self._should_treat_group_request_as_standalone(
+                text=text,
+                current_context=context,
+            )
+        list_target = self._resolve_list_target(text, context)
+        action_result = self.follow_up_action_resolver.resolve(
             text=text,
             current_context=context,
-        ):
+            turn_id=turn_id,
+        )
+        should_list_standalone = False
+        if list_target:
+            should_list_standalone = await self._should_treat_list_request_as_standalone(
+                text=text,
+                current_context=context,
+                entities=entities,
+            )
+        is_compare_request = self._is_compare_request(text)
+        is_detail_request = self._is_detail_request(text, context)
+        should_follow_up_detail = await self._should_follow_up_detail(
+            text=text,
+            current_context=context,
+            entities=entities,
+            has_explicit_detail=has_explicit_detail,
+            is_group_request=is_group_request,
+            list_target=list_target,
+            is_compare_request=is_compare_request,
+        )
+        should_safe_hint_before_summary = await self._should_return_safe_hint_before_summary(text, context)
+        route_decision = self.turn_route_decision_service.decide(
+            has_explicit_detail=has_explicit_detail,
+            should_follow_up_detail=should_follow_up_detail,
+            is_group_request=is_group_request,
+            should_group_standalone=should_group_standalone,
+            list_target=list_target,
+            should_list_standalone=should_list_standalone,
+            action_result=action_result,
+            is_compare_request=is_compare_request,
+            is_detail_request=is_detail_request,
+            should_safe_hint_before_summary=should_safe_hint_before_summary,
+        )
+        logger.info(
+            "turn route session_id=%s turn_id=%s route=%s reasons=%s list_target=%s action_operation=%s",
+            session_id,
+            turn_id,
+            route_decision.route,
+            list(route_decision.reason_codes),
+            route_decision.list_target,
+            action_result.operation,
+        )
+
+        if route_decision.route == "explicit_detail":
+            return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if route_decision.route == "standalone_group":
             return await self._reply_group(
                 message=text,
                 session_id=session_id,
                 turn_id=turn_id,
                 current_context=context,
             )
-        list_target = self._resolve_list_target(text, context)
-        if list_target and await self._should_treat_list_request_as_standalone(
-            text=text,
-            current_context=context,
-            entities=entities,
-        ):
+        if route_decision.route == "standalone_list":
             return await self._reply_standalone_list(
                 message=text,
                 session_id=session_id,
                 turn_id=turn_id,
                 current_context=context,
-                list_target=list_target,
+                list_target=route_decision.list_target or LIST_TARGET_FOCUS_DEVICES,
             )
-
-        action_result = self.follow_up_action_resolver.resolve(
-            text=text,
-            current_context=context,
-            turn_id=turn_id,
-        )
-        if action_result.operation == "clarify":
+        if route_decision.route == "follow_up_action_clarify":
             logger.info(
                 "follow-up action session_id=%s turn_id=%s context_version=%s operation=%s matched_action_target_key=%s subject_kind=%s parsed_count=%s target_count=%s fallback_path=%s clarify_reason=%s",
                 session_id,
@@ -238,7 +282,7 @@ class DataAnswerService:
                 current_context=context,
                 guidance_reason="clarification",
             )
-        if action_result.operation == "expand_target":
+        if route_decision.route == "follow_up_action_expand":
             selected_target = action_result.selected_action_target or {}
             logger.info(
                 "follow-up action session_id=%s turn_id=%s context_version=%s operation=%s matched_action_target_key=%s subject_kind=%s parsed_count=%s target_count=%s fallback_path=%s clarify_reason=%s",
@@ -261,24 +305,27 @@ class DataAnswerService:
                 action_target=selected_target,
             )
 
-        if list_target:
+        if route_decision.route == "follow_up_list":
             return await self._reply_list(
                 message=text,
                 session_id=session_id,
                 turn_id=turn_id,
                 current_context=context,
-                list_target=list_target,
+                list_target=route_decision.list_target or LIST_TARGET_FOCUS_DEVICES,
             )
-        if self._is_group_request(text):
+        if route_decision.route == "follow_up_group":
             return await self._reply_group(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
 
-        if self._is_compare_request(text):
+        if route_decision.route == "compare":
             return await self._reply_compare(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
 
-        if self._is_detail_request(text, context):
+        if route_decision.route == "follow_up_detail":
             return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
 
-        if await self._should_return_safe_hint_before_summary(text, context):
+        if route_decision.route == "detail":
+            return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+        if route_decision.route == "safe_hint":
             return self._build_guidance_response(
                 turn_id=turn_id,
                 text=SAFE_HINT_TEXT,
@@ -835,13 +882,64 @@ class DataAnswerService:
         snapshot_id: str | None,
         snapshot_kind: str,
         rows: list[dict[str, Any]],
+        device_snapshot_id: str | None = None,
+        device_count: int | None = None,
     ) -> list[dict[str, Any]]:
         region_keys = {
             self._group_key_for_row(row, "region")
             for row in rows
             if self._group_key_for_row(row, "region") != "未知"
         }
-        return [
+        targets: list[dict[str, Any]] = []
+        if snapshot_kind == LIST_TARGET_ALERT_RECORDS:
+            targets.append(
+                self._action_target(
+                    target_key=f"target_{turn_id}_records",
+                    capability="list",
+                    grain="record_list",
+                    subject_kind="record",
+                    source_snapshot_id=snapshot_id,
+                    source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                    group_by=None,
+                    count=len(rows),
+                    label=f"{len(rows)}条记录",
+                    source_turn_id=turn_id,
+                    last_active_turn_id=turn_id,
+                )
+            )
+            if device_snapshot_id:
+                targets.append(
+                    self._action_target(
+                        target_key=f"target_{turn_id}_devices",
+                        capability="list",
+                        grain="device_list",
+                        subject_kind="device",
+                        source_snapshot_id=device_snapshot_id,
+                        source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                        group_by=None,
+                        count=int(device_count or 0),
+                        label=f"{int(device_count or 0)}个点位",
+                        source_turn_id=turn_id,
+                        last_active_turn_id=turn_id,
+                    )
+                )
+        else:
+            targets.append(
+                self._action_target(
+                    target_key=f"target_{turn_id}_devices",
+                    capability="list",
+                    grain="device_list",
+                    subject_kind="device",
+                    source_snapshot_id=snapshot_id,
+                    source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                    group_by=None,
+                    count=len(rows),
+                    label=f"{len(rows)}个点位",
+                    source_turn_id=turn_id,
+                    last_active_turn_id=turn_id,
+                )
+            )
+        targets.append(
             self._action_target(
                 target_key=f"target_{turn_id}_covered_regions",
                 capability="group",
@@ -855,7 +953,8 @@ class DataAnswerService:
                 source_turn_id=turn_id,
                 last_active_turn_id=turn_id,
             )
-        ]
+        )
+        return targets
 
     def _build_compare_action_targets(
         self,
@@ -1134,6 +1233,63 @@ class DataAnswerService:
             return True
         del context
         return any(token in text for token in DETAIL_HINT_TOKENS)
+
+    async def _should_follow_up_detail(
+        self,
+        *,
+        text: str,
+        current_context: dict[str, Any],
+        entities: dict[str, Any],
+        has_explicit_detail: bool,
+        is_group_request: bool,
+        list_target: str | None,
+        is_compare_request: bool,
+    ) -> bool:
+        if has_explicit_detail:
+            return False
+        if current_context.get("topic_family") != "data":
+            return False
+        query_state = current_context.get("query_state") or {}
+        if str(query_state.get("capability") or "") != "detail":
+            return False
+        if is_group_request or list_target or is_compare_request:
+            return False
+
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        if any(marker in normalized for marker in GLOBAL_SCOPE_RESET_MARKERS):
+            return False
+
+        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+            return True
+
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(normalized, latest_business_time)
+        has_explicit_scope = any(entities.get(key) for key in ("province", "city", "county", "sn"))
+        contextual_prefixes = ("那", "那就", "那边", "这边", "换成", "改成", "还是")
+        full_query_reset_tokens = ("怎么样", "情况", "如何", "有没有", "墒情", "数据")
+
+        if any(marker in normalized for marker in CONTEXTUAL_FOLLOW_UP_MARKERS):
+            return bool(has_explicit_scope or getattr(time_evidence, "has_time_signal", False))
+
+        if (
+            has_explicit_scope
+            and getattr(time_evidence, "has_time_signal", False)
+            and any(token in normalized for token in full_query_reset_tokens)
+        ):
+            return False
+
+        if has_explicit_scope and normalized.endswith("呢"):
+            if normalized.startswith(contextual_prefixes):
+                return True
+            if len(normalized) <= 8 and not any(token in normalized for token in QUERY_CUE_TOKENS):
+                return True
+
+        if getattr(time_evidence, "has_time_signal", False) and normalized.startswith(("那", "那就", "换成", "改成")):
+            return True
+
+        return False
 
     async def _reply_from_action_target(
         self,
@@ -1815,6 +1971,40 @@ class DataAnswerService:
         except Exception as exc:
             raise DatabaseQueryError(f"结果快照写入失败：{exc}") from exc
 
+    async def _maybe_create_companion_device_snapshot(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        block_id: str,
+        list_target: str,
+        base_query_spec: dict[str, Any],
+        source_snapshot_id: str | None,
+        rows: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+        if list_target != LIST_TARGET_ALERT_RECORDS:
+            return None, []
+        device_rows = self._focus_device_rows(rows)
+        device_query_spec = {
+            **base_query_spec,
+            "grain": "device_list",
+            "filters": {
+                **(base_query_spec.get("filters") or {}),
+                "source_snapshot_id": source_snapshot_id,
+            },
+            "sort": {"field": "create_time", "direction": "desc"},
+        }
+        snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec=device_query_spec,
+            rule_version=None,
+            rows=device_rows,
+            snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+        )
+        return snapshot, device_rows
+
     @staticmethod
     def _resolved_args_from_context(current_context: dict[str, Any]) -> dict[str, Any] | None:
         primary_query_spec = current_context.get("primary_query_spec") or {}
@@ -2124,6 +2314,18 @@ class DataAnswerService:
                 snapshot_kind=snapshot_config["snapshot_kind"],
             )
             next_snapshot_id = next_snapshot["snapshot_id"]
+        device_snapshot = None
+        device_rows: list[dict[str, Any]] = []
+        if list_target == LIST_TARGET_ALERT_RECORDS:
+            device_snapshot, device_rows = await self._maybe_create_companion_device_snapshot(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                list_target=list_target,
+                base_query_spec=query_spec,
+                source_snapshot_id=next_snapshot_id,
+                rows=rows,
+            )
         page_rows = rows[:50]
         block = {
             "block_id": block_id,
@@ -2144,6 +2346,8 @@ class DataAnswerService:
             **(current_context.get("derived_sets") or {}),
             snapshot_config["snapshot_key"]: next_snapshot_id,
         }
+        if device_snapshot:
+            derived_sets["device_snapshot_id"] = device_snapshot["snapshot_id"]
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -2196,6 +2400,8 @@ class DataAnswerService:
                 snapshot_id=next_snapshot_id,
                 snapshot_kind=resolved_snapshot_kind or snapshot_config["snapshot_kind"],
                 rows=rows,
+                device_snapshot_id=device_snapshot["snapshot_id"] if device_snapshot else None,
+                device_count=len(device_rows) if device_rows else None,
             ),
         )
         final_text = (
@@ -2211,7 +2417,10 @@ class DataAnswerService:
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
-            "query_ref": {"has_query": True, "snapshot_ids": [next_snapshot_id]},
+            "query_ref": {
+                "has_query": True,
+                "snapshot_ids": [snapshot_id for snapshot_id in [next_snapshot_id, device_snapshot["snapshot_id"] if device_snapshot else None] if snapshot_id],
+            },
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [
@@ -2290,6 +2499,18 @@ class DataAnswerService:
             rows=rows,
             snapshot_kind=snapshot_config["snapshot_kind"],
         )
+        device_snapshot = None
+        device_rows: list[dict[str, Any]] = []
+        if list_target == LIST_TARGET_ALERT_RECORDS:
+            device_snapshot, device_rows = await self._maybe_create_companion_device_snapshot(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                list_target=list_target,
+                base_query_spec=query_spec,
+                source_snapshot_id=snapshot["snapshot_id"],
+                rows=rows,
+            )
         block = {
             "block_id": block_id,
             "block_type": "list_table",
@@ -2313,6 +2534,7 @@ class DataAnswerService:
             "resolved_entities": resolved_entities,
             "derived_sets": {
                 snapshot_config["snapshot_key"]: snapshot["snapshot_id"],
+                **({"device_snapshot_id": device_snapshot["snapshot_id"]} if device_snapshot else {}),
             },
             "compare_winner_entity": None,
             "closed": False,
@@ -2338,6 +2560,8 @@ class DataAnswerService:
                 snapshot_id=snapshot["snapshot_id"],
                 snapshot_kind=snapshot_config["snapshot_kind"],
                 rows=rows,
+                device_snapshot_id=device_snapshot["snapshot_id"] if device_snapshot else None,
+                device_count=len(device_rows) if device_rows else None,
             ),
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
@@ -2354,7 +2578,14 @@ class DataAnswerService:
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
-            "query_ref": {"has_query": True, "snapshot_ids": [snapshot["snapshot_id"]]},
+            "query_ref": {
+                "has_query": True,
+                "snapshot_ids": [
+                    snapshot_id
+                    for snapshot_id in [snapshot["snapshot_id"], device_snapshot["snapshot_id"] if device_snapshot else None]
+                    if snapshot_id
+                ],
+            },
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [
@@ -3127,7 +3358,6 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "template_card",
-            "display_mode": "evidence_only",
             "template_id": row.get("template_id"),
             "template_name": row.get("template_name"),
             "template_text": row.get("template_text"),
