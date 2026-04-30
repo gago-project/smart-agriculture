@@ -55,6 +55,7 @@ Follow this rule when the task involves testing, regression, or business review 
 
 - 正式 Case 总数固定为 `56`
 - 每次都全跑 56 条
+- 顶层问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，不直接扩正式 56 条
 - 每条 Case 都保留 `当前回答`
 - 每条业务 Case 都必须有：
   - `数据库校验断言`
@@ -74,6 +75,8 @@ Follow this rule when the task involves testing, regression, or business review 
 
 - 优先验证答案是否被真实数据支撑，而不是只看文案是否像样
 - 只允许使用当前正式库中的 56 条 Case 与当前 `SM-*` CaseID 体系
+- 快速回归可先运行：
+  - `PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m unittest apps.agent.tests.test_turn_route_decision_service_unittest apps.agent.tests.test_turn_route_query_shape_matrix_unittest -v`
 - 新增或修订 Case 时，只改 `case-library.md`
 - 当用户要求"正式测试报告""逐条详细报告""56 条 Case 全量验收报告"时，必须逐条覆盖 56 条 Case，并为每条业务 Case 输出：
   - 实际输入 / 输出

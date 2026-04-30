@@ -167,6 +167,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
         self.assertNotIn("display_mode", listing["blocks"][0])
         self.assertEqual(listing["blocks"][0]["pagination"]["snapshot_id"], focus_snapshot_id)
+        self.assertEqual(listing["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertLessEqual(len(listing["blocks"][0]["rows"]), 10)
         self.assertGreaterEqual(listing["blocks"][0]["pagination"]["total_count"], 0)
         self.assertIn("点位", listing["blocks"][0]["title"])
         for row in listing["blocks"][0]["rows"]:
@@ -213,6 +215,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(listing["capability"], "list")
         self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
         self.assertIn("记录", listing["blocks"][0]["title"])
+        self.assertEqual(listing["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertLessEqual(len(listing["blocks"][0]["rows"]), 10)
         self.assertEqual(listing["blocks"][0]["pagination"]["total_count"], record_count)
         self.assertGreater(len(listing["blocks"][0]["rows"]), 1)
 
@@ -487,6 +491,40 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
         self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
         self.assertNotIn("请先查询一轮墒情数据", grouped["final_text"])
+
+    async def test_standalone_group_query_supports_where_has_soil_data_wording(self) -> None:
+        grouped = await self.service.reply(
+            message="2026-04-13 有哪些地方有墒情数据",
+            session_id="standalone-place-group",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+        self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
+        self.assertEqual(grouped["turn_context"]["time_window"]["start_time"], "2026-04-13 00:00:00")
+        self.assertEqual(grouped["turn_context"]["time_window"]["end_time"], "2026-04-13 23:59:59")
+
+    async def test_standalone_group_query_tolerates_colloquial_place_typo(self) -> None:
+        grouped = await self.service.reply(
+            message="2026-04-13 又哪些地方有墒情数据",
+            session_id="standalone-place-group-typo",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+        self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
+        self.assertEqual(grouped["turn_context"]["time_window"]["start_time"], "2026-04-13 00:00:00")
+        self.assertEqual(grouped["turn_context"]["time_window"]["end_time"], "2026-04-13 23:59:59")
 
     async def test_unsupported_derived_ranking_query_returns_guidance_instead_of_follow_up_prompt(self) -> None:
         reply = await self.service.reply(

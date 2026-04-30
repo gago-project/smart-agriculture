@@ -58,6 +58,14 @@ test('chat session repository sanitizes stored legacy turn blocks before returni
   assert.match(repositorySource, /sanitizeTurnBlocks/);
 });
 
+test('chat session repository clamps list block page size to 10 for snapshot pagination', () => {
+  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(repositorySource, /const SNAPSHOT_PAGE_SIZE_DEFAULT = 10;/);
+  assert.match(repositorySource, /Math\.min\(SNAPSHOT_PAGE_SIZE_DEFAULT,\s*Math\.max\(1,\s*toPositiveInt\(pageSize,\s*SNAPSHOT_PAGE_SIZE_DEFAULT\)\)\)/);
+  assert.match(repositorySource, /Math\.min\(SNAPSHOT_PAGE_SIZE_DEFAULT,\s*Math\.max\(1,\s*toPositiveInt\(pagination\.page_size,\s*SNAPSHOT_PAGE_SIZE_DEFAULT\)\)\)/);
+});
+
 test('chat session repository prevents overlapping in-flight turns in the same session', () => {
   const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
 

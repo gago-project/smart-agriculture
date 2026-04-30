@@ -35,6 +35,17 @@ test('assistant text replies are not duplicated by plain-text turn blocks', () =
   assert.match(turnRendererSource, /return null;/);
 });
 
+test('template cards render mock preview text with an explicit non-real-data notice', () => {
+  const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(turnRendererSource, /mock/i);
+  assert.match(turnRendererSource, /非真实数据/);
+  assert.doesNotMatch(turnRendererSource, /<pre className="turn-block-pre">\{block\.template_text\}<\/pre>/);
+  assert.match(globalsSource, /\.template-card/);
+  assert.match(globalsSource, /\.template-card-note/);
+});
+
 test('chat turn tables keep message width constrained and scroll horizontally', () => {
   const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 

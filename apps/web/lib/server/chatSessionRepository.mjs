@@ -4,7 +4,7 @@ import { withMysqlConnection, withMysqlTransaction } from './mysql.mjs';
 import { sanitizeExecutedResult, sanitizeSnapshotPayload, sanitizeTurnBlocks } from './soilResultSanitizer.mjs';
 
 const SESSION_TITLE_MAX_LENGTH = 20;
-const SNAPSHOT_PAGE_SIZE_DEFAULT = 50;
+const SNAPSHOT_PAGE_SIZE_DEFAULT = 10;
 const CHAT_TXN_RETRY_LIMIT = 2;
 const CHAT_TXN_RETRY_BACKOFF_MS = 100;
 
@@ -92,7 +92,7 @@ function isPendingTurnRow(row) {
 
 async function loadSnapshotRows(connection, snapshotId, page, pageSize) {
   const safePage = Math.max(1, toPositiveInt(page, 1));
-  const safePageSize = Math.min(100, Math.max(1, toPositiveInt(pageSize, SNAPSHOT_PAGE_SIZE_DEFAULT)));
+  const safePageSize = Math.min(SNAPSHOT_PAGE_SIZE_DEFAULT, Math.max(1, toPositiveInt(pageSize, SNAPSHOT_PAGE_SIZE_DEFAULT)));
   const offset = (safePage - 1) * safePageSize;
   const [rows] = await connection.execute(
     `SELECT payload_json
@@ -111,7 +111,7 @@ async function hydrateListBlock(connection, block, requestedPage) {
   if (!snapshotId) {
     return block;
   }
-  const pageSize = Math.min(100, Math.max(1, toPositiveInt(pagination.page_size, SNAPSHOT_PAGE_SIZE_DEFAULT)));
+  const pageSize = Math.min(SNAPSHOT_PAGE_SIZE_DEFAULT, Math.max(1, toPositiveInt(pagination.page_size, SNAPSHOT_PAGE_SIZE_DEFAULT)));
   const totalCount = Math.max(0, toPositiveInt(pagination.total_count, 0));
   const page = Math.max(1, requestedPage || toPositiveInt(pagination.page, 1));
   const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / pageSize);

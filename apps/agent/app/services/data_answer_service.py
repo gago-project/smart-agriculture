@@ -98,10 +98,10 @@ UNSUPPORTED_DERIVED_ANALYSIS_TEXT = "当前查询只支持原始墒情数据和�
 LLM_GUARD_DOMAIN_TOKENS = DOMAIN_INTENT_TOKENS + ("土壤", "含水量")
 QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需要", "最近", "最新")
 REGION_GROUP_REQUEST_PATTERNS = (
-    re.compile(r"(覆盖|涉及).*(地区|区域)"),
-    re.compile(r"(哪些|哪[0-9一二两三四五六七八九十百]*个).*(地区|区域)"),
-    re.compile(r"^[0-9一二两三四五六七八九十百]+\s*个?\s*(地区|区域)(?:呢|详情|明细)?$"),
-    re.compile(r"^(这些|这几个|那些|上面的)\s*(地区|区域)(?:呢|详情|明细)?$"),
+    re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
+    re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
+    re.compile(r"^[0-9一二两三四五六七八九十百]+\s*个?\s*(地方|地区|区域)(?:呢|详情|明细)?$"),
+    re.compile(r"^(这些|这几个|那些|上面的)\s*(地方|地区|区域)(?:呢|详情|明细)?$"),
 )
 CONTEXT_VERSION = 3
 RESULT_REF_LIMIT = 20
@@ -109,6 +109,7 @@ FOLLOW_UP_TARGET_LIMIT = 5
 DETAIL_HINT_TOKENS = ("详情", "明细")
 LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
+LIST_TABLE_PAGE_SIZE = 10
 
 
 logger = logging.getLogger(__name__)
@@ -177,74 +178,49 @@ class DataAnswerService:
                 conversation_closed=guard.guidance_reason == "closing",
             )
 
-        if self._is_rule_request(text):
+        entities = await self._extract_entities(text)
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(text, latest_business_time)
+        action_result = self.follow_up_action_resolver.resolve(
+            text=text,
+            current_context=context,
+            turn_id=turn_id,
+        )
+        route_decision = self.turn_route_decision_service.decide(
+            message=text,
+            current_context=context,
+            entities=entities,
+            time_evidence=time_evidence,
+            action_result=action_result,
+        )
+        logger.info(
+            "turn route session_id=%s turn_id=%s route=%s source=%s normalized_text=%s reasons=%s list_target=%s group_by=%s query_shape=%s/%s/%s/%s action_operation=%s",
+            session_id,
+            turn_id,
+            route_decision.route,
+            route_decision.route_source,
+            route_decision.normalized_text,
+            list(route_decision.reason_codes),
+            route_decision.list_target,
+            route_decision.group_by,
+            route_decision.query_shape.subject,
+            route_decision.query_shape.action,
+            route_decision.query_shape.grain,
+            route_decision.query_shape.mode,
+            action_result.operation,
+        )
+
+        if route_decision.route == "rule":
             return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
-        if self._is_template_request(text):
+        if route_decision.route == "template":
             return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
-        if self._is_unsupported_derived_analysis_request(text):
+        if route_decision.route == "unsupported_derived":
             return self._build_guidance_response(
                 turn_id=turn_id,
                 text=UNSUPPORTED_DERIVED_ANALYSIS_TEXT,
                 current_context=context,
                 guidance_reason="clarification",
             )
-
-        entities = await self._extract_entities(text)
-        has_explicit_detail = self._should_route_explicit_detail(text, entities)
-        is_group_request = self._is_group_request(text)
-        should_group_standalone = False
-        if is_group_request:
-            should_group_standalone = await self._should_treat_group_request_as_standalone(
-                text=text,
-                current_context=context,
-            )
-        list_target = self._resolve_list_target(text, context)
-        action_result = self.follow_up_action_resolver.resolve(
-            text=text,
-            current_context=context,
-            turn_id=turn_id,
-        )
-        should_list_standalone = False
-        if list_target:
-            should_list_standalone = await self._should_treat_list_request_as_standalone(
-                text=text,
-                current_context=context,
-                entities=entities,
-            )
-        is_compare_request = self._is_compare_request(text)
-        is_detail_request = self._is_detail_request(text, context)
-        should_follow_up_detail = await self._should_follow_up_detail(
-            text=text,
-            current_context=context,
-            entities=entities,
-            has_explicit_detail=has_explicit_detail,
-            is_group_request=is_group_request,
-            list_target=list_target,
-            is_compare_request=is_compare_request,
-        )
-        should_safe_hint_before_summary = await self._should_return_safe_hint_before_summary(text, context)
-        route_decision = self.turn_route_decision_service.decide(
-            has_explicit_detail=has_explicit_detail,
-            should_follow_up_detail=should_follow_up_detail,
-            is_group_request=is_group_request,
-            should_group_standalone=should_group_standalone,
-            list_target=list_target,
-            should_list_standalone=should_list_standalone,
-            action_result=action_result,
-            is_compare_request=is_compare_request,
-            is_detail_request=is_detail_request,
-            should_safe_hint_before_summary=should_safe_hint_before_summary,
-        )
-        logger.info(
-            "turn route session_id=%s turn_id=%s route=%s reasons=%s list_target=%s action_operation=%s",
-            session_id,
-            turn_id,
-            route_decision.route,
-            list(route_decision.reason_codes),
-            route_decision.list_target,
-            action_result.operation,
-        )
-
         if route_decision.route == "explicit_detail":
             return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "standalone_group":
@@ -253,6 +229,7 @@ class DataAnswerService:
                 session_id=session_id,
                 turn_id=turn_id,
                 current_context=context,
+                resolved_group_by=route_decision.group_by,
             )
         if route_decision.route == "standalone_list":
             return await self._reply_standalone_list(
@@ -314,7 +291,13 @@ class DataAnswerService:
                 list_target=route_decision.list_target or LIST_TARGET_FOCUS_DEVICES,
             )
         if route_decision.route == "follow_up_group":
-            return await self._reply_group(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+            return await self._reply_group(
+                message=text,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+                resolved_group_by=route_decision.group_by,
+            )
 
         if route_decision.route == "compare":
             return await self._reply_compare(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
@@ -1137,71 +1120,8 @@ class DataAnswerService:
         }
 
     @staticmethod
-    def _is_rule_request(text: str) -> bool:
-        return "规则" in text and not any(token in text for token in TEMPLATE_TOKENS)
-
-    @staticmethod
-    def _is_template_request(text: str) -> bool:
-        return any(token in text for token in TEMPLATE_TOKENS)
-
-    @staticmethod
     def _current_list_grain(context: dict[str, Any]) -> str:
         return str((context.get("primary_query_spec") or {}).get("grain") or "")
-
-    def _resolve_list_target(self, text: str, context: dict[str, Any]) -> str | None:
-        normalized = (text or "").strip()
-        if not normalized:
-            return None
-
-        prior_grain = self._current_list_grain(context)
-        has_data_context = context.get("topic_family") == "data"
-        has_follow_up_reference = any(token in normalized for token in ("这些", "这44条", "这44个", "这里的", "刚才", "上面的"))
-        has_list_verb = any(token in normalized for token in ("列出", "列一下", "展示", "查看", "看看", "名单", "列表"))
-        has_enumeration_cue = any(token in normalized for token in LIST_ENUMERATION_TOKENS)
-        mentions_alert_records = (
-            "预警记录" in normalized
-            or "预警详情" in normalized
-            or "预警明细" in normalized
-            or (any(token in normalized for token in ("预警", "异常")) and "条" in normalized)
-        )
-        mentions_record = (
-            mentions_alert_records
-            or "记录" in normalized
-            or (
-                "数据" in normalized
-                and "规则" not in normalized
-                and not any(token in normalized for token in TEMPLATE_TOKENS)
-            )
-        )
-        mentions_device = any(token in normalized for token in ("点位", "设备"))
-        mentions_focus_devices = any(token in normalized for token in ("重点关注的点位", "重点关注点位", "设备名单"))
-
-        if mentions_record and (
-            any(token in normalized for token in ("预警", "异常", "条", "详情", "明细", "列出", "展示"))
-            or (has_enumeration_cue and not mentions_device)
-        ):
-            return LIST_TARGET_ALERT_RECORDS
-        if mentions_focus_devices:
-            return LIST_TARGET_FOCUS_DEVICES
-        if has_data_context and prior_grain == "record_list" and has_follow_up_reference:
-            return LIST_TARGET_ALERT_RECORDS
-        if mentions_device and (
-            has_list_verb
-            or has_follow_up_reference
-            or "只看" in normalized
-            or "筛" in normalized
-            or has_enumeration_cue
-        ):
-            return LIST_TARGET_FOCUS_DEVICES
-        if has_data_context and has_list_verb:
-            return LIST_TARGET_ALERT_RECORDS if prior_grain == "record_list" else LIST_TARGET_FOCUS_DEVICES
-        return None
-
-    @staticmethod
-    def _is_group_request(text: str) -> bool:
-        if "归类" in text or "汇总" in text:
-            return True
-        return any(pattern.search(text) for pattern in REGION_GROUP_REQUEST_PATTERNS)
 
     @staticmethod
     def _is_unsupported_derived_analysis_request(text: str) -> bool:
@@ -1214,81 +1134,6 @@ class DataAnswerService:
             return True
         if "最严重" in normalized and any(token in normalized for token in ("地方", "地区", "区域", "点位", "设备", "哪里", "哪个")):
             return True
-        return False
-
-    @staticmethod
-    def _is_compare_request(text: str) -> bool:
-        return "谁更" in text or ("和" in text and any(token in text for token in ("对比", "比较", "更差")))
-
-    @staticmethod
-    def _should_route_explicit_detail(text: str, entities: dict[str, Any]) -> bool:
-        if SN_PATTERN.search(text):
-            return True
-        if not any(entities.get(key) for key in ("province", "city", "county", "sn")):
-            return False
-        return any(token in text for token in DETAIL_HINT_TOKENS)
-
-    def _is_detail_request(self, text: str, context: dict[str, Any]) -> bool:
-        if SN_PATTERN.search(text):
-            return True
-        del context
-        return any(token in text for token in DETAIL_HINT_TOKENS)
-
-    async def _should_follow_up_detail(
-        self,
-        *,
-        text: str,
-        current_context: dict[str, Any],
-        entities: dict[str, Any],
-        has_explicit_detail: bool,
-        is_group_request: bool,
-        list_target: str | None,
-        is_compare_request: bool,
-    ) -> bool:
-        if has_explicit_detail:
-            return False
-        if current_context.get("topic_family") != "data":
-            return False
-        query_state = current_context.get("query_state") or {}
-        if str(query_state.get("capability") or "") != "detail":
-            return False
-        if is_group_request or list_target or is_compare_request:
-            return False
-
-        normalized = str(text or "").strip()
-        if not normalized:
-            return False
-        if any(marker in normalized for marker in GLOBAL_SCOPE_RESET_MARKERS):
-            return False
-
-        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
-            return True
-
-        latest_business_time = await self._latest_business_time()
-        time_evidence = self.time_window_service.resolve(normalized, latest_business_time)
-        has_explicit_scope = any(entities.get(key) for key in ("province", "city", "county", "sn"))
-        contextual_prefixes = ("那", "那就", "那边", "这边", "换成", "改成", "还是")
-        full_query_reset_tokens = ("怎么样", "情况", "如何", "有没有", "墒情", "数据")
-
-        if any(marker in normalized for marker in CONTEXTUAL_FOLLOW_UP_MARKERS):
-            return bool(has_explicit_scope or getattr(time_evidence, "has_time_signal", False))
-
-        if (
-            has_explicit_scope
-            and getattr(time_evidence, "has_time_signal", False)
-            and any(token in normalized for token in full_query_reset_tokens)
-        ):
-            return False
-
-        if has_explicit_scope and normalized.endswith("呢"):
-            if normalized.startswith(contextual_prefixes):
-                return True
-            if len(normalized) <= 8 and not any(token in normalized for token in QUERY_CUE_TOKENS):
-                return True
-
-        if getattr(time_evidence, "has_time_signal", False) and normalized.startswith(("那", "那就", "换成", "改成")):
-            return True
-
         return False
 
     async def _reply_from_action_target(
@@ -1335,22 +1180,6 @@ class DataAnswerService:
             current_context=current_context,
         )
 
-    async def _should_return_safe_hint_before_summary(self, text: str, context: dict[str, Any]) -> bool:
-        """在新话题里识别无实体、无时间、无数据意图的短噪声，避免误澄清时间。"""
-        if context.get("topic_family") == "data":
-            return False
-        compact = text.replace(" ", "")
-        if len(compact) > 6:
-            return False
-        if any(token in text for token in DOMAIN_INTENT_TOKENS):
-            return False
-        latest_business_time = await self._latest_business_time()
-        time_evidence = self.time_window_service.resolve(text, latest_business_time)
-        if time_evidence.has_time_signal or time_evidence.clarify_reason:
-            return False
-        entities = await self._extract_entities(text)
-        return not any(entities.get(key) for key in ("province", "city", "county", "sn"))
-
     async def _can_run_standalone_group_query(self, text: str) -> bool:
         normalized = str(text or "").strip()
         if not normalized:
@@ -1382,25 +1211,6 @@ class DataAnswerService:
         if getattr(time_evidence, "has_time_signal", False):
             return True
         entities = await self._extract_entities(normalized)
-        if any(entities.get(key) for key in ("province", "city", "county", "sn")):
-            return True
-        return any(token in normalized for token in ("整体", "全省", "整个", "全部"))
-
-    async def _should_treat_list_request_as_standalone(
-        self,
-        *,
-        text: str,
-        current_context: dict[str, Any],
-        entities: dict[str, Any],
-    ) -> bool:
-        del current_context
-        normalized = str(text or "").strip()
-        if not normalized:
-            return False
-        latest_business_time = await self._latest_business_time()
-        time_evidence = self.time_window_service.resolve(normalized, latest_business_time)
-        if getattr(time_evidence, "has_time_signal", False):
-            return True
         if any(entities.get(key) for key in ("province", "city", "county", "sn")):
             return True
         return any(token in normalized for token in ("整体", "全省", "整个", "全部"))
@@ -2291,7 +2101,7 @@ class DataAnswerService:
             **(current_context.get("primary_query_spec") or {}),
             "capability": "list",
             "grain": snapshot_config["grain"],
-            "page": {"page": 1, "page_size": 50},
+            "page": {"page": 1, "page_size": LIST_TABLE_PAGE_SIZE},
             "filters": {
                 **((current_context.get("primary_query_spec") or {}).get("filters") or {}),
                 "source_snapshot_id": source_snapshot_id,
@@ -2326,7 +2136,7 @@ class DataAnswerService:
                 source_snapshot_id=next_snapshot_id,
                 rows=rows,
             )
-        page_rows = rows[:50]
+        page_rows = rows[:LIST_TABLE_PAGE_SIZE]
         block = {
             "block_id": block_id,
             "block_type": "list_table",
@@ -2336,9 +2146,9 @@ class DataAnswerService:
             "pagination": {
                 "snapshot_id": next_snapshot_id,
                 "page": 1,
-                "page_size": 50,
+                "page_size": LIST_TABLE_PAGE_SIZE,
                 "total_count": len(rows),
-                "total_pages": 0 if not rows else ((len(rows) - 1) // 50) + 1,
+                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
             },
         }
         resolved_entities = self._merge_context_entities(current_context, filter_entities)
@@ -2516,13 +2326,13 @@ class DataAnswerService:
             "block_type": "list_table",
             "title": snapshot_config["title"],
             "columns": snapshot_config["columns"],
-            "rows": rows[:50],
+            "rows": rows[:LIST_TABLE_PAGE_SIZE],
             "pagination": {
                 "snapshot_id": snapshot["snapshot_id"],
                 "page": 1,
-                "page_size": 50,
+                "page_size": LIST_TABLE_PAGE_SIZE,
                 "total_count": len(rows),
-                "total_pages": 0 if not rows else ((len(rows) - 1) // 50) + 1,
+                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
             },
         }
         base_context = {
@@ -2600,7 +2410,7 @@ class DataAnswerService:
                     snapshot_id=snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": rows[:50], "total_count": len(rows)},
+                    executed_result={"rows": rows[:LIST_TABLE_PAGE_SIZE], "total_count": len(rows)},
                     result_digest={"total_count": len(rows)},
                 )
             ],
@@ -3544,7 +3354,7 @@ class DataAnswerService:
             },
             "filters": {"source_snapshot_id": None},
             "sort": {"field": "latest_create_time" if grain == "device_list" else "create_time", "direction": "desc"},
-            "page": {"page": 1, "page_size": 50},
+            "page": {"page": 1, "page_size": LIST_TABLE_PAGE_SIZE if capability == "list" else 50},
             "provenance": {
                 "source_turn_id": source_turn_id,
                 "follow_up_mode": follow_up_mode,

@@ -19,6 +19,16 @@ description: >
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
 | Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
 
+## 快速路由回归（推荐先跑）
+
+> 顶层真实问法变体、轻量错字、`list/group/detail/summary` 冲突优先补到这层，不直接扩正式 56 条。
+
+```bash
+PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m unittest \
+  apps.agent.tests.test_turn_route_decision_service_unittest \
+  apps.agent.tests.test_turn_route_query_shape_matrix_unittest -v
+```
+
 ## 全量正式验收（一键流程，回归用）
 
 > 与历史 `scripts/qa/run-soil-moisture-release-gate.sh` **等价**：先本地验活，再跑 56 条正式 Case 并写报告。以本节为权威步骤（不再维护独立 `.sh`）。**流程模式发布技能（`deploy`）不再将本段列为必做门禁**；需要回归或发版前自检时再执行。
@@ -156,6 +166,7 @@ npm run qa:soil:formal
 - 只维护一套正式库
 - 每次都全量跑完 56 条
 - 测试以单元测试为主
+- 顶层问法变体先补快速路由矩阵，再决定是否需要进入正式 56 条
 
 ### 长文本回答必须保留
 
@@ -309,6 +320,7 @@ npm run qa:soil:formal
 - 地区 / 设备识别逻辑改变
 - 修复了可稳定复现的线上问题
 - 数据真实性校验规则改变
+- 如果只是顶层问法变体、轻量错字或路由冲突，先补 `TurnRouteDecisionService` 路由矩阵；只有正式口径变化时才改 56 条主库
 
 ---
 
