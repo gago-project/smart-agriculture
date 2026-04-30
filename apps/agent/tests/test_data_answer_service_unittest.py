@@ -199,6 +199,46 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["capability"], "summary")
         self.assertIn("江苏省", reply["final_text"])
 
+    async def test_summary_without_time_returns_guidance_with_inheritable_region_context(self) -> None:
+        reply = await self.service.reply(
+            message="江苏最新的墒情情况",
+            session_id="jiangsu-missing-time",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["capability"], "none")
+        self.assertIn("你想查看的时间段是", reply["final_text"])
+        self.assertEqual(reply["turn_context"]["topic_family"], "data")
+        self.assertEqual(
+            reply["turn_context"]["resolved_entities"],
+            [{"kind": "province", "canonical_name": "江苏省"}],
+        )
+
+    async def test_time_only_follow_up_reuses_region_from_clarification_context(self) -> None:
+        clarification = await self.service.reply(
+            message="江苏最新的墒情情况",
+            session_id="jiangsu-clarification-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="7天",
+            session_id="jiangsu-clarification-follow-up",
+            turn_id=2,
+            current_context=clarification["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertIn("江苏省", follow_up["final_text"])
+        self.assertTrue(follow_up["query_ref"]["has_query"])
+
     async def test_rule_topic_does_not_bleed_into_data_follow_up(self) -> None:
         rule = await self.service.reply(
             message="墒情预警规则是什么",

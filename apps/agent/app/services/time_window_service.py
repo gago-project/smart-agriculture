@@ -242,6 +242,7 @@ class TimeWindowService:
 
         for pattern, unit in (
             (re.compile(r"(?:最近|近|过去|前)\s*([0-9一二两三四五六七八九十百]+)\s*天"), "days"),
+            (re.compile(r"([0-9一二两三四五六七八九十百]+)\s*天"), "days"),
             (re.compile(r"(?:最近|近|过去)\s*([0-9一二两三四五六七八九十百]+)\s*周"), "weeks"),
             (re.compile(r"(?:最近|近|过去)\s*([0-9一二两三四五六七八九十百]+)\s*(?:个)?月"), "months"),
             (re.compile(r"([0-9一二两三四五六七八九十百]+)\s*周"), "weeks"),

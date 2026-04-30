@@ -157,6 +157,43 @@ class DataAnswerService:
             "query_log_entries": [],
         }
 
+    async def _build_filter_clarification_response(
+        self,
+        *,
+        message: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+        capability: str,
+        grain: str,
+        clarify_text: str,
+    ) -> dict[str, Any]:
+        extracted = await self._extract_entities(message)
+        resolved_entities = self._clarification_resolved_entities(extracted, current_context)
+        inherited_mode = "inherit" if current_context.get("topic_family") == "data" else "standalone"
+        turn_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": None,
+            "primary_query_spec": self._build_partial_query_spec(
+                capability=capability,
+                grain=grain,
+                source_turn_id=turn_id,
+                follow_up_mode=inherited_mode,
+                resolved_entities=resolved_entities,
+            ),
+            "time_window": {},
+            "resolved_entities": resolved_entities,
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        return self._build_guidance_response(
+            turn_id=turn_id,
+            text=clarify_text,
+            current_context=turn_context,
+            guidance_reason="clarification",
+        )
+
     @staticmethod
     def _default_recent_window(latest_business_time: str) -> dict[str, str]:
         latest_dt = datetime.strptime(latest_business_time[:19], "%Y-%m-%d %H:%M:%S")
@@ -282,6 +319,34 @@ class DataAnswerService:
             "sn": sns,
             "resolved": deduped,
         }
+
+    @staticmethod
+    def _clarification_resolved_entities(
+        extracted: dict[str, Any],
+        current_context: dict[str, Any],
+    ) -> list[dict[str, Any]]:
+        resolved_entities: list[dict[str, Any]] = []
+        for item in extracted.get("resolved") or []:
+            region_level = str(item.get("region_level") or "")
+            canonical_name = str(item.get("canonical_name") or "")
+            if not canonical_name:
+                continue
+            if region_level == "province":
+                resolved_entities.append({"kind": "province", "canonical_name": canonical_name})
+            elif region_level == "city":
+                resolved_entities.append({"kind": "city", "canonical_name": canonical_name})
+            elif region_level == "county":
+                resolved_entities.append({"kind": "county", "canonical_name": canonical_name})
+
+        for sn in extracted.get("sn") or []:
+            canonical_sn = str(sn or "").strip().upper()
+            if canonical_sn:
+                resolved_entities.append({"kind": "device", "canonical_name": canonical_sn})
+
+        if resolved_entities:
+            return resolved_entities
+
+        return [entity for entity in current_context.get("resolved_entities") or [] if entity.get("canonical_name")]
 
     async def _resolve_filters(
         self,
@@ -584,11 +649,21 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
-        resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
-            message=message,
-            tool_name="query_soil_summary",
-            current_context=current_context,
-        )
+        try:
+            resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_summary",
+                current_context=current_context,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="summary",
+                grain="aggregate",
+                clarify_text=str(exc),
+            )
         records = await self._query_records(resolved_args)
         if not records:
             return self._build_fallback_response(
@@ -963,11 +1038,21 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
-        resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
-            message=message,
-            tool_name="query_soil_detail",
-            current_context=current_context,
-        )
+        try:
+            resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_detail",
+                current_context=current_context,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="detail",
+                grain="entity_detail",
+                clarify_text=str(exc),
+            )
         records = await self._query_records(resolved_args)
         if not records:
             return self._build_fallback_response(
@@ -1480,6 +1565,39 @@ class DataAnswerService:
                 "city": [resolved_args["city"]] if resolved_args.get("city") else [],
                 "county": [resolved_args["county"]] if resolved_args.get("county") else [],
                 "sn": [resolved_args["sn"]] if resolved_args.get("sn") else [],
+            },
+            "filters": {
+                "alert_only": False,
+                "status_in": [],
+                "source_snapshot_id": None,
+            },
+            "sort": {"field": "risk_score", "direction": "desc"},
+            "page": {"page": 1, "page_size": 50},
+            "provenance": {
+                "source_turn_id": source_turn_id,
+                "follow_up_mode": follow_up_mode,
+            },
+        }
+
+    def _build_partial_query_spec(
+        self,
+        *,
+        capability: str,
+        grain: str,
+        source_turn_id: int,
+        follow_up_mode: str,
+        resolved_entities: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        return {
+            "spec_id": f"qs_{source_turn_id}_{capability}_clarify",
+            "dataset": "fact_soil_moisture",
+            "capability": capability,
+            "grain": grain,
+            "time_window": {},
+            "entities": {
+                "city": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "city"],
+                "county": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "county"],
+                "sn": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "device"],
             },
             "filters": {
                 "alert_only": False,

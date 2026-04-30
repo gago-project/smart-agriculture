@@ -19,6 +19,15 @@ class TimeWindowServiceTest(unittest.TestCase):
         self.assertEqual(result.start_time, "2026-04-01 00:00:00")
         self.assertEqual(result.end_time, "2026-04-13 23:59:59")
 
+    def test_bare_n_days_reply_expands_to_absolute_window(self) -> None:
+        result = self.service.resolve("7天", self.latest_business_time)
+
+        self.assertTrue(result.matched)
+        self.assertTrue(result.has_time_signal)
+        self.assertEqual(result.time_source, "rule_relative")
+        self.assertEqual(result.start_time, "2026-04-07 00:00:00")
+        self.assertEqual(result.end_time, "2026-04-13 23:59:59")
+
     def test_two_weeks_expands_as_rolling_days(self) -> None:
         result = self.service.resolve("海安市两周墒情", self.latest_business_time)
 
