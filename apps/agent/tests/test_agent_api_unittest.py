@@ -53,6 +53,31 @@ class ChatV2GuidanceService:
         }
 
 
+class ChatV2ClosingService:
+    async def reply(self, *args, **kwargs):
+        del args, kwargs
+        return {
+            "turn_id": 2,
+            "answer_kind": "guidance",
+            "capability": "none",
+            "final_text": "好的，这个话题先结束。有需要时你再继续问我即可。",
+            "blocks": [
+                {
+                    "block_id": "block_guidance_2",
+                    "block_type": "guidance_card",
+                    "text": "好的，这个话题先结束。有需要时你再继续问我即可。",
+                    "guidance_reason": "closing",
+                }
+            ],
+            "topic": {"topic_family": None, "active_topic_turn_id": None, "primary_block_id": None},
+            "turn_context": {"context_version": 2, "closed": True, "last_closed_turn_id": 2},
+            "query_ref": {"has_query": False, "snapshot_ids": []},
+            "conversation_closed": True,
+            "session_reset": False,
+            "query_log_entries": [],
+        }
+
+
 class ChatV2ValueErrorService:
     async def reply(self, *args, **kwargs):
         del args, kwargs
@@ -86,6 +111,16 @@ class AgentApiTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["answer_kind"], "guidance")
         self.assertEqual(result["blocks"][0]["guidance_reason"], "safe_hint")
+
+    async def test_chat_v2_preserves_closing_payload_without_error(self):
+        request = ChatV2Request(message="谢谢", session_id="s1", turn_id=2)
+
+        result = await chat_v2(request, service=ChatV2ClosingService())
+
+        self.assertEqual(result["answer_kind"], "guidance")
+        self.assertTrue(result["conversation_closed"])
+        self.assertTrue(result["turn_context"]["closed"])
+        self.assertEqual(result["blocks"][0]["guidance_reason"], "closing")
 
     async def test_chat_v2_returns_503_when_database_is_unavailable(self):
         request = ChatV2Request(message="最近墒情怎么样", session_id="s1", turn_id=1)

@@ -21,6 +21,17 @@ class FakeLlmInputGuard:
         return LlmInputGuardResult(decision="allow", reason="noise", confidence=0.0)
 
 
+class FakeLlmFollowUpResolver:
+    def __init__(self, result=None) -> None:
+        self.result = result
+        self.calls: list[str] = []
+
+    async def resolve(self, *, text: str, context: dict, latest_target: dict | None):
+        del context, latest_target
+        self.calls.append(text)
+        return self.result
+
+
 class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
     """Verify summary/list follow-up and topic isolation behavior."""
 
@@ -92,11 +103,30 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
                 "parent_city_name": "南通市",
                 "alias_source": "canonical",
             },
+            {
+                "alias_name": "海安",
+                "canonical_name": "海安市",
+                "region_level": "county",
+                "parent_city_name": "南通市",
+                "alias_source": "seed",
+            },
+            {
+                "alias_name": "海安市",
+                "canonical_name": "海安市",
+                "region_level": "county",
+                "parent_city_name": "南通市",
+                "alias_source": "canonical",
+            },
         ]
         self.guard = FakeLlmInputGuard(
             intercepted_inputs={"上岛咖啡京东卡", "京东卡可以提现吗", "今天午饭吃什么"}
         )
-        self.service = DataAnswerService(repository=repository, llm_input_guard=self.guard)
+        self.follow_up_guard = FakeLlmFollowUpResolver()
+        self.service = DataAnswerService(
+            repository=repository,
+            llm_input_guard=self.guard,
+            llm_follow_up_resolver=self.follow_up_guard,
+        )
 
     async def test_summary_then_list_follow_up_uses_focus_snapshot(self) -> None:
         summary = await self.service.reply(
@@ -109,6 +139,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(summary["answer_kind"], "business")
         self.assertEqual(summary["capability"], "summary")
+        self.assertEqual(summary["turn_context"]["context_version"], 2)
         self.assertEqual(summary["blocks"][0]["block_type"], "summary_card")
         self.assertEqual(summary["blocks"][0]["display_mode"], "evidence_only")
         self.assertTrue(summary["query_ref"]["has_query"])
@@ -400,7 +431,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_time_only_follow_up_reuses_prior_city_scope(self) -> None:
         summary = await self.service.reply(
-            message="最近南京墒情情况",
+            message="最近南京市墒情情况",
             session_id="nanjing-time-follow-up",
             turn_id=1,
             current_context=None,
@@ -420,9 +451,208 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("南京市", follow_up["final_text"])
         self.assertFalse(self.guard.calls)
 
-    async def test_global_scope_question_does_not_inherit_prior_city_scope(self) -> None:
+    async def test_city_follow_up_inherits_prior_time_window(self) -> None:
+        summary = await self.service.reply(
+            message="南通最近7天墒情怎么样",
+            session_id="city-follow-up-inherits-time",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那海安市呢",
+            session_id="city-follow-up-inherits-time",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertIn("海安市", follow_up["final_text"])
+        self.assertIn("2026-04-07", follow_up["final_text"])
+        self.assertNotIn("南通市", follow_up["final_text"])
+
+    async def test_third_turn_device_follow_up_inherits_latest_region_and_original_time_window(self) -> None:
+        first = await self.service.reply(
+            message="南通最近7天墒情怎么样",
+            session_id="third-turn-device-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        second = await self.service.reply(
+            message="那如东县呢",
+            session_id="third-turn-device-follow-up",
+            turn_id=2,
+            current_context=first["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+        third = await self.service.reply(
+            message="那其中 SNS00204333 呢",
+            session_id="third-turn-device-follow-up",
+            turn_id=3,
+            current_context=second["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(third["answer_kind"], "business")
+        self.assertEqual(third["capability"], "detail")
+        self.assertIn("SNS00204333", third["final_text"])
+        self.assertIn("南通市如东县", third["final_text"])
+        self.assertIn("2026-04-07", third["final_text"])
+
+    async def test_correction_follow_up_replaces_previous_region_without_reasking_time(self) -> None:
+        summary = await self.service.reply(
+            message="如东县最近7天墒情怎么样",
+            session_id="correction-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        corrected = await self.service.reply(
+            message="不是如东县，是如皋市",
+            session_id="correction-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(corrected["answer_kind"], "business")
+        self.assertEqual(corrected["capability"], "summary")
+        self.assertIn("如皋市", corrected["final_text"])
+        self.assertNotIn("如东县", corrected["final_text"])
+        self.assertNotIn("你想查看的时间段是", corrected["final_text"])
+
+    async def test_closing_context_does_not_inherit_on_next_turn(self) -> None:
+        summary = await self.service.reply(
+            message="南通最近7天墒情怎么样",
+            session_id="closing-reset",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        closing = await self.service.reply(
+            message="谢谢",
+            session_id="closing-reset",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+        follow_up = await self.service.reply(
+            message="如东县呢",
+            session_id="closing-reset",
+            turn_id=3,
+            current_context=closing["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertTrue(closing["conversation_closed"])
+        self.assertTrue(closing["turn_context"]["closed"])
+        self.assertEqual(follow_up["answer_kind"], "guidance")
+        self.assertEqual(follow_up["blocks"][0]["guidance_reason"], "clarification")
+        self.assertIn("时间段", follow_up["final_text"])
+
+    async def test_stale_context_follow_up_requires_clarification(self) -> None:
+        summary = await self.service.reply(
+            message="南通最近7天墒情怎么样",
+            session_id="stale-context",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        stale_context = {
+            **summary["turn_context"],
+            "follow_up_targets": [
+                {
+                    **summary["turn_context"]["follow_up_targets"][0],
+                    "last_active_turn_id": 1,
+                }
+            ],
+            "query_state": {
+                **summary["turn_context"]["query_state"],
+                "last_active_turn_id": 1,
+            },
+        }
+
+        reply = await self.service.reply(
+            message="那个情况呢",
+            session_id="stale-context",
+            turn_id=8,
+            current_context=stale_context,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
+        self.assertIn("重新", reply["final_text"])
+
+    async def test_ambiguous_region_reference_requires_clarification(self) -> None:
+        summary = await self.service.reply(
+            message="最近7天整体墒情怎么样",
+            session_id="ambiguous-ref",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        reply = await self.service.reply(
+            message="上面那个地区呢",
+            session_id="ambiguous-ref",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
+        self.assertIn("不够明确", reply["final_text"])
+
+    async def test_low_confidence_inherited_scope_requires_clarification(self) -> None:
         summary = await self.service.reply(
             message="最近南京墒情情况",
+            session_id="low-confidence-inherit",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        low_conf_context = {
+            **summary["turn_context"],
+            "query_state": {
+                **summary["turn_context"]["query_state"],
+                "slot_confidence": {
+                    **summary["turn_context"]["query_state"]["slot_confidence"],
+                    "city": "medium",
+                },
+            },
+            "follow_up_targets": [
+                {
+                    **summary["turn_context"]["follow_up_targets"][0],
+                    "slot_confidence": {
+                        **summary["turn_context"]["follow_up_targets"][0]["slot_confidence"],
+                        "city": "medium",
+                    },
+                }
+            ],
+        }
+
+        reply = await self.service.reply(
+            message="最近一个月",
+            session_id="low-confidence-inherit",
+            turn_id=2,
+            current_context=low_conf_context,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
+        self.assertIn("明确", reply["final_text"])
+
+    async def test_global_scope_question_does_not_inherit_prior_city_scope(self) -> None:
+        summary = await self.service.reply(
+            message="最近南京市墒情情况",
             session_id="nanjing-global-follow-up",
             turn_id=1,
             current_context=None,
@@ -444,7 +674,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_explicit_province_follow_up_overrides_prior_city_scope(self) -> None:
         summary = await self.service.reply(
-            message="最近一个月南京墒情情况",
+            message="最近一个月南京市墒情情况",
             session_id="nanjing-province-follow-up",
             turn_id=1,
             current_context=None,
@@ -467,7 +697,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_later_explicit_city_in_same_message_overrides_earlier_city_reference(self) -> None:
         summary = await self.service.reply(
-            message="最近一个月南京墒情情况",
+            message="最近一个月南京市墒情情况",
             session_id="city-override-follow-up",
             turn_id=1,
             current_context=None,
@@ -556,3 +786,36 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["capability"], "template")
         self.assertEqual(template["turn_context"]["topic_family"], "template")
         self.assertEqual(template["blocks"][0]["block_type"], "template_card")
+
+    async def test_legacy_context_is_upgraded_to_context_v2(self) -> None:
+        summary = await self.service.reply(
+            message="江苏最近墒情情况如何",
+            session_id="legacy-upgrade-context-v2",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        legacy_context = {
+            key: value
+            for key, value in summary["turn_context"].items()
+            if key
+            not in {
+                "context_version",
+                "query_state",
+                "follow_up_targets",
+                "result_refs",
+                "last_closed_turn_id",
+            }
+        }
+
+        follow_up = await self.service.reply(
+            message="这44条预警记录详情",
+            session_id="legacy-upgrade-context-v2",
+            turn_id=2,
+            current_context=legacy_context,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["turn_context"]["context_version"], 2)
+        self.assertTrue(follow_up["turn_context"]["follow_up_targets"])

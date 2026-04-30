@@ -17,6 +17,7 @@ from app.llm.qwen_client import QwenClient
 from app.repositories.session_context_repository import SessionContextRepository
 from app.services.data_answer_service import DataAnswerService
 from app.services.agent_service import SoilAgentService
+from app.services.llm_follow_up_resolver_service import LlmFollowUpResolverService
 from app.services.llm_input_guard_service import LlmInputGuardService
 
 
@@ -45,4 +46,7 @@ def get_data_answer_service() -> DataAnswerService:
         fallback_models=["qwen-turbo"],
         timeout_seconds=3.0,
     )
-    return DataAnswerService(llm_input_guard=LlmInputGuardService(guard_client, timeout_seconds=3.0))
+    return DataAnswerService(
+        llm_input_guard=LlmInputGuardService(guard_client, timeout_seconds=3.0),
+        llm_follow_up_resolver=LlmFollowUpResolverService(guard_client, timeout_seconds=3.0),
+    )

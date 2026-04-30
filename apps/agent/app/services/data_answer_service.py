@@ -14,9 +14,16 @@ from typing import Any
 
 from app.repositories.result_snapshot_repository import ResultSnapshotRepository
 from app.repositories.soil_repository import DatabaseQueryError, SoilRepository
+from app.services.follow_up_intent_resolver_service import (
+    FOLLOW_UP_MAX_TURN_GAP,
+    FollowUpIntentResolverService,
+    FollowUpIntentResult,
+)
 from app.services.input_guard_service import InputGuardService
+from app.services.llm_follow_up_resolver_service import LlmFollowUpResolution, LlmFollowUpResolverService
 from app.services.llm_input_guard_service import LlmInputGuardService
 from app.services.parameter_resolver_service import (
+    CONFIDENCE_HIGH,
     CONFIDENCE_MEDIUM,
     CONFIDENCE_LOW,
     ParameterResolverService,
@@ -60,6 +67,10 @@ REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地区|区域)"),
     re.compile(r"(哪些|哪[0-9一二两三四五六七八九十百]*个).*(地区|区域)"),
 )
+CONTEXT_VERSION = 2
+RESULT_REF_LIMIT = 20
+FOLLOW_UP_TARGET_LIMIT = 5
+DETAIL_HINT_TOKENS = ("详情", "明细")
 
 
 logger = logging.getLogger(__name__)
@@ -84,15 +95,19 @@ class DataAnswerService:
         snapshot_repository: ResultSnapshotRepository | None = None,
         input_guard: InputGuardService | None = None,
         llm_input_guard: LlmInputGuardService | Any | None = None,
+        llm_follow_up_resolver: LlmFollowUpResolverService | Any | None = None,
         time_window_service: TimeWindowService | None = None,
         parameter_resolver: ParameterResolverService | None = None,
+        follow_up_intent_resolver: FollowUpIntentResolverService | None = None,
     ) -> None:
         self.repository = repository or SoilRepository.from_env()
         self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
         self.input_guard = input_guard or InputGuardService()
         self.llm_input_guard = llm_input_guard
+        self.llm_follow_up_resolver = llm_follow_up_resolver
         self.time_window_service = time_window_service or TimeWindowService()
         self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
+        self.follow_up_intent_resolver = follow_up_intent_resolver or FollowUpIntentResolverService()
 
     async def reply(
         self,
@@ -109,10 +124,13 @@ class DataAnswerService:
         context = self._normalize_context(current_context)
         guard = self.input_guard.classify(text)
         if not guard.allow_business_flow:
+            next_context = context
+            if guard.guidance_reason == "closing":
+                next_context = self._closed_turn_context(turn_id)
             return self._build_guidance_response(
                 turn_id=turn_id,
                 text=guard.suggested_answer,
-                current_context=context if guard.guidance_reason != "closing" else {**context, "closed": True},
+                current_context=next_context,
                 guidance_reason=guard.guidance_reason or "safe_hint",
                 conversation_closed=guard.guidance_reason == "closing",
             )
@@ -161,7 +179,10 @@ class DataAnswerService:
 
     def _normalize_context(self, current_context: dict[str, Any] | None) -> dict[str, Any]:
         context = current_context if isinstance(current_context, dict) else {}
-        return {
+        if context.get("closed"):
+            return self._closed_turn_context(int(context.get("last_closed_turn_id") or context.get("active_topic_turn_id") or 0))
+        normalized = {
+            "context_version": CONTEXT_VERSION,
             "topic_family": context.get("topic_family"),
             "active_topic_turn_id": context.get("active_topic_turn_id"),
             "primary_block_id": context.get("primary_block_id"),
@@ -170,8 +191,355 @@ class DataAnswerService:
             "resolved_entities": context.get("resolved_entities") or [],
             "derived_sets": context.get("derived_sets") or {},
             "compare_winner_entity": context.get("compare_winner_entity"),
-            "closed": bool(context.get("closed")),
+            "closed": False,
+            "query_state": context.get("query_state"),
+            "follow_up_targets": list(context.get("follow_up_targets") or []),
+            "result_refs": list(context.get("result_refs") or []),
+            "last_closed_turn_id": context.get("last_closed_turn_id"),
         }
+        if normalized["query_state"] is None:
+            normalized["query_state"] = self._legacy_query_state(normalized)
+        if not normalized["follow_up_targets"] and normalized["query_state"]:
+            normalized["follow_up_targets"] = [self._follow_up_target_from_query_state(normalized["query_state"])]
+        normalized["follow_up_targets"] = [target for target in normalized["follow_up_targets"] if isinstance(target, dict)][
+            :FOLLOW_UP_TARGET_LIMIT
+        ]
+        normalized["result_refs"] = [ref for ref in normalized["result_refs"] if isinstance(ref, dict)][:RESULT_REF_LIMIT]
+        return normalized
+
+    @staticmethod
+    def _empty_turn_context() -> dict[str, Any]:
+        return {
+            "context_version": CONTEXT_VERSION,
+            "topic_family": None,
+            "active_topic_turn_id": None,
+            "primary_block_id": None,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+            "query_state": None,
+            "follow_up_targets": [],
+            "result_refs": [],
+            "last_closed_turn_id": None,
+        }
+
+    @classmethod
+    def _closed_turn_context(cls, turn_id: int) -> dict[str, Any]:
+        context = cls._empty_turn_context()
+        context["closed"] = True
+        context["last_closed_turn_id"] = turn_id or None
+        return context
+
+    def _legacy_query_state(self, context: dict[str, Any]) -> dict[str, Any] | None:
+        if context.get("topic_family") != "data":
+            return None
+        primary_query_spec = context.get("primary_query_spec") or {}
+        capability = primary_query_spec.get("capability") or "summary"
+        grain = primary_query_spec.get("grain") or "aggregate"
+        slots = self._slots_from_context(context)
+        slot_confidence = {
+            key: CONFIDENCE_HIGH for key, value in slots.items() if value
+        }
+        if context.get("time_window", {}).get("start_time") and context.get("time_window", {}).get("end_time"):
+            slot_confidence["time"] = CONFIDENCE_HIGH
+        slot_source = {
+            key: "explicit" for key, value in slots.items() if value
+        }
+        if slot_confidence.get("time"):
+            slot_source["time"] = "explicit"
+        return {
+            "intent": capability,
+            "capability": capability,
+            "grain": grain,
+            "slots": slots,
+            "slot_confidence": slot_confidence,
+            "slot_source": slot_source,
+            "time_window": context.get("time_window") or {},
+            "source_turn_id": context.get("active_topic_turn_id"),
+            "last_active_turn_id": context.get("active_topic_turn_id"),
+        }
+
+    @staticmethod
+    def _slots_from_resolved_args(resolved_args: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "province": resolved_args.get("province"),
+            "city": resolved_args.get("city"),
+            "county": resolved_args.get("county"),
+            "sn": resolved_args.get("sn"),
+        }
+
+    @staticmethod
+    def _slots_from_resolved_entities(resolved_entities: list[dict[str, Any]]) -> dict[str, Any]:
+        slots = {"province": None, "city": None, "county": None, "sn": None}
+        for entity in resolved_entities:
+            kind = entity.get("kind")
+            canonical_name = entity.get("canonical_name")
+            if kind == "province":
+                slots["province"] = canonical_name
+            elif kind == "city":
+                slots["city"] = canonical_name
+            elif kind == "county":
+                slots["county"] = canonical_name
+            elif kind == "device":
+                slots["sn"] = canonical_name
+        return slots
+
+    def _slots_from_context(self, context: dict[str, Any]) -> dict[str, Any]:
+        query_state = context.get("query_state") or {}
+        if query_state.get("slots"):
+            slots = dict(query_state.get("slots") or {})
+            return {
+                "province": slots.get("province"),
+                "city": slots.get("city"),
+                "county": slots.get("county"),
+                "sn": slots.get("sn"),
+            }
+        primary_query_spec = context.get("primary_query_spec") or {}
+        entities = primary_query_spec.get("entities") or {}
+        slots = {
+            "province": None,
+            "city": next(iter(entities.get("city") or []), None),
+            "county": next(iter(entities.get("county") or []), None),
+            "sn": next(iter(entities.get("sn") or []), None),
+        }
+        if not any(slots.values()):
+            return self._slots_from_resolved_entities(context.get("resolved_entities") or [])
+        return slots
+
+    @staticmethod
+    def _follow_up_target_from_query_state(query_state: dict[str, Any], *, parent_target_key: str | None = None) -> dict[str, Any]:
+        source_turn_id = query_state.get("source_turn_id") or query_state.get("last_active_turn_id")
+        capability = query_state.get("capability") or "summary"
+        return {
+            "target_key": f"target_{source_turn_id}_{capability}",
+            "capability": capability,
+            "grain": query_state.get("grain"),
+            "slots": query_state.get("slots") or {},
+            "slot_confidence": query_state.get("slot_confidence") or {},
+            "slot_source": query_state.get("slot_source") or {},
+            "time_window": query_state.get("time_window") or {},
+            "source_turn_id": source_turn_id,
+            "last_active_turn_id": query_state.get("last_active_turn_id") or source_turn_id,
+            "parent_target_key": parent_target_key,
+        }
+
+    def _latest_follow_up_target(self, context: dict[str, Any]) -> dict[str, Any] | None:
+        targets = context.get("follow_up_targets") or []
+        return targets[0] if targets else None
+
+    def _merge_follow_up_targets(
+        self,
+        *,
+        current_context: dict[str, Any],
+        query_state: dict[str, Any] | None,
+        parent_target_key: str | None,
+        replace_history: bool = False,
+    ) -> list[dict[str, Any]]:
+        if not query_state:
+            return []
+        next_target = self._follow_up_target_from_query_state(query_state, parent_target_key=parent_target_key)
+        if replace_history:
+            return [next_target]
+        merged = [next_target]
+        for target in current_context.get("follow_up_targets") or []:
+            if target.get("target_key") == next_target["target_key"]:
+                continue
+            merged.append(target)
+            if len(merged) >= FOLLOW_UP_TARGET_LIMIT:
+                break
+        return merged
+
+    @staticmethod
+    def _slot_confidence_map(*, slots: dict[str, Any], entity_confidence: str, time_confidence: str) -> dict[str, str]:
+        mapping = {key: entity_confidence for key, value in slots.items() if value}
+        if time_confidence:
+            mapping["time"] = time_confidence
+        return mapping
+
+    @staticmethod
+    def _slot_source_map(
+        *,
+        slots: dict[str, Any],
+        explicit_slots: set[str],
+        inherited_slots: set[str],
+        corrected_slots: set[str],
+        time_source: str,
+        operation: str,
+    ) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for key, value in slots.items():
+            if not value:
+                continue
+            if key in corrected_slots:
+                mapping[key] = "corrected"
+            elif key in explicit_slots:
+                mapping[key] = "explicit"
+            elif key in inherited_slots:
+                mapping[key] = "inherited"
+            else:
+                mapping[key] = "explicit" if operation == "standalone" else "inherited"
+        mapping["time"] = "inherited" if time_source == "history_inherited" else "explicit"
+        if operation == "correct_slot" and mapping.get("time") == "explicit" and time_source == "history_inherited":
+            mapping["time"] = "corrected"
+        return mapping
+
+    def _build_query_state(
+        self,
+        *,
+        turn_id: int,
+        capability: str,
+        grain: str,
+        slots: dict[str, Any],
+        time_window: dict[str, Any],
+        slot_confidence: dict[str, str],
+        slot_source: dict[str, str],
+    ) -> dict[str, Any]:
+        return {
+            "intent": capability,
+            "capability": capability,
+            "grain": grain,
+            "slots": slots,
+            "slot_confidence": slot_confidence,
+            "slot_source": slot_source,
+            "time_window": time_window,
+            "source_turn_id": turn_id,
+            "last_active_turn_id": turn_id,
+        }
+
+    def _build_result_refs(self, *, turn_id: int, block: dict[str, Any]) -> list[dict[str, Any]]:
+        block_type = block.get("block_type")
+        refs: list[dict[str, Any]] = []
+        if block_type == "summary_card":
+            for idx, row in enumerate(block.get("top_regions") or [], start=1):
+                label = str(row.get("county") or row.get("city") or "").strip()
+                if not label:
+                    continue
+                refs.append(
+                    {
+                        "ref_key": f"ref_{turn_id}_{idx}",
+                        "target_key": None,
+                        "ref_type": "region",
+                        "label": label,
+                        "ordinal": idx,
+                        "entity_payload": {"city": row.get("city"), "county": row.get("county")},
+                        "source_turn_id": turn_id,
+                    }
+                )
+        elif block_type == "list_table":
+            for idx, row in enumerate(block.get("rows") or [], start=1):
+                label = str(row.get("sn") or row.get("county") or row.get("city") or "").strip()
+                if not label:
+                    continue
+                refs.append(
+                    {
+                        "ref_key": f"ref_{turn_id}_{idx}",
+                        "target_key": None,
+                        "ref_type": "device" if row.get("sn") else "region",
+                        "label": label,
+                        "ordinal": idx,
+                        "entity_payload": {"city": row.get("city"), "county": row.get("county"), "sn": row.get("sn")},
+                        "source_turn_id": turn_id,
+                    }
+                )
+        elif block_type == "group_table":
+            group_by = block.get("group_by")
+            for idx, row in enumerate(block.get("rows") or [], start=1):
+                if group_by != "region":
+                    continue
+                label = str(row.get("group_key") or "").strip()
+                if not label:
+                    continue
+                city, county = (label.split("-", 1) + [None])[:2] if "-" in label else (None, label)
+                refs.append(
+                    {
+                        "ref_key": f"ref_{turn_id}_{idx}",
+                        "target_key": None,
+                        "ref_type": "region",
+                        "label": label,
+                        "ordinal": idx,
+                        "entity_payload": {"city": city, "county": county},
+                        "source_turn_id": turn_id,
+                    }
+                )
+        elif block_type == "detail_card":
+            latest_record = block.get("latest_record") or {}
+            label = str(latest_record.get("sn") or block.get("title") or "").strip()
+            if label:
+                refs.append(
+                    {
+                        "ref_key": f"ref_{turn_id}_1",
+                        "target_key": None,
+                        "ref_type": "device" if latest_record.get("sn") else "region",
+                        "label": label,
+                        "ordinal": 1,
+                        "entity_payload": {
+                            "city": latest_record.get("city"),
+                            "county": latest_record.get("county"),
+                            "sn": latest_record.get("sn"),
+                        },
+                        "source_turn_id": turn_id,
+                    }
+                )
+        elif block_type == "compare_card":
+            for idx, row in enumerate(block.get("rows") or [], start=1):
+                entity = str(row.get("entity") or "").strip()
+                if not entity:
+                    continue
+                refs.append(
+                    {
+                        "ref_key": f"ref_{turn_id}_{idx}",
+                        "target_key": None,
+                        "ref_type": "region",
+                        "label": entity,
+                        "ordinal": idx,
+                        "entity_payload": {
+                            "city": entity if entity.endswith("市") else None,
+                            "county": entity if entity.endswith(("县", "区")) else None,
+                            "sn": entity if entity.startswith("SNS") else None,
+                        },
+                        "source_turn_id": turn_id,
+                    }
+                )
+        return refs[:RESULT_REF_LIMIT]
+
+    def _finalize_context(
+        self,
+        *,
+        base_context: dict[str, Any],
+        current_context: dict[str, Any],
+        turn_id: int,
+        query_state: dict[str, Any] | None = None,
+        parent_target_key: str | None = None,
+        result_refs: list[dict[str, Any]] | None = None,
+        replace_history: bool = False,
+    ) -> dict[str, Any]:
+        next_context = {
+            **self._empty_turn_context(),
+            **base_context,
+            "context_version": CONTEXT_VERSION,
+            "closed": False,
+            "last_closed_turn_id": None,
+        }
+        if next_context.get("topic_family") == "data":
+            next_context["query_state"] = query_state
+            next_context["follow_up_targets"] = self._merge_follow_up_targets(
+                current_context=current_context,
+                query_state=query_state,
+                parent_target_key=parent_target_key,
+                replace_history=replace_history,
+            )
+            next_context["result_refs"] = result_refs or []
+            target_key = next_context["follow_up_targets"][0]["target_key"] if next_context["follow_up_targets"] else None
+            for ref in next_context["result_refs"]:
+                ref["target_key"] = target_key
+        else:
+            next_context["query_state"] = None
+            next_context["follow_up_targets"] = []
+            next_context["result_refs"] = []
+        return next_context
 
     @staticmethod
     def _topic_payload(turn_context: dict[str, Any]) -> dict[str, Any]:
@@ -224,7 +592,7 @@ class DataAnswerService:
         extracted = await self._extract_entities(message)
         resolved_entities = self._clarification_resolved_entities(extracted, current_context)
         inherited_mode = "inherit" if current_context.get("topic_family") == "data" else "standalone"
-        turn_context = {
+        base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
             "primary_block_id": None,
@@ -241,6 +609,37 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        slots = self._slots_from_resolved_entities(resolved_entities)
+        slot_confidence = self._slot_confidence_map(
+            slots=slots,
+            entity_confidence=CONFIDENCE_HIGH,
+            time_confidence="",
+        )
+        slot_source = self._slot_source_map(
+            slots=slots,
+            explicit_slots={key for key, value in slots.items() if value},
+            inherited_slots=set(),
+            corrected_slots=set(),
+            time_source="",
+            operation=inherited_mode,
+        )
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability=capability,
+            grain=grain,
+            slots=slots,
+            time_window={},
+            slot_confidence=slot_confidence,
+            slot_source=slot_source,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
+            result_refs=[],
+        )
         return self._build_guidance_response(
             turn_id=turn_id,
             text=clarify_text,
@@ -320,9 +719,8 @@ class DataAnswerService:
     def _is_detail_request(self, text: str, context: dict[str, Any]) -> bool:
         if SN_PATTERN.search(text):
             return True
-        if context.get("topic_family") == "data" and text.endswith("呢"):
-            return True
-        return "详情" in text or "明细" in text
+        del context
+        return any(token in text for token in DETAIL_HINT_TOKENS)
 
     async def _should_return_safe_hint_before_summary(self, text: str, context: dict[str, Any]) -> bool:
         """在新话题里识别无实体、无时间、无数据意图的短噪声，避免误澄清时间。"""
@@ -509,6 +907,113 @@ class DataAnswerService:
             and any(token in normalized for token in DOMAIN_INTENT_TOKENS)
         )
 
+    async def _resolve_follow_up_intent(
+        self,
+        *,
+        message: str,
+        current_context: dict[str, Any],
+        entities: dict[str, Any],
+        time_evidence: Any,
+        turn_id: int,
+    ) -> FollowUpIntentResult:
+        result = self.follow_up_intent_resolver.resolve(
+            text=message,
+            current_context=current_context,
+            extracted_entities={
+                "province": entities.get("province") or [],
+                "city": entities.get("city") or [],
+                "county": entities.get("county") or [],
+                "sn": entities.get("sn") or [],
+            },
+            time_has_signal=bool(getattr(time_evidence, "has_time_signal", False)),
+            turn_id=turn_id,
+        )
+        latest_target = self._latest_follow_up_target(current_context)
+        if (
+            result.uncertain
+            and latest_target
+            and self.llm_follow_up_resolver
+        ):
+            llm_result = await self.llm_follow_up_resolver.resolve(
+                text=message,
+                context=current_context,
+                latest_target=latest_target,
+            )
+            if llm_result and llm_result.confidence >= 0.75:
+                result = self._follow_up_result_from_llm(llm_result, latest_target)
+        return result
+
+    @staticmethod
+    def _follow_up_result_from_llm(
+        llm_result: LlmFollowUpResolution,
+        latest_target: dict[str, Any] | None,
+    ) -> FollowUpIntentResult:
+        return FollowUpIntentResult(
+            operation=llm_result.operation,
+            confidence=llm_result.confidence,
+            chosen_target=latest_target,
+            new_slots=llm_result.new_slots,
+            inherit_slots=llm_result.inherit_slots,
+            uncertain=False,
+        )
+
+    @staticmethod
+    def _target_has_high_confidence(target: dict[str, Any] | None, slot_name: str) -> bool:
+        if not target:
+            return False
+        confidence = str((target.get("slot_confidence") or {}).get(slot_name) or "")
+        source = str((target.get("slot_source") or {}).get(slot_name) or "")
+        return confidence == CONFIDENCE_HIGH and source in {"explicit", "corrected"}
+
+    def _inherit_scope_from_target(self, *, raw_args: dict[str, Any], target: dict[str, Any] | None) -> bool:
+        if not target:
+            return False
+        slots = target.get("slots") or {}
+        if raw_args.get("province") or raw_args.get("city") or raw_args.get("county") or raw_args.get("sn"):
+            return True
+        for slot_name in ("province", "county", "city", "sn"):
+            if slots.get(slot_name) and self._target_has_high_confidence(target, slot_name):
+                raw_args[slot_name] = slots[slot_name]
+                return True
+        return False
+
+    def _inherited_time_window_from_target(
+        self,
+        *,
+        current_context: dict[str, Any],
+        target: dict[str, Any] | None,
+    ) -> dict[str, Any] | None:
+        if not target:
+            return None
+        targets_by_key = {
+            str(item.get("target_key") or ""): item
+            for item in current_context.get("follow_up_targets") or []
+            if item.get("target_key")
+        }
+        cursor = target
+        seen: set[str] = set()
+        while cursor:
+            cursor_key = str(cursor.get("target_key") or "")
+            if cursor_key in seen:
+                break
+            seen.add(cursor_key)
+            if self._target_has_high_confidence(cursor, "time"):
+                time_window = cursor.get("time_window") or {}
+                if time_window.get("start_time") and time_window.get("end_time"):
+                    return {
+                        "start_time": time_window["start_time"],
+                        "end_time": time_window["end_time"],
+                    }
+            parent_key = str(cursor.get("parent_target_key") or "")
+            cursor = targets_by_key.get(parent_key)
+        return None
+
+    @staticmethod
+    def _scope_clarification_message(operation: str) -> str:
+        if operation == "stale_target":
+            return "上一次查询上下文已经过期了，请重新说明地区、设备或时间范围。"
+        return "这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。"
+
     async def _resolve_filters(
         self,
         *,
@@ -516,10 +1021,20 @@ class DataAnswerService:
         tool_name: str,
         current_context: dict[str, Any],
         allow_inherit_entities: bool = True,
-    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], str]:
+        turn_id: int,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
         latest_business_time = await self._latest_business_time()
         entities = await self._extract_entities(message)
         time_evidence = self.time_window_service.resolve(message, latest_business_time)
+        follow_up = await self._resolve_follow_up_intent(
+            message=message,
+            current_context=current_context,
+            entities=entities,
+            time_evidence=time_evidence,
+            turn_id=turn_id,
+        )
+        if follow_up.operation == "clarify":
+            raise ValueError(follow_up.clarify_message or self._scope_clarification_message(follow_up.clarify_reason))
         raw_args: dict[str, Any] = {}
         if entities["sn"]:
             raw_args["sn"] = entities["sn"][-1]
@@ -529,31 +1044,44 @@ class DataAnswerService:
             raw_args["county"] = entities["county"][-1]
         elif entities["city"]:
             raw_args["city"] = entities["city"][-1]
+        if follow_up.selected_ref:
+            payload = follow_up.selected_ref.get("entity_payload") or {}
+            if payload.get("sn"):
+                raw_args["sn"] = payload["sn"]
+            if payload.get("province") and not raw_args.get("province"):
+                raw_args["province"] = payload["province"]
+            if payload.get("county") and not raw_args.get("county"):
+                raw_args["county"] = payload["county"]
+            elif payload.get("city") and not raw_args.get("city"):
+                raw_args["city"] = payload["city"]
         has_explicit_scope = bool(raw_args.get("province") or raw_args.get("county") or raw_args.get("city") or raw_args.get("sn"))
+        latest_target = follow_up.chosen_target or self._latest_follow_up_target(current_context)
         if (
             not has_explicit_scope
             and allow_inherit_entities
             and current_context.get("topic_family") == "data"
+            and follow_up.operation in {"inherit", "switch_capability", "drilldown_ref"}
+        ):
+            if not self._inherit_scope_from_target(raw_args=raw_args, target=latest_target):
+                raise ValueError("这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。")
+        elif (
+            not has_explicit_scope
+            and allow_inherit_entities
+            and current_context.get("topic_family") == "data"
+            and follow_up.operation == "replace_slot"
             and self._should_inherit_entities_from_context(message, time_evidence)
         ):
-            for entity in reversed(current_context.get("resolved_entities") or []):
-                if entity.get("kind") == "province" and not raw_args.get("province"):
-                    raw_args["province"] = entity.get("canonical_name")
-                if entity.get("kind") == "county" and not raw_args.get("county"):
-                    raw_args["county"] = entity.get("canonical_name")
-                if entity.get("kind") == "city" and not raw_args.get("county") and not raw_args.get("city"):
-                    raw_args["city"] = entity.get("canonical_name")
-                if entity.get("kind") == "device" and not raw_args.get("sn"):
-                    raw_args["sn"] = entity.get("canonical_name")
+            if not self._inherit_scope_from_target(raw_args=raw_args, target=latest_target):
+                raise ValueError("这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。")
 
         inherited_time_window = None
-        if current_context.get("topic_family") == "data":
-            time_window = current_context.get("time_window") or {}
-            if time_window.get("start_time") and time_window.get("end_time"):
-                inherited_time_window = {
-                    "start_time": time_window["start_time"],
-                    "end_time": time_window["end_time"],
-                }
+        if current_context.get("topic_family") == "data" and not getattr(time_evidence, "matched", False):
+            inherited_time_window = self._inherited_time_window_from_target(
+                current_context=current_context,
+                target=latest_target,
+            )
+            if follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"} and inherited_time_window is None:
+                raise ValueError("这轮缺少可继承的时间范围，请直接补充具体时间段，例如最近7天或最近1个月。")
 
         resolved = await self.parameter_resolver.resolve(
             tool_name=tool_name,
@@ -582,8 +1110,46 @@ class DataAnswerService:
             resolved_entities.append({"kind": "county", "canonical_name": resolved.resolved_args["county"]})
         if resolved.resolved_args.get("sn"):
             resolved_entities.append({"kind": "device", "canonical_name": resolved.resolved_args["sn"]})
-        entity_confidence = resolved.entity_confidence
-        return resolved.resolved_args, time_window, resolved_entities, entity_confidence
+        slots = self._slots_from_resolved_args({**resolved.resolved_args, "province": raw_args.get("province")})
+        explicit_slots = {key for key in ("province", "city", "county", "sn") if key in raw_args and raw_args.get(key)}
+        inherited_slots = {
+            key for key in ("province", "city", "county", "sn")
+            if slots.get(key) and key not in explicit_slots
+        }
+        corrected_slots = set(explicit_slots) if follow_up.operation == "correct_slot" else set()
+        context_meta = {
+            "slots": slots,
+            "entity_confidence": resolved.entity_confidence,
+            "time_confidence": resolved.time_confidence,
+            "slot_source": self._slot_source_map(
+                slots=slots,
+                explicit_slots=explicit_slots,
+                inherited_slots=inherited_slots,
+                corrected_slots=corrected_slots,
+                time_source=time_window["source"],
+                operation=follow_up.operation,
+            ),
+            "slot_confidence": self._slot_confidence_map(
+                slots=slots,
+                entity_confidence=resolved.entity_confidence,
+                time_confidence=resolved.time_confidence,
+            ),
+            "operation": follow_up.operation,
+            "parent_target_key": (latest_target or {}).get("target_key"),
+            "selected_ref": follow_up.selected_ref,
+            "rejected_candidates": follow_up.rejected_candidates,
+        }
+        logger.info(
+            "follow-up resolution session_context_version=%s turn_id=%s operation=%s chosen_target_key=%s inherited_slots=%s clarify_reason=%s rejected_candidates=%s",
+            current_context.get("context_version"),
+            turn_id,
+            follow_up.operation,
+            context_meta["parent_target_key"],
+            sorted(inherited_slots),
+            follow_up.clarify_reason,
+            context_meta["rejected_candidates"],
+        )
+        return resolved.resolved_args, time_window, resolved_entities, context_meta
 
     @staticmethod
     def _query_filters_from_args(resolved_args: dict[str, Any]) -> dict[str, Any]:
@@ -817,10 +1383,11 @@ class DataAnswerService:
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
         try:
-            resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
                 message=message,
                 tool_name="query_soil_summary",
                 current_context=current_context,
+                turn_id=turn_id,
             )
         except ValueError as exc:
             return await self._build_filter_clarification_response(
@@ -850,7 +1417,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode="standalone",
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
         rule_version = str(records[0].get("rule_version") or "") if records else None
         snapshot = await self._create_focus_snapshot(
@@ -876,7 +1443,7 @@ class DataAnswerService:
             label=label,
             time_window=time_window,
             metrics=metrics,
-            entity_confidence=entity_confidence,
+            entity_confidence=resolution_meta["entity_confidence"],
             resolved_entities=resolved_entities,
         )
         block = {
@@ -890,7 +1457,7 @@ class DataAnswerService:
             "focus_devices_snapshot_id": snapshot["snapshot_id"],
             "alert_records_snapshot_id": alert_snapshot["snapshot_id"],
         }
-        turn_context = {
+        base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
@@ -905,6 +1472,24 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="summary",
+            grain="aggregate",
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
         executed_result = {
             "time_window": time_window,
             "metrics": metrics,
@@ -1053,7 +1638,7 @@ class DataAnswerService:
             **(current_context.get("derived_sets") or {}),
             snapshot_config["snapshot_key"]: next_snapshot_id,
         }
-        turn_context = {
+        base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
@@ -1064,6 +1649,43 @@ class DataAnswerService:
             "compare_winner_entity": current_context.get("compare_winner_entity"),
             "closed": False,
         }
+        slots = self._slots_from_resolved_entities(resolved_entities)
+        slot_confidence = self._slot_confidence_map(
+            slots=slots,
+            entity_confidence=CONFIDENCE_HIGH,
+            time_confidence=CONFIDENCE_HIGH if current_context.get("time_window", {}).get("start_time") else "",
+        )
+        slot_source = self._slot_source_map(
+            slots=slots,
+            explicit_slots={
+                key for key in ("province", "city", "county", "sn")
+                if (filter_entities.get(key) or [])
+            },
+            inherited_slots={
+                key for key, value in slots.items()
+                if value and not (filter_entities.get(key) or [])
+            },
+            corrected_slots=set(),
+            time_source=current_context.get("time_window", {}).get("source") or "",
+            operation="subset" if follow_up_mode == "subset" else "inherit",
+        )
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="list",
+            grain=snapshot_config["grain"],
+            slots=slots,
+            time_window=current_context.get("time_window") or {},
+            slot_confidence=slot_confidence,
+            slot_source=slot_source,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+        )
         final_text = (
             f"已列出当前条件下的 {len(rows)} 条预警记录。"
             if list_target == LIST_TARGET_ALERT_RECORDS
@@ -1157,13 +1779,44 @@ class DataAnswerService:
             "group_by": group_by,
             "rows": rows,
         }
-        turn_context = {
+        base_context = {
             **current_context,
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
             "primary_query_spec": query_spec,
             "closed": False,
         }
+        slots = self._slots_from_context(current_context)
+        slot_confidence = dict((current_context.get("query_state") or {}).get("slot_confidence") or {})
+        slot_source = dict((current_context.get("query_state") or {}).get("slot_source") or {})
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="group",
+            grain=query_spec["grain"],
+            slots=slots,
+            time_window=current_context.get("time_window") or {},
+            slot_confidence=slot_confidence or self._slot_confidence_map(
+                slots=slots,
+                entity_confidence=CONFIDENCE_HIGH,
+                time_confidence=CONFIDENCE_HIGH if current_context.get("time_window", {}).get("start_time") else "",
+            ),
+            slot_source=slot_source or self._slot_source_map(
+                slots=slots,
+                explicit_slots={key for key, value in slots.items() if value},
+                inherited_slots=set(),
+                corrected_slots=set(),
+                time_source=current_context.get("time_window", {}).get("source") or "",
+                operation="inherit",
+            ),
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -1231,10 +1884,11 @@ class DataAnswerService:
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
         try:
-            resolved_args, time_window, resolved_entities, entity_confidence = await self._resolve_filters(
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
                 message=message,
                 tool_name="query_soil_detail",
                 current_context=current_context,
+                turn_id=turn_id,
             )
         except ValueError as exc:
             return await self._build_filter_clarification_response(
@@ -1264,7 +1918,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode="inherit" if current_context.get("topic_family") == "data" else "standalone",
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
         block = {
             "block_id": block_id,
@@ -1275,7 +1929,7 @@ class DataAnswerService:
             "metrics": metrics,
             "latest_record": latest_record,
         }
-        turn_context = {
+        base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
@@ -1289,7 +1943,31 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
-        final_text = self._render_detail_text(label, time_window, latest_record, entity_confidence, resolved_entities)
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="detail",
+            grain="entity_detail",
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        final_text = self._render_detail_text(
+            label,
+            time_window,
+            latest_record,
+            resolution_meta["entity_confidence"],
+            resolved_entities,
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -1425,7 +2103,7 @@ class DataAnswerService:
             "winner": winner_name,
             "winner_basis": "alert_device_count -> alert_record_count -> avg_risk_score",
         }
-        turn_context = {
+        base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
@@ -1439,6 +2117,40 @@ class DataAnswerService:
             "compare_winner_entity": winner_name,
             "closed": False,
         }
+        slots = {
+            "province": None,
+            "city": winner_name if winner_name.endswith("市") else None,
+            "county": winner_name if winner_name.endswith(("县", "区")) else None,
+            "sn": winner_name if winner_name.startswith("SNS") else None,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="compare",
+            grain="entity_compare",
+            slots=slots,
+            time_window=time_window,
+            slot_confidence=self._slot_confidence_map(
+                slots=slots,
+                entity_confidence=CONFIDENCE_HIGH,
+                time_confidence=CONFIDENCE_HIGH,
+            ),
+            slot_source=self._slot_source_map(
+                slots=slots,
+                explicit_slots={key for key, value in slots.items() if value},
+                inherited_slots=set(),
+                corrected_slots=set(),
+                time_source=time_window["source"],
+                operation="standalone",
+            ),
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -1519,7 +2231,7 @@ class DataAnswerService:
             "thresholds": thresholds,
             "rule_definition_json": rule_definition,
         }
-        turn_context = {
+        base_context = {
             "topic_family": "rule",
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
@@ -1530,6 +2242,11 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -1598,7 +2315,7 @@ class DataAnswerService:
             "version": row.get("version"),
             "updated_at": row.get("updated_at"),
         }
-        turn_context = {
+        base_context = {
             "topic_family": "template",
             "active_topic_turn_id": turn_id,
             "primary_block_id": block_id,
@@ -1609,6 +2326,11 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -1720,6 +2442,16 @@ class DataAnswerService:
         if self._current_list_grain(current_context) == "record_list":
             return "alert_records_snapshot_id"
         return "focus_devices_snapshot_id"
+
+    @staticmethod
+    def _follow_up_mode_from_operation(operation: str) -> str:
+        if operation == "subset":
+            return "subset"
+        if operation == "drilldown_ref":
+            return "drilldown"
+        if operation in {"inherit", "replace_slot", "correct_slot", "switch_capability"}:
+            return "inherit"
+        return "standalone"
 
     @staticmethod
     def _filter_snapshot_rows(rows: list[dict[str, Any]], filter_entities: dict[str, Any]) -> list[dict[str, Any]]:
@@ -1843,9 +2575,11 @@ class DataAnswerService:
     ) -> str:
         status = str(latest_record.get("display_label") or latest_record.get("soil_status") or "未知")
         water20 = latest_record.get("water20cm")
+        location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
         text = (
             f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的最新详情如下："
             f"最近一条记录时间为 {latest_record.get('create_time')}，"
+            f"{f'位于 {location}，' if location else ''}"
             f"20cm含水量 {water20}%，当前状态 {status}。"
         )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
