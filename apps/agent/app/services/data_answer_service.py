@@ -3280,15 +3280,15 @@ class DataAnswerService:
         latest_business_time = await self._latest_business_time()
         time_evidence = self.time_window_service.resolve(message, latest_business_time)
         latest_only = "最新" in message and not getattr(time_evidence, "has_time_signal", False)
-        latest_records = await self.repository.filter_records_async(
+        candidate_records = await self.repository.filter_records_async(
             city=resolved_args.get("city"),
             county=resolved_args.get("county"),
             sn=resolved_args.get("sn"),
             start_time=None if latest_only else resolved_args.get("start_time"),
             end_time=None if latest_only else resolved_args.get("end_time"),
-            limit=1,
+            limit=None,
         )
-        if not latest_records:
+        if not candidate_records:
             label = self._entity_label(resolved_entities) or str(
                 resolved_args.get("sn") or resolved_args.get("county") or resolved_args.get("city") or "当前对象"
             )
@@ -3299,14 +3299,23 @@ class DataAnswerService:
                 current_context=current_context,
             )
 
-        latest_record = self._raw_row(latest_records[0])
-        warning_level = self._resolve_warning_level(
-            latest_record,
-            await self.repository.warning_rule_row_async(),
+        latest_record = self._raw_row(candidate_records[0])
+        rule_row = await self.repository.warning_rule_row_async()
+        warning_record, warning_level = self._latest_warning_record(
+            candidate_records=candidate_records,
+            rule_row=rule_row,
         )
-        render_fields = self._build_template_render_fields(latest_record, warning_level)
+        source_record = warning_record or latest_record
+        render_fields = self._build_template_render_fields(source_record, warning_level)
         rendered_text = None
-        effective_time_window = {} if latest_only else time_window
+        effective_time_window = (
+            self._record_time_window(
+                source_record,
+                source="latest_warning_record" if warning_record else "latest_record",
+            )
+            if latest_only
+            else time_window
+        )
         block_id = f"block_template_{turn_id}"
         block = {
             "block_id": block_id,
@@ -3319,12 +3328,12 @@ class DataAnswerService:
             "version": template_row.get("version"),
             "updated_at": template_row.get("updated_at"),
             "warning_level": warning_level,
-            "latest_record": latest_record,
+            "latest_record": source_record,
             "render_fields": render_fields,
             "rendered_text": None,
         }
 
-        label = self._entity_label(resolved_entities) or str(latest_record.get("sn") or "当前对象")
+        label = self._entity_label(resolved_entities) or str(source_record.get("sn") or "当前对象")
         if warning_level:
             rendered_text = self._render_warning_template_text(
                 template_text=str(template_row.get("template_text") or ""),
@@ -3337,6 +3346,7 @@ class DataAnswerService:
                 label=label,
                 time_window=effective_time_window,
                 latest_record=latest_record,
+                latest_only=latest_only,
             )
 
         query_spec = self._build_query_spec(
@@ -3379,7 +3389,7 @@ class DataAnswerService:
             parent_target_key=resolution_meta["parent_target_key"],
             result_refs=self._build_result_refs(
                 turn_id=turn_id,
-                block={"block_type": "detail_card", "title": label, "latest_record": latest_record},
+                block={"block_type": "detail_card", "title": label, "latest_record": source_record},
             ),
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
@@ -3389,7 +3399,7 @@ class DataAnswerService:
             sn=resolved_args.get("sn"),
             start_time=None if latest_only else resolved_args.get("start_time"),
             end_time=None if latest_only else resolved_args.get("end_time"),
-            limit=1,
+            limit=None,
         )
         return {
             "turn_id": turn_id,
@@ -3410,12 +3420,20 @@ class DataAnswerService:
                     query_type="detail",
                     query_spec=query_spec,
                     executed_sql_text=fact_sql,
-                    row_count=len(latest_records),
+                    row_count=len(candidate_records),
                     snapshot_id=None,
                     time_window=effective_time_window,
                     filters=query_spec["filters"],
-                    executed_result={"latest_record": latest_record, "warning_level": warning_level},
-                    result_digest={"latest_sn": latest_record.get("sn"), "warning_level": warning_level},
+                    executed_result={
+                        "latest_record": latest_record,
+                        "matched_warning_record": warning_record,
+                        "warning_level": warning_level,
+                    },
+                    result_digest={
+                        "latest_sn": source_record.get("sn"),
+                        "record_create_time": source_record.get("create_time"),
+                        "warning_level": warning_level,
+                    },
                 ),
                 self._build_query_log_entry(
                     session_id=session_id,
@@ -3729,6 +3747,30 @@ class DataAnswerService:
             "warning_level": warning_level or "",
         }
 
+    def _latest_warning_record(
+        self,
+        *,
+        candidate_records: list[dict[str, Any]],
+        rule_row: dict[str, Any] | None,
+    ) -> tuple[dict[str, Any] | None, str | None]:
+        for record in candidate_records:
+            raw_record = self._raw_row(record)
+            warning_level = self._resolve_warning_level(raw_record, rule_row)
+            if warning_level:
+                return raw_record, warning_level
+        return None, None
+
+    @staticmethod
+    def _record_time_window(record: dict[str, Any], *, source: str) -> dict[str, Any]:
+        create_time = str(record.get("create_time") or "")
+        if not create_time:
+            return {}
+        return {
+            "start_time": create_time,
+            "end_time": create_time,
+            "source": source,
+        }
+
     @staticmethod
     def _render_warning_template_text(template_text: str, render_fields: dict[str, Any]) -> str:
         normalized = re.sub(r"\{\{\s*([a-zA-Z0-9_]+)\s*\}\}", r"{\1}", template_text)
@@ -3744,17 +3786,23 @@ class DataAnswerService:
         label: str,
         time_window: dict[str, Any],
         latest_record: dict[str, Any],
+        latest_only: bool,
     ) -> str:
         latest_time = str(latest_record.get("create_time") or "暂无")
         water20 = latest_record.get("water20cm")
         prefix = label or str(latest_record.get("sn") or "当前对象")
+        if latest_only:
+            return (
+                f"{prefix}当前没有符合预警条件的历史记录，当前不输出预警模板。"
+                f"最近一条监测记录时间为 {latest_time}，20cm含水量 {water20}%。"
+            )
         if time_window.get("start_time") and time_window.get("end_time"):
             return (
-                f"{prefix}在{time_window['start_time'][:10]}至{time_window['end_time'][:10]}范围内的最新数据未触发预警，"
+                f"{prefix}在{time_window['start_time'][:10]}至{time_window['end_time'][:10]}范围内没有符合预警条件的记录，"
                 f"当前不输出预警模板。最近一条记录时间为 {latest_time}，20cm含水量 {water20}%。"
             )
         return (
-            f"{prefix}最新数据未触发预警，当前不输出预警模板。"
+            f"{prefix}当前没有符合预警条件的记录，当前不输出预警模板。"
             f"最近一条记录时间为 {latest_time}，20cm含水量 {water20}%。"
         )
 

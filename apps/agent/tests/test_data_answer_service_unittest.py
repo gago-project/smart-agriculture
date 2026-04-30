@@ -1388,7 +1388,79 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["rendered_text"], reply["final_text"])
         self.assertEqual(reply["blocks"][0]["latest_record"]["sn"], "SNS00213807")
 
-    async def test_template_output_for_non_warning_device_returns_no_warning_notice(self) -> None:
+    async def test_template_output_prefers_latest_triggered_warning_record_over_latest_plain_record(self) -> None:
+        self.repository.records.append(
+            {
+                "id": 990003,
+                "sn": "SNS00213807",
+                "gatewayid": "GW-TEST-3",
+                "sensorid": "S-TEST-3",
+                "unitid": "U-TEST-3",
+                "city": "镇江市",
+                "county": "镇江经开区",
+                "time": "2026-04-12 23:59:58",
+                "create_time": "2026-04-12 23:59:58",
+                "water20cm": 30.0,
+                "water40cm": 31.0,
+                "water60cm": 32.0,
+                "water80cm": 33.0,
+                "t20cm": 18.0,
+                "t40cm": 17.0,
+                "t60cm": 16.0,
+                "t80cm": 15.0,
+                "water20cmfieldstate": 1,
+                "water40cmfieldstate": 1,
+                "water60cmfieldstate": 1,
+                "water80cmfieldstate": 1,
+                "t20cmfieldstate": 1,
+                "t40cmfieldstate": 1,
+                "t60cmfieldstate": 1,
+                "t80cmfieldstate": 1,
+                "lat": 32.0,
+                "lon": 118.0,
+            }
+        )
+
+        reply = await self.service.reply(
+            message="按模板输出 SNS00213807 最新预警",
+            session_id="template-render-latest-warning-record",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "template")
+        self.assertIn("SNS00213807", reply["final_text"])
+        self.assertIn("30.0%", reply["final_text"])
+        self.assertIn("heavy_drought", reply["final_text"])
+        self.assertEqual(reply["blocks"][0]["warning_level"], "heavy_drought")
+        self.assertEqual(reply["blocks"][0]["latest_record"]["create_time"], "2026-04-12 23:59:58")
+        self.assertEqual(reply["blocks"][0]["rendered_text"], reply["final_text"])
+
+    async def test_repeated_template_latest_warning_query_does_not_fall_back_to_time_clarification(self) -> None:
+        first = await self.service.reply(
+            message="按模板输出 SNS00213807 最新预警",
+            session_id="template-repeat-no-time-clarify",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        second = await self.service.reply(
+            message="按模板输出 SNS00213807 最新预警",
+            session_id="template-repeat-no-time-clarify",
+            turn_id=2,
+            current_context=first["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(second["answer_kind"], "business")
+        self.assertEqual(second["capability"], "template")
+        self.assertNotIn("缺少可继承的时间范围", second["final_text"])
+        self.assertNotIn("请直接补充具体时间段", second["final_text"])
+
+    async def test_template_output_for_device_without_warning_history_returns_no_warning_history_notice(self) -> None:
         self.repository.records.append(
             {
                 "id": 990002,
@@ -1432,7 +1504,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["answer_kind"], "business")
         self.assertEqual(reply["capability"], "template")
         self.assertIn("SNS00213808", reply["final_text"])
-        self.assertIn("未触发预警", reply["final_text"])
+        self.assertIn("符合预警条件", reply["final_text"])
         self.assertNotIn("heavy_drought", reply["final_text"])
         self.assertIsNone(reply["blocks"][0]["warning_level"])
         self.assertIsNone(reply["blocks"][0]["rendered_text"])

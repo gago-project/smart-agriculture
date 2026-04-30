@@ -135,6 +135,17 @@ class FollowUpIntentResolverServiceTest(unittest.TestCase):
         self.assertEqual(result.operation, "clarify")
         self.assertEqual(result.clarify_reason, "ambiguous_ref")
 
+    def test_explicit_template_query_with_device_is_treated_as_standalone(self) -> None:
+        result = self.service.resolve(
+            text="按模板输出 SNS00213807 最新预警",
+            current_context=self.base_context,
+            extracted_entities={"province": [], "city": [], "county": [], "sn": ["SNS00213807"]},
+            time_has_signal=False,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "standalone")
+
 
 if __name__ == "__main__":
     unittest.main()

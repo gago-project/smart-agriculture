@@ -12,6 +12,7 @@ _PRONOUN_MARKERS = ("那个", "这个", "上面那个", "上面的", "这里的"
 _SUBSET_MARKERS = ("只看", "筛", "过滤")
 _SWITCH_CAPABILITY_MARKERS = ("详情", "明细", "规则", "模板")
 _ORDINAL_PATTERN = re.compile(r"第([0-9一二两三四五六七八九十]+)个")
+_TEMPLATE_QUERY_MARKERS = ("按模板", "按模版", "模板输出", "模版输出")
 
 _CHINESE_ORDINALS = {
     "一": 1,
@@ -59,6 +60,13 @@ class FollowUpIntentResolverService:
         latest_target = self._latest_target(current_context)
         has_explicit_entity = any(extracted_entities.get(key) for key in ("province", "city", "county", "sn"))
         new_slots = self._new_slots_from_entities(extracted_entities)
+
+        if has_explicit_entity and self._looks_like_explicit_template_query(normalized):
+            return FollowUpIntentResult(
+                operation="standalone",
+                confidence=0.98,
+                new_slots=new_slots,
+            )
 
         if current_context.get("closed"):
             if has_explicit_entity and time_has_signal:
@@ -188,6 +196,14 @@ class FollowUpIntentResolverService:
     @staticmethod
     def _contains_global_scope_reset(text: str) -> bool:
         return any(token in text for token in ("整体", "全省", "整个", "全部", "哪里", "哪个地方", "最严重", "排名", "排行"))
+
+    @staticmethod
+    def _looks_like_explicit_template_query(text: str) -> bool:
+        if not text:
+            return False
+        if any(marker in text for marker in _TEMPLATE_QUERY_MARKERS):
+            return True
+        return ("模板" in text or "模版" in text) and ("输出" in text or "预警" in text)
 
     def _resolve_result_ref(
         self,
