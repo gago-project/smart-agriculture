@@ -12,6 +12,7 @@
 | **4** | [`4.python-flow-design.md`](./4.python-flow-design.md) | **Python 工程方案**：在文档 1 之上说明如何用 Python + **自研受限 Flow** 落地（不引入 LangChain/LangGraph 的阶段性理由）、目录与分层、状态与节点职责等工程设计。 | 研发 / 架构 |
 | **7** | [`7.system-design-diagram.md`](./7.system-design-diagram.md) | **系统设计图**：把文档 1～6 收敛成可对齐多方（研发/测试/运维/产品）的**架构与主链路**说明，含 Mermaid 图、模块职责、轻量可靠性与失败降级口径。 | 全员（对齐理解） |
 | **8** | [`8.flow-risk-contract.md`](./8.flow-risk-contract.md) | **Flow 风险契约与补强方案**：在文档 1/4/5/6/7 基础上，写清自研 Flow 相对图框架多出来的工程风险（路由、状态合并、重试回路、上下文继承、知识污染事实等）及**必须遵守的契约与最少测试**，不推翻架构、补齐安全边界。 | 研发 / 架构 / 测试 |
+| **9** | [`9.query-profile-governance.md`](./9.query-profile-governance.md) | **deterministic 查询治理方案**：解释为什么问题会表现成“持续补丁”，并提出用统一 `QueryProfile` 收口路由、执行、多轮继承和渲染的通用治理方式。 | 研发 / 架构 / 产品 |
 ---
 
 ## 相关文档
@@ -27,5 +28,5 @@
 
 - **快速建立全局认识**：读 **1** → **7**。
 - **和业务方对齐系统能力**：优先阅读 **1**、**7**。  
-- **开发设计**：优先阅读 **1**、**4**、**7**、**8**。
+- **开发设计**：优先阅读 **1**、**4**、**7**、**8**、**9**。
 - **测试与验收**：查看 `testdata/agent/soil-moisture/` 与 soil-moisture QA skill；数据库表结构和地区别名解析补充说明见 `infra/mysql/docs`。
