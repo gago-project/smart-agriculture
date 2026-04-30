@@ -286,6 +286,67 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             summary["blocks"][0]["metrics"]["alert_record_count"],
         )
 
+    async def test_focus_device_follow_up_can_group_regions_with_short_region_question(self) -> None:
+        summary = await self.service.reply(
+            message="江苏最近墒情情况如何",
+            session_id="focus-device-short-region-group",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        focus_devices = await self.service.reply(
+            message="16个重点关注点位详情",
+            session_id="focus-device-short-region-group",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        grouped = await self.service.reply(
+            message="13个地区呢",
+            session_id="focus-device-short-region-group",
+            turn_id=3,
+            current_context=focus_devices["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+        self.assertEqual(len(grouped["blocks"][0]["rows"]), summary["blocks"][0]["metrics"]["alert_region_count"])
+
+    async def test_focus_device_follow_up_treats_region_detail_phrase_as_group_request(self) -> None:
+        summary = await self.service.reply(
+            message="江苏最近墒情情况如何",
+            session_id="focus-device-region-detail-group",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        focus_devices = await self.service.reply(
+            message="16个重点关注点位详情",
+            session_id="focus-device-region-detail-group",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        grouped = await self.service.reply(
+            message="13个地区详情",
+            session_id="focus-device-region-detail-group",
+            turn_id=3,
+            current_context=focus_devices["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+
     async def test_legacy_summary_context_without_alert_snapshot_rebuilds_record_list(self) -> None:
         summary = await self.service.reply(
             message="江苏最近墒情情况如何",

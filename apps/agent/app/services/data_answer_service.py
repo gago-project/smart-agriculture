@@ -66,6 +66,8 @@ QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地区|区域)"),
     re.compile(r"(哪些|哪[0-9一二两三四五六七八九十百]*个).*(地区|区域)"),
+    re.compile(r"^[0-9一二两三四五六七八九十百]+\s*个?\s*(地区|区域)(?:呢|详情|明细)?$"),
+    re.compile(r"^(这些|这几个|那些|上面的)\s*(地区|区域)(?:呢|详情|明细)?$"),
 )
 CONTEXT_VERSION = 2
 RESULT_REF_LIMIT = 20
