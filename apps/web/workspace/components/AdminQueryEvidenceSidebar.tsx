@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import { fetchAdminQueryEvidence, fetchAdminQueryEvidenceResult, type AgentQueryEvidencePayload } from '../services/queryEvidenceApi';
 import type { ChatMessageData, Message } from '../types/chat';
@@ -147,11 +147,16 @@ function ResultPreview({
   const rows = useMemo(() => pickResultRows(value).slice(0, 10), [value]);
   const columns = useMemo(() => resolvePreviewColumns(value, rows), [rows, value]);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  const isMountedRef = useRef(true);
   const [rawState, setRawState] = useState<RawResultState>({
     loading: false,
     data: rawValue ?? (!resultTruncated ? value : undefined),
     error: null,
   });
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
 
   useEffect(() => {
     setDetailsOpen(false);
@@ -176,7 +181,7 @@ function ResultPreview({
 
     void fetchAdminQueryEvidenceResult(queryId)
       .then((payload) => {
-        if (cancelled) return;
+        if (cancelled || !isMountedRef.current) return;
         setRawState({
           loading: false,
           data: payload.executed_result_json,
@@ -184,7 +189,7 @@ function ResultPreview({
         });
       })
       .catch((caughtError) => {
-        if (cancelled) return;
+        if (cancelled || !isMountedRef.current) return;
         setRawState({
           loading: false,
           data: undefined,
@@ -195,7 +200,7 @@ function ResultPreview({
     return () => {
       cancelled = true;
     };
-  }, [canLoadRaw, detailsOpen, queryId, rawState.data, rawState.loading, resultTruncated]);
+  }, [canLoadRaw, detailsOpen, queryId, resultTruncated]);
 
   return (
     <>
@@ -249,12 +254,17 @@ function ResultPreview({
 export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebarProps) {
   const [evidenceCache, setEvidenceCache] = useState<Record<string, EvidenceState>>({});
   const [selectedEntryIndex, setSelectedEntryIndex] = useState(0);
+  const isMountedRef = useRef(true);
 
   const messageData = toMessageData(message);
   const sessionId = typeof messageData?.session_id === 'string' ? messageData.session_id : '';
   const turnId = typeof messageData?.turn_id === 'number' ? messageData.turn_id : 0;
   const shouldQuery = Boolean(messageData?.should_query);
   const cacheKey = sessionId && turnId > 0 ? `${sessionId}:${turnId}` : '';
+
+  useEffect(() => () => {
+    isMountedRef.current = false;
+  }, []);
 
   useEffect(() => {
     setSelectedEntryIndex(0);
@@ -265,7 +275,6 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
       return;
     }
 
-    let cancelled = false;
     setEvidenceCache((current) => ({
       ...current,
       [cacheKey]: {
@@ -277,7 +286,7 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
 
     void fetchAdminQueryEvidence(sessionId, turnId)
       .then((data) => {
-        if (cancelled) return;
+        if (!isMountedRef.current) return;
         setEvidenceCache((current) => ({
           ...current,
           [cacheKey]: {
@@ -288,7 +297,7 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
         }));
       })
       .catch((caughtError) => {
-        if (cancelled) return;
+        if (!isMountedRef.current) return;
         setEvidenceCache((current) => ({
           ...current,
           [cacheKey]: {
@@ -298,11 +307,7 @@ export function AdminQueryEvidenceSidebar({ message }: AdminQueryEvidenceSidebar
           },
         }));
       });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [cacheKey, evidenceCache, sessionId, shouldQuery, turnId]);
+  }, [cacheKey, sessionId, shouldQuery, turnId]);
 
   const evidenceState = cacheKey ? evidenceCache[cacheKey] : undefined;
   const entries = evidenceState?.data?.entries ?? [];
