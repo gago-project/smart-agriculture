@@ -63,10 +63,13 @@ class SoilRepositoryPathTest(unittest.TestCase):
         """Verify warning-template query does not treat DATE_FORMAT markers as pyformat placeholders."""
         repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
 
-        with patch.object(repository, "_connect", return_value=TemplateRowConnection()):
+        connection = TemplateRowConnection()
+        with patch.object(repository, "_connect", return_value=connection):
             row = repository.warning_template_row()
 
         self.assertEqual(row["template_id"], "soil_default_warning")
+        self.assertEqual(row["domain"], "soil_moisture")
+        self.assertEqual(connection.last_cursor.params, ("soil_moisture",))
 
 
 class EmptyResultCursor:
@@ -251,7 +254,7 @@ class TemplateRowCursor:
     def fetchone(self):
         return {
             "template_id": "soil_default_warning",
-            "domain": "soil",
+            "domain": "soil_moisture",
             "warning_type": "soil_moisture",
             "audience": "farmer",
             "template_name": "土壤墒情预警模板",
@@ -267,8 +270,12 @@ class TemplateRowCursor:
 class TemplateRowConnection:
     """Connection wrapper for warning-template lookup tests."""
 
+    def __init__(self):
+        self.last_cursor = None
+
     def cursor(self):
-        return TemplateRowCursor()
+        self.last_cursor = TemplateRowCursor()
+        return self.last_cursor
 
     def close(self):
         return None

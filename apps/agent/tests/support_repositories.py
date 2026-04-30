@@ -236,7 +236,7 @@ class SeedSoilRepository(SoilRepository):
         """Async warning-rule fixture lookup."""
         return self.warning_rule_row(rule_code)
 
-    def warning_template_row(self, domain: str = "soil") -> dict[str, Any] | None:
+    def warning_template_row(self, domain: str = "soil_moisture") -> dict[str, Any] | None:
         """Return a deterministic warning-template fixture for unit tests."""
         return {
             "template_id": "soil_default_warning",
@@ -262,6 +262,6 @@ class SeedSoilRepository(SoilRepository):
             "updated_at": "2026-04-13 23:59:59",
         }
 
-    async def warning_template_row_async(self, domain: str = "soil") -> dict[str, Any] | None:
+    async def warning_template_row_async(self, domain: str = "soil_moisture") -> dict[str, Any] | None:
         """Async warning-template fixture lookup."""
         return self.warning_template_row(domain)

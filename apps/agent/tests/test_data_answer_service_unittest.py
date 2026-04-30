@@ -395,6 +395,50 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
 
+    async def test_standalone_warning_device_query_returns_device_list_without_prior_context(self) -> None:
+        listing = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的点位是哪些",
+            session_id="standalone-warning-device-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(listing["answer_kind"], "business")
+        self.assertEqual(listing["capability"], "list")
+        self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
+        self.assertIn("点位", listing["blocks"][0]["title"])
+        self.assertEqual(listing["turn_context"]["time_window"]["start_time"], "2026-03-20 00:00:00")
+        self.assertEqual(listing["turn_context"]["time_window"]["end_time"], "2026-03-20 23:59:59")
+        self.assertGreater(len(listing["blocks"][0]["rows"]), 0)
+        self.assertTrue(all(str(row.get("create_time") or "").startswith("2026-03-20") for row in listing["blocks"][0]["rows"]))
+
+    async def test_explicit_warning_device_query_is_not_captured_by_previous_follow_up_context(self) -> None:
+        summary = await self.service.reply(
+            message="最近7天整体墒情怎么样",
+            session_id="fresh-warning-device-list-after-summary",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        listing = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的点位是哪些",
+            session_id="fresh-warning-device-list-after-summary",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(listing["answer_kind"], "business")
+        self.assertEqual(listing["capability"], "list")
+        self.assertEqual(listing["blocks"][0]["block_type"], "list_table")
+        self.assertIn("点位", listing["blocks"][0]["title"])
+        self.assertEqual(listing["turn_context"]["time_window"]["start_time"], "2026-03-20 00:00:00")
+        self.assertEqual(listing["turn_context"]["time_window"]["end_time"], "2026-03-20 23:59:59")
+        self.assertNotIn("当前这轮可继续展开的是", listing["final_text"])
+        self.assertGreater(len(listing["blocks"][0]["rows"]), 0)
+
     async def test_standalone_group_query_runs_without_prior_context(self) -> None:
         grouped = await self.service.reply(
             message="最近30天按地区汇总墒情数据",
@@ -1062,6 +1106,44 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(template["turn_context"]["topic_family"], "template")
         self.assertEqual(template["blocks"][0]["block_type"], "template_card")
         self.assertEqual(template["blocks"][0]["display_mode"], "evidence_only")
+
+    async def test_typo_template_request_does_not_fall_back_to_time_clarification(self) -> None:
+        reply = await self.service.reply(
+            message="预警模版",
+            session_id="template-typo",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "template")
+        self.assertEqual(reply["turn_context"]["topic_family"], "template")
+        self.assertEqual(reply["blocks"][0]["block_type"], "template_card")
+        self.assertNotIn("你想查看的时间段是", reply["final_text"])
+
+    async def test_rule_then_typo_template_follow_up_switches_topic_family(self) -> None:
+        rule = await self.service.reply(
+            message="墒情预警规则是什么",
+            session_id="rule-typo-template",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        template = await self.service.reply(
+            message="那模版呢",
+            session_id="rule-typo-template",
+            turn_id=2,
+            current_context=rule["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(template["answer_kind"], "business")
+        self.assertEqual(template["capability"], "template")
+        self.assertEqual(template["turn_context"]["topic_family"], "template")
+        self.assertEqual(template["blocks"][0]["block_type"], "template_card")
+        self.assertNotIn("你想查看的时间段是", template["final_text"])
 
     async def test_legacy_context_is_upgraded_to_context_v3(self) -> None:
         summary = await self.service.reply(

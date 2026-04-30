@@ -83,6 +83,7 @@ DOMAIN_INTENT_TOKENS = (
     "严重",
     "规则",
     "模板",
+    "模版",
 )
 TIME_ONLY_FOLLOW_UP_PATTERNS = (
     re.compile(r"^(?:最近|近|过去|前)?\s*[0-9一二两三四五六七八九十百]+\s*(?:天|周|月|年|个月)\s*(?:呢)?$", re.IGNORECASE),
@@ -105,6 +106,8 @@ CONTEXT_VERSION = 3
 RESULT_REF_LIMIT = 20
 FOLLOW_UP_TARGET_LIMIT = 5
 DETAIL_HINT_TOKENS = ("详情", "明细")
+LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
+TEMPLATE_TOKENS = ("模板", "模版")
 
 
 logger = logging.getLogger(__name__)
@@ -196,6 +199,19 @@ class DataAnswerService:
                 turn_id=turn_id,
                 current_context=context,
             )
+        list_target = self._resolve_list_target(text, context)
+        if list_target and await self._should_treat_list_request_as_standalone(
+            text=text,
+            current_context=context,
+            entities=entities,
+        ):
+            return await self._reply_standalone_list(
+                message=text,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+                list_target=list_target,
+            )
 
         action_result = self.follow_up_action_resolver.resolve(
             text=text,
@@ -245,7 +261,6 @@ class DataAnswerService:
                 action_target=selected_target,
             )
 
-        list_target = self._resolve_list_target(text, context)
         if list_target:
             return await self._reply_list(
                 message=text,
@@ -1024,11 +1039,11 @@ class DataAnswerService:
 
     @staticmethod
     def _is_rule_request(text: str) -> bool:
-        return "规则" in text and "模板" not in text
+        return "规则" in text and not any(token in text for token in TEMPLATE_TOKENS)
 
     @staticmethod
     def _is_template_request(text: str) -> bool:
-        return "模板" in text
+        return any(token in text for token in TEMPLATE_TOKENS)
 
     @staticmethod
     def _current_list_grain(context: dict[str, Any]) -> str:
@@ -1043,6 +1058,7 @@ class DataAnswerService:
         has_data_context = context.get("topic_family") == "data"
         has_follow_up_reference = any(token in normalized for token in ("这些", "这44条", "这44个", "这里的", "刚才", "上面的"))
         has_list_verb = any(token in normalized for token in ("列出", "列一下", "展示", "查看", "看看", "名单", "列表"))
+        has_enumeration_cue = any(token in normalized for token in LIST_ENUMERATION_TOKENS)
         mentions_alert_records = (
             "预警记录" in normalized
             or "预警详情" in normalized
@@ -1052,18 +1068,31 @@ class DataAnswerService:
         mentions_record = (
             mentions_alert_records
             or "记录" in normalized
-            or ("数据" in normalized and "规则" not in normalized and "模板" not in normalized)
+            or (
+                "数据" in normalized
+                and "规则" not in normalized
+                and not any(token in normalized for token in TEMPLATE_TOKENS)
+            )
         )
         mentions_device = any(token in normalized for token in ("点位", "设备"))
         mentions_focus_devices = any(token in normalized for token in ("重点关注的点位", "重点关注点位", "设备名单"))
 
-        if mentions_record and any(token in normalized for token in ("预警", "异常", "条", "详情", "明细", "列出", "展示")):
+        if mentions_record and (
+            any(token in normalized for token in ("预警", "异常", "条", "详情", "明细", "列出", "展示"))
+            or (has_enumeration_cue and not mentions_device)
+        ):
             return LIST_TARGET_ALERT_RECORDS
         if mentions_focus_devices:
             return LIST_TARGET_FOCUS_DEVICES
         if has_data_context and prior_grain == "record_list" and has_follow_up_reference:
             return LIST_TARGET_ALERT_RECORDS
-        if mentions_device and (has_list_verb or has_follow_up_reference or "只看" in normalized or "筛" in normalized):
+        if mentions_device and (
+            has_list_verb
+            or has_follow_up_reference
+            or "只看" in normalized
+            or "筛" in normalized
+            or has_enumeration_cue
+        ):
             return LIST_TARGET_FOCUS_DEVICES
         if has_data_context and has_list_verb:
             return LIST_TARGET_ALERT_RECORDS if prior_grain == "record_list" else LIST_TARGET_FOCUS_DEVICES
@@ -1201,6 +1230,25 @@ class DataAnswerService:
             return True
         return any(token in normalized for token in ("整体", "全省", "整个", "全部"))
 
+    async def _should_treat_list_request_as_standalone(
+        self,
+        *,
+        text: str,
+        current_context: dict[str, Any],
+        entities: dict[str, Any],
+    ) -> bool:
+        del current_context
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(normalized, latest_business_time)
+        if getattr(time_evidence, "has_time_signal", False):
+            return True
+        if any(entities.get(key) for key in ("province", "city", "county", "sn")):
+            return True
+        return any(token in normalized for token in ("整体", "全省", "整个", "全部"))
+
     async def _maybe_run_llm_input_guard(
         self,
         *,
@@ -1242,7 +1290,7 @@ class DataAnswerService:
         if any(token in text for token in LLM_GUARD_DOMAIN_TOKENS):
             return False
         if context.get("topic_family") in {"rule", "template"} and any(
-            token in text for token in ("规则", "模板", "这些点位", "点位", "详情")
+            token in text for token in ("规则", "这些点位", "点位", "详情", *TEMPLATE_TOKENS)
         ):
             return False
 
@@ -2182,6 +2230,146 @@ class DataAnswerService:
                     time_window=current_context.get("time_window") or {},
                     filters=query_spec["filters"],
                     executed_result={"rows": page_rows, "total_count": len(rows)},
+                    result_digest={"total_count": len(rows)},
+                )
+            ],
+        }
+
+    async def _reply_standalone_list(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+        list_target: str,
+    ) -> dict[str, Any]:
+        snapshot_config = self._list_snapshot_config(list_target)
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_summary",
+                current_context=current_context,
+                turn_id=turn_id,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="list",
+                grain=snapshot_config["grain"],
+                clarify_text=str(exc),
+            )
+
+        records = await self._query_records(resolved_args)
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="list",
+                text="当前条件下没有查到墒情数据，你可以换一个地区、设备或扩大时间范围再试。",
+                current_context=current_context,
+            )
+
+        rows = self._alert_record_rows(records) if list_target == LIST_TARGET_ALERT_RECORDS else self._focus_device_rows(records)
+        block_id = f"block_list_{turn_id}"
+        query_spec = self._build_query_spec(
+            capability="list",
+            grain=snapshot_config["grain"],
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec=query_spec,
+            rule_version=None,
+            rows=rows,
+            snapshot_kind=snapshot_config["snapshot_kind"],
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "list_table",
+            "title": snapshot_config["title"],
+            "columns": snapshot_config["columns"],
+            "rows": rows[:50],
+            "pagination": {
+                "snapshot_id": snapshot["snapshot_id"],
+                "page": 1,
+                "page_size": 50,
+                "total_count": len(rows),
+                "total_pages": 0 if not rows else ((len(rows) - 1) // 50) + 1,
+            },
+        }
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                snapshot_config["snapshot_key"]: snapshot["snapshot_id"],
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="list",
+            grain=snapshot_config["grain"],
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=self._build_list_action_targets(
+                turn_id=turn_id,
+                snapshot_id=snapshot["snapshot_id"],
+                snapshot_kind=snapshot_config["snapshot_kind"],
+                rows=rows,
+            ),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        final_text = (
+            f"已列出当前条件下的 {len(rows)} 条记录。"
+            if list_target == LIST_TARGET_ALERT_RECORDS
+            else f"已列出当前条件下的 {len(rows)} 个点位。"
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "list",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [snapshot["snapshot_id"]]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="list",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    row_count=len(rows),
+                    snapshot_id=snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"rows": rows[:50], "total_count": len(rows)},
                     result_digest={"total_count": len(rows)},
                 )
             ],

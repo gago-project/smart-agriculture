@@ -549,7 +549,7 @@ class SoilRepository:
         return await asyncio.to_thread(self.warning_rule_row, rule_code)
 
     @staticmethod
-    def build_warning_template_audit_sql(domain: str = "soil") -> str:
+    def build_warning_template_audit_sql(domain: str = "soil_moisture") -> str:
         """Return the fixed SQL used to read the latest enabled warning template."""
         normalized = SoilRepository._normalize_sql_literal(domain)
         return (
@@ -563,7 +563,7 @@ class SoilRepository:
             "LIMIT 1"
         )
 
-    def warning_template_row(self, domain: str = "soil") -> dict[str, Any] | None:
+    def warning_template_row(self, domain: str = "soil_moisture") -> dict[str, Any] | None:
         """Return the latest enabled warning template row from `warning_template`."""
         connection = self._connect()
         try:
@@ -588,7 +588,7 @@ class SoilRepository:
         finally:
             connection.close()
 
-    async def warning_template_row_async(self, domain: str = "soil") -> dict[str, Any] | None:
+    async def warning_template_row_async(self, domain: str = "soil_moisture") -> dict[str, Any] | None:
         """Async wrapper for warning-template lookup."""
         return await asyncio.to_thread(self.warning_template_row, domain)
 
