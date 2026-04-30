@@ -45,7 +45,7 @@ test('business insert sql seeds only rules and templates idempotently', () => {
 test('full soil data sql only refreshes fact rows and region aliases idempotently', () => {
   const insertSql = read('infra/mysql/init/003_insert_soil_data.sql');
 
-  assert.match(insertSql, /DELETE FROM fact_soil_moisture WHERE source_file = '土壤墒情仪数据\(2\)\.xlsx'/i);
+  assert.match(insertSql, /DELETE FROM fact_soil_moisture;?/i);
   assert.match(insertSql, /INSERT INTO fact_soil_moisture/i);
   assert.match(insertSql, /BEGIN GENERATED REGION_ALIAS SEED/i);
   assert.match(insertSql, /INSERT INTO region_alias/i);
@@ -106,5 +106,6 @@ test('local auth bootstrap uses gitignored json config instead of committed real
 test('full excel import replaces same-source demo rows before loading localhost mysql', () => {
   const script = read('apps/web/scripts/import-local-soil-excel.mjs');
 
-  assert.match(script, /DELETE FROM fact_soil_moisture WHERE source_file = \?/);
+  assert.match(script, /DELETE FROM fact_soil_moisture/);
+  assert.doesNotMatch(script, /source_file/);
 });

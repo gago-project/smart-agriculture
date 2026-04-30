@@ -100,7 +100,7 @@ class InputGuardService:
                 input_type="meaningless_input",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我是墒情智能助手，可以帮你查询墒情概览、地区/设备详情、异常分析和预警模板。你可以问：最近墒情怎么样？如东县最近怎么样？SNS00204333 需要发预警吗？",
+                suggested_answer="我是墒情智能助手，可以帮你查询墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。你可以问：最近墒情怎么样？如东县最近怎么样？最近30天按地区汇总墒情数据。",
                 guidance_reason="safe_hint",
             )
         # 简单问候：不查库，友好说明能力范围。
@@ -110,7 +110,7 @@ class InputGuardService:
                 input_type="greeting",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="你好，我可以帮助查询土壤墒情、分析异常、生成预警模板，并提供保守的管理建议。",
+                suggested_answer="你好，我可以帮助查询土壤墒情、查看地区或设备详情、按地区汇总数据，以及查看预警规则和模板。",
                 guidance_reason="safe_hint",
             )
         if self._is_greeting_like_smalltalk(normalized, compact):
@@ -119,7 +119,7 @@ class InputGuardService:
                 input_type="meaningless_input",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我可以继续帮你查墒情数据、异常点位、预警规则或模板。你也可以直接说地区、设备或时间范围。",
+                suggested_answer="我可以继续帮你查墒情数据、地区/点位/记录明细、按地区汇总，或查看预警规则和模板。你也可以直接说地区、设备或时间范围。",
                 guidance_reason="safe_hint",
             )
         # 能力/身份询问：用固定话术概括支持范围。
@@ -129,7 +129,7 @@ class InputGuardService:
                 input_type="capability_question",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我当前支持墒情概览、地区/设备详情、异常分析、预警判断和模板输出。你可以直接给地区、设备或时间范围来问。",
+                suggested_answer="我当前支持墒情概况、地区/点位/记录明细、按地区汇总，以及预警规则和模板查看。你可以直接给地区、设备或时间范围来问。",
                 guidance_reason="safe_hint",
             )
         domain_knowledge_answer = self._domain_knowledge_answer(normalized)
@@ -148,7 +148,7 @@ class InputGuardService:
                 input_type="out_of_domain",
                 terminal_action="boundary_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我当前只支持土壤墒情相关的数据查询、异常分析、预警判断和管理建议，暂不处理创作型请求或内部系统指令问题。",
+                suggested_answer="我当前只支持土壤墒情相关的数据查询，以及预警规则、模板查看，暂不处理创作型请求或内部系统指令问题。",
                 intent="out_of_scope",
                 guidance_reason="boundary",
             )
@@ -168,7 +168,7 @@ class InputGuardService:
                 input_type="out_of_domain",
                 terminal_action="boundary_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我当前只支持土壤墒情相关的数据查询、异常分析、预警判断和管理建议，暂不处理天气、诗歌或股票类问题。",
+                suggested_answer="我当前只支持土壤墒情相关的数据查询，以及预警规则、模板查看，暂不处理天气、诗歌或股票类问题。",
                 intent="out_of_scope",
                 guidance_reason="boundary",
             )
@@ -179,7 +179,7 @@ class InputGuardService:
                 input_type="ambiguous_low_confidence",
                 terminal_action="clarify_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="你想查看哪类墒情信息？可以补充地区、设备或时间，例如：如东县最近墒情怎么样、SNS00204333 最近有没有异常、过去一个月哪里最严重。",
+                suggested_answer="你想查看哪类墒情信息？可以补充地区、设备或时间，例如：如东县最近墒情怎么样、SNS00204333 最近记录明细、最近30天按地区汇总墒情数据。",
                 intent="clarification_needed",
                 guidance_reason="clarification",
             )
@@ -190,7 +190,7 @@ class InputGuardService:
                 input_type="meaningless_input",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我这边更擅长处理墒情业务问题。你可以直接问地区、设备、时间范围、异常或预警相关内容。",
+                suggested_answer="我这边更擅长处理墒情业务问题。你可以直接问地区、设备、时间范围，或让我按地区汇总墒情数据。",
                 guidance_reason="safe_hint",
             )
         # 其余视为可进业务：区分口语短问与更明确的业务直述。

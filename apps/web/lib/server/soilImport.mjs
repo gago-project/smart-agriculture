@@ -2,6 +2,8 @@ import * as XLSX from 'xlsx';
 
 import { normalizeRecord } from './soilAdminStore.mjs';
 
+const SOURCE_ROW_META_KEY = '__source_row';
+
 function excelSerialToDateString(serialValue) {
   const wholeDays = Math.floor(serialValue);
   const dayFraction = serialValue - wholeDays;
@@ -35,7 +37,7 @@ function toNumber(value) {
 }
 
 export function mapSoilRow(row, filename, sheetName, sourceRow) {
-  return normalizeRecord({
+  const normalized = normalizeRecord({
     id: String(row.id || '').trim(),
     sn: String(row.sn || '').trim(),
     gatewayid: String(row.gatewayid || '').trim(),
@@ -63,10 +65,19 @@ export function mapSoilRow(row, filename, sheetName, sourceRow) {
     t80cmfieldstate: String(row.t80cmfieldstate || '').trim(),
     lat: toNumber(row.lat),
     lon: toNumber(row.lon),
-    source_file: filename,
-    source_sheet: sheetName,
-    source_row: sourceRow,
   });
+  Object.defineProperty(normalized, SOURCE_ROW_META_KEY, {
+    value: sourceRow,
+    enumerable: false,
+    configurable: true,
+    writable: false,
+  });
+  return normalized;
+}
+
+export function getRecordSourceRow(record) {
+  const value = record?.[SOURCE_ROW_META_KEY];
+  return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
 export function parseSoilWorkbookBuffer(buffer, filename = 'soil.xlsx') {

@@ -57,10 +57,7 @@ CREATE TABLE IF NOT EXISTS fact_soil_moisture (
   t60cmfieldstate VARCHAR(32) NULL,
   t80cmfieldstate VARCHAR(32) NULL,
   lat DECIMAL(10,6) NULL,
-  lon DECIMAL(10,6) NULL,
-  source_file VARCHAR(255) NOT NULL,
-  source_sheet VARCHAR(128) NULL,
-  source_row INT NULL
+  lon DECIMAL(10,6) NULL
 );
 
 CREATE TABLE IF NOT EXISTS metric_rule (
@@ -185,11 +182,6 @@ CREATE TABLE IF NOT EXISTS agent_result_snapshot (
 CREATE TABLE IF NOT EXISTS agent_result_snapshot_item (
   snapshot_id VARCHAR(64) NOT NULL,
   row_index INT NOT NULL,
-  entity_key VARCHAR(128) NOT NULL,
-  city VARCHAR(64) NULL,
-  county VARCHAR(64) NULL,
-  sn VARCHAR(64) NULL,
-  latest_create_time DATETIME NULL,
   payload_json JSON NOT NULL,
   PRIMARY KEY (snapshot_id, row_index),
   CONSTRAINT fk_agent_result_snapshot_item_snapshot FOREIGN KEY (snapshot_id) REFERENCES agent_result_snapshot(snapshot_id)
@@ -294,8 +286,39 @@ BEGIN
   END IF;
 END//
 
+DROP PROCEDURE IF EXISTS drop_index_if_exists//
+
+CREATE PROCEDURE drop_index_if_exists(
+  IN in_table_name VARCHAR(64),
+  IN in_index_name VARCHAR(64),
+  IN in_index_sql TEXT
+)
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = in_table_name
+      AND index_name = in_index_name
+  ) THEN
+    SET @drop_index_sql = in_index_sql;
+    PREPARE drop_index_stmt FROM @drop_index_sql;
+    EXECUTE drop_index_stmt;
+    DEALLOCATE PREPARE drop_index_stmt;
+  END IF;
+END//
+
 DELIMITER ;
 
+CALL drop_column_if_exists('fact_soil_moisture', 'source_file', 'ALTER TABLE fact_soil_moisture DROP COLUMN source_file');
+CALL drop_column_if_exists('fact_soil_moisture', 'source_sheet', 'ALTER TABLE fact_soil_moisture DROP COLUMN source_sheet');
+CALL drop_column_if_exists('fact_soil_moisture', 'source_row', 'ALTER TABLE fact_soil_moisture DROP COLUMN source_row');
+CALL drop_index_if_exists('agent_result_snapshot_item', 'idx_agent_result_snapshot_item_lookup', 'ALTER TABLE agent_result_snapshot_item DROP INDEX idx_agent_result_snapshot_item_lookup');
+CALL drop_column_if_exists('agent_result_snapshot_item', 'entity_key', 'ALTER TABLE agent_result_snapshot_item DROP COLUMN entity_key');
+CALL drop_column_if_exists('agent_result_snapshot_item', 'city', 'ALTER TABLE agent_result_snapshot_item DROP COLUMN city');
+CALL drop_column_if_exists('agent_result_snapshot_item', 'county', 'ALTER TABLE agent_result_snapshot_item DROP COLUMN county');
+CALL drop_column_if_exists('agent_result_snapshot_item', 'sn', 'ALTER TABLE agent_result_snapshot_item DROP COLUMN sn');
+CALL drop_column_if_exists('agent_result_snapshot_item', 'latest_create_time', 'ALTER TABLE agent_result_snapshot_item DROP COLUMN latest_create_time');
 CALL ensure_column('agent_query_log', 'request_text', 'ALTER TABLE agent_query_log ADD COLUMN request_text TEXT NULL AFTER turn_id');
 CALL ensure_column('agent_query_log', 'response_text', 'ALTER TABLE agent_query_log ADD COLUMN response_text TEXT NULL AFTER request_text');
 CALL ensure_column('agent_query_log', 'input_type', 'ALTER TABLE agent_query_log ADD COLUMN input_type VARCHAR(32) NULL AFTER response_text');
@@ -319,7 +342,6 @@ CALL ensure_index('agent_chat_session', 'idx_agent_chat_session_owner_archived',
 CALL ensure_index('agent_chat_turn', 'idx_agent_chat_turn_session_created_at', 'CREATE INDEX idx_agent_chat_turn_session_created_at ON agent_chat_turn (session_id, created_at)');
 CALL ensure_index('agent_result_snapshot', 'idx_agent_result_snapshot_session_turn', 'CREATE INDEX idx_agent_result_snapshot_session_turn ON agent_result_snapshot (session_id, source_turn_id)');
 CALL ensure_index('agent_result_snapshot', 'idx_agent_result_snapshot_expires_at', 'CREATE INDEX idx_agent_result_snapshot_expires_at ON agent_result_snapshot (expires_at)');
-CALL ensure_index('agent_result_snapshot_item', 'idx_agent_result_snapshot_item_lookup', 'CREATE INDEX idx_agent_result_snapshot_item_lookup ON agent_result_snapshot_item (snapshot_id, sn, county, city)');
 CALL ensure_index('agent_query_log', 'idx_aql_session_turn', 'CREATE INDEX idx_aql_session_turn ON agent_query_log (session_id, turn_id)');
 CALL ensure_index('agent_query_log', 'idx_aql_created_at', 'CREATE INDEX idx_aql_created_at ON agent_query_log (created_at)');
 CALL ensure_index('agent_query_log', 'idx_aql_query_type_created_at', 'CREATE INDEX idx_aql_query_type_created_at ON agent_query_log (query_type, created_at)');
@@ -328,3 +350,4 @@ CALL ensure_index('agent_query_log', 'idx_aql_status_created_at', 'CREATE INDEX 
 DROP PROCEDURE IF EXISTS ensure_index;
 DROP PROCEDURE IF EXISTS ensure_column;
 DROP PROCEDURE IF EXISTS drop_column_if_exists;
+DROP PROCEDURE IF EXISTS drop_index_if_exists;

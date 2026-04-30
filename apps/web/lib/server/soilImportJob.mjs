@@ -1,3 +1,5 @@
+import { getRecordSourceRow } from './soilImport.mjs';
+
 const SOIL_RECORD_SNAPSHOT_FIELDS = [
   'sn',
   'gatewayid',
@@ -25,13 +27,8 @@ const SOIL_RECORD_SNAPSHOT_FIELDS = [
   't80cmfieldstate',
   'lat',
   'lon',
-  'source_file',
-  'source_sheet',
-  'source_row',
 ];
-
-const SOIL_RECORD_COMPARE_FIELDS = SOIL_RECORD_SNAPSHOT_FIELDS.filter((field) =>
-  !['source_file', 'source_sheet', 'source_row'].includes(field));
+const SOIL_RECORD_COMPARE_FIELDS = SOIL_RECORD_SNAPSHOT_FIELDS;
 
 const NUMERIC_FIELDS = new Set([
   'water20cm',
@@ -44,7 +41,6 @@ const NUMERIC_FIELDS = new Set([
   't80cm',
   'lat',
   'lon',
-  'source_row',
 ]);
 
 function normalizeComparableValue(field, value) {
@@ -87,7 +83,7 @@ export function findDuplicateRecordIds(records) {
       continue;
     }
     const rows = seen.get(recordId) || [];
-    rows.push(Number(record.source_row || 0));
+    rows.push(Number(getRecordSourceRow(record) || record.source_row || 0));
     seen.set(recordId, rows);
   }
   return [...seen.entries()]
@@ -143,7 +139,7 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
       diffRows.push({
         diff_type: 'create',
         id: importedSnapshot.id,
-        source_row: importedSnapshot.source_row,
+        source_row: getRecordSourceRow(importedRecord),
         db_record_json: null,
         import_record_json: importedSnapshot,
         field_changes_json: null,
@@ -158,7 +154,7 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
       diffRows.push({
         diff_type: 'unchanged',
         id: importedSnapshot.id,
-        source_row: importedSnapshot.source_row,
+        source_row: getRecordSourceRow(importedRecord),
         db_record_json: existingSnapshot,
         import_record_json: importedSnapshot,
         field_changes_json: null,
@@ -170,7 +166,7 @@ export function buildSoilImportPreview({ existingRecords, importedRecords, inval
     diffRows.push({
       diff_type: 'update',
       id: importedSnapshot.id,
-      source_row: importedSnapshot.source_row,
+      source_row: getRecordSourceRow(importedRecord),
       db_record_json: existingSnapshot,
       import_record_json: importedSnapshot,
       field_changes_json: fieldChanges,

@@ -88,7 +88,7 @@ class SoilRepository:
                water20cm, water40cm, water60cm, water80cm, t20cm, t40cm, t60cm, t80cm,
                water20cmfieldstate, water40cmfieldstate, water60cmfieldstate, water80cmfieldstate,
                t20cmfieldstate, t40cmfieldstate, t60cmfieldstate, t80cmfieldstate,
-               lat, lon, source_file, source_sheet, source_row
+               lat, lon
         FROM fact_soil_moisture
         """.strip()
 

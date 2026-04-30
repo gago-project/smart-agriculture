@@ -36,8 +36,8 @@ export function ChatPanel({
               <span>适合验证最近 7 天概览和最新业务时间基准</span>
             </article>
             <article className="suggestion-card">
-              <strong>最近30天，哪些地区墒情异常最多？</strong>
-              <span>适合验证墒情异常统计与处理链</span>
+              <strong>最近30天，按地区汇总墒情数据</strong>
+              <span>适合验证独立地区汇总和原始数据查询链</span>
             </article>
             <article className="suggestion-card">
               <strong>如东县最近怎么样？</strong>

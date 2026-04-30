@@ -69,9 +69,6 @@ test('fact_soil_moisture columns exactly match raw excel contract', () => {
     't80cmfieldstate',
     'lat',
     'lon',
-    'source_file',
-    'source_sheet',
-    'source_row',
   ]);
   assert.match(sql, /CREATE INDEX idx_soil_create_time ON fact_soil_moisture \(create_time\)/i);
   assert.match(sql, /CREATE INDEX idx_soil_sn_create_time ON fact_soil_moisture \(sn, create_time\)/i);
@@ -165,11 +162,6 @@ test('chat session and snapshot tables keep the server-backed conversation contr
   assert.deepEqual(extractColumns('agent_result_snapshot_item'), [
     'snapshot_id',
     'row_index',
-    'entity_key',
-    'city',
-    'county',
-    'sn',
-    'latest_create_time',
     'payload_json',
   ]);
 });

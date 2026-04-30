@@ -75,9 +75,6 @@ def _load_seed_records() -> list[dict[str, Any]]:
                     "t80cmfieldstate": values[24],
                     "lat": values[25],
                     "lon": values[26],
-                    "source_file": values[27],
-                    "source_sheet": values[28],
-                    "source_row": values[29],
                 }
             )
     return records

@@ -35,12 +35,12 @@ class ChatV2GuidanceService:
             "turn_id": 1,
             "answer_kind": "guidance",
             "capability": "none",
-            "final_text": "我可以帮你查墒情数据、异常点位、预警规则或模板。",
+            "final_text": "我可以帮你查墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。",
             "blocks": [
                 {
                     "block_id": "block_guidance_1",
                     "block_type": "guidance_card",
-                    "text": "我可以帮你查墒情数据、异常点位、预警规则或模板。",
+                    "text": "我可以帮你查墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。",
                     "guidance_reason": "safe_hint",
                 }
             ],

@@ -34,9 +34,40 @@ from app.services.time_window_service import TimeWindowService
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
 LIST_TARGET_FOCUS_DEVICES = "devices"
 LIST_TARGET_ALERT_RECORDS = "records"
-FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "latest_create_time", "water20cm", "t20cm"]
+FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "create_time", "water20cm", "t20cm"]
 ALERT_RECORD_COLUMNS = ["create_time", "city", "county", "sn", "water20cm", "t20cm"]
+REGION_GROUP_COLUMNS = ["city", "county"]
+CITY_GROUP_COLUMNS = ["city"]
 DERIVED_QUERY_KEYS = {"soil_status", "warning_level", "risk_score", "display_label", "rule_version"}
+RAW_SOIL_KEYS = {
+    "id",
+    "sn",
+    "gatewayid",
+    "sensorid",
+    "unitid",
+    "time",
+    "water20cm",
+    "water40cm",
+    "water60cm",
+    "water80cm",
+    "t20cm",
+    "t40cm",
+    "t60cm",
+    "t80cm",
+    "water20cmfieldstate",
+    "water40cmfieldstate",
+    "water60cmfieldstate",
+    "water80cmfieldstate",
+    "t20cmfieldstate",
+    "t40cmfieldstate",
+    "t60cmfieldstate",
+    "t80cmfieldstate",
+    "create_time",
+    "lat",
+    "lon",
+    "city",
+    "county",
+}
 DOMAIN_INTENT_TOKENS = (
     "墒情",
     "预警",
@@ -60,7 +91,8 @@ TIME_ONLY_FOLLOW_UP_PATTERNS = (
 CONTEXTUAL_FOLLOW_UP_MARKERS = ("这些", "这里", "这里的", "上面的", "刚才", "那个情况", "这种情况", "那边", "这边")
 GLOBAL_SCOPE_RESET_MARKERS = ("整体", "全省", "整个", "全部", "哪里", "哪个地方", "最严重", "排名", "排行", "top", "Top", "哪些地方", "哪些地区")
 LLM_GUARD_CONFIDENCE_THRESHOLD = 0.8
-SAFE_HINT_TEXT = "我可以帮你查墒情概况、异常点位、预警规则和模板。你可以直接说地区、设备或时间范围，例如：南京最近7天墒情怎么样。"
+SAFE_HINT_TEXT = "我可以帮你查墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。你可以直接说地区、设备或时间范围，例如：南京最近7天墒情怎么样，或最近30天按地区汇总墒情数据。"
+UNSUPPORTED_DERIVED_ANALYSIS_TEXT = "当前查询只支持原始墒情数据和直接统计，不支持“异常最多、风险最高、预警排序”这类衍生判断。你可以改问：最近30天按地区汇总墒情数据，或直接查看当前预警规则。"
 LLM_GUARD_DOMAIN_TOKENS = DOMAIN_INTENT_TOKENS + ("土壤", "含水量")
 QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需要", "最近", "最新")
 REGION_GROUP_REQUEST_PATTERNS = (
@@ -143,10 +175,27 @@ class DataAnswerService:
             return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if self._is_template_request(text):
             return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if self._is_unsupported_derived_analysis_request(text):
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=UNSUPPORTED_DERIVED_ANALYSIS_TEXT,
+                current_context=context,
+                guidance_reason="clarification",
+            )
 
         entities = await self._extract_entities(text)
         if self._should_route_explicit_detail(text, entities):
             return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if self._is_group_request(text) and await self._should_treat_group_request_as_standalone(
+            text=text,
+            current_context=context,
+        ):
+            return await self._reply_group(
+                message=text,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
 
         action_result = self.follow_up_action_resolver.resolve(
             text=text,
@@ -658,10 +707,11 @@ class DataAnswerService:
             for idx, row in enumerate(block.get("rows") or [], start=1):
                 if group_by != "region":
                     continue
-                label = str(row.get("group_key") or "").strip()
+                city = str(row.get("city") or "").strip()
+                county = str(row.get("county") or "").strip()
+                label = f"{city}-{county}" if city and county else city or county
                 if not label:
                     continue
-                city, county = (label.split("-", 1) + [None])[:2] if "-" in label else (None, label)
                 refs.append(
                     {
                         "ref_key": f"ref_{turn_id}_{idx}",
@@ -1026,6 +1076,19 @@ class DataAnswerService:
         return any(pattern.search(text) for pattern in REGION_GROUP_REQUEST_PATTERNS)
 
     @staticmethod
+    def _is_unsupported_derived_analysis_request(text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        lowered = normalized.lower()
+        ranking_markers = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
+        if any(token in normalized for token in ("异常", "预警", "风险")) and any(marker in lowered for marker in ranking_markers):
+            return True
+        if "最严重" in normalized and any(token in normalized for token in ("地方", "地区", "区域", "点位", "设备", "哪里", "哪个")):
+            return True
+        return False
+
+    @staticmethod
     def _is_compare_request(text: str) -> bool:
         return "谁更" in text or ("和" in text and any(token in text for token in ("对比", "比较", "更差")))
 
@@ -1102,6 +1165,41 @@ class DataAnswerService:
             return False
         entities = await self._extract_entities(text)
         return not any(entities.get(key) for key in ("province", "city", "county", "sn"))
+
+    async def _can_run_standalone_group_query(self, text: str) -> bool:
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        if any(token in normalized for token in ("汇总", "归类", "分组")):
+            return True
+        if any(token in normalized for token in ("墒情", "数据", "记录", "含水量", "土壤")):
+            return True
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(normalized, latest_business_time)
+        if getattr(time_evidence, "has_time_signal", False):
+            return True
+        entities = await self._extract_entities(normalized)
+        return any(entities.get(key) for key in ("province", "city", "county", "sn"))
+
+    async def _should_treat_group_request_as_standalone(
+        self,
+        *,
+        text: str,
+        current_context: dict[str, Any],
+    ) -> bool:
+        if current_context.get("topic_family") != "data":
+            return await self._can_run_standalone_group_query(text)
+        normalized = str(text or "").strip()
+        if not normalized:
+            return False
+        latest_business_time = await self._latest_business_time()
+        time_evidence = self.time_window_service.resolve(normalized, latest_business_time)
+        if getattr(time_evidence, "has_time_signal", False):
+            return True
+        entities = await self._extract_entities(normalized)
+        if any(entities.get(key) for key in ("province", "city", "county", "sn")):
+            return True
+        return any(token in normalized for token in ("整体", "全省", "整个", "全部"))
 
     async def _maybe_run_llm_input_guard(
         self,
@@ -1533,7 +1631,7 @@ class DataAnswerService:
 
     @staticmethod
     def _raw_row(row: dict[str, Any]) -> dict[str, Any]:
-        return {key: value for key, value in row.items() if key not in DERIVED_QUERY_KEYS}
+        return {key: value for key, value in row.items() if key in RAW_SOIL_KEYS}
 
     @staticmethod
     def _focus_device_rows(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -1552,17 +1650,16 @@ class DataAnswerService:
         for record in latest_by_sn.values():
             rows.append(
                 {
-                    "entity_key": str(record.get("sn") or ""),
                     "city": record.get("city"),
                     "county": record.get("county"),
                     "sn": record.get("sn"),
-                    "latest_create_time": record.get("create_time"),
+                    "create_time": record.get("create_time"),
                     "water20cm": record.get("water20cm"),
                     "t20cm": record.get("t20cm"),
                 }
             )
         rows.sort(key=lambda item: str(item.get("sn") or ""))
-        rows.sort(key=lambda item: str(item.get("latest_create_time") or ""), reverse=True)
+        rows.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
         return rows
 
     @staticmethod
@@ -1571,8 +1668,6 @@ class DataAnswerService:
         for record in records:
             rows.append(
                 {
-                    "entity_key": str(record.get("id") or f"{record.get('sn') or ''}:{record.get('create_time') or ''}"),
-                    "record_id": record.get("id"),
                     "city": record.get("city"),
                     "county": record.get("county"),
                     "sn": record.get("sn"),
@@ -1597,7 +1692,7 @@ class DataAnswerService:
                     "county": row.get("county"),
                     "device_keys": set(),
                     "record_count": 0,
-                    "latest_create_time": row.get("latest_create_time") or row.get("create_time"),
+                    "create_time": row.get("create_time"),
                     "water_values": [],
                 },
             )
@@ -1605,25 +1700,25 @@ class DataAnswerService:
             if sn:
                 bucket["device_keys"].add(sn)
             bucket["record_count"] += 1
-            bucket["latest_create_time"] = max(
-                str(bucket.get("latest_create_time") or ""),
-                str(row.get("latest_create_time") or row.get("create_time") or ""),
+            bucket["create_time"] = max(
+                str(bucket.get("create_time") or ""),
+                str(row.get("create_time") or ""),
             )
             water20 = _safe_float(row.get("water20cm"))
             if water20 is not None:
                 bucket["water_values"].append(water20)
         result = []
         for bucket in grouped.values():
-            device_keys = bucket.pop("device_keys")
-            bucket["device_count"] = len(device_keys)
-            water_values = bucket.pop("water_values")
-            bucket["avg_water20cm"] = round(sum(water_values) / len(water_values), 2) if water_values else None
-            result.append(bucket)
+            bucket.pop("device_keys")
+            bucket.pop("water_values")
+            result.append(
+                {
+                    "city": bucket.get("city"),
+                    "county": bucket.get("county"),
+                }
+            )
         result.sort(
             key=lambda item: (
-                -int(item.get("record_count") or 0),
-                -int(item.get("device_count") or 0),
-                str(item.get("latest_create_time") or ""),
                 str(item.get("county") or ""),
                 str(item.get("city") or ""),
             )
@@ -2104,11 +2199,27 @@ class DataAnswerService:
         resolved_group_by: str | None = None,
     ) -> dict[str, Any]:
         if current_context.get("topic_family") != "data":
-            return self._build_guidance_response(
-                turn_id=turn_id,
-                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再做分组汇总。",
+            if not await self._can_run_standalone_group_query(message):
+                return self._build_guidance_response(
+                    turn_id=turn_id,
+                    text="这轮还缺少明确的墒情查询条件，请直接补充时间范围、地区，或说明要按地区汇总，例如：最近30天按地区汇总墒情数据。",
                 current_context=current_context,
                 guidance_reason="clarification",
+            )
+            return await self._reply_standalone_group(
+                message=message,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=current_context,
+                resolved_group_by=resolved_group_by,
+            )
+        if await self._should_treat_group_request_as_standalone(text=message, current_context=current_context):
+            return await self._reply_standalone_group(
+                message=message,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=current_context,
+                resolved_group_by=resolved_group_by,
             )
 
         del resolved_snapshot_kind
@@ -2123,43 +2234,9 @@ class DataAnswerService:
             )
 
         group_by = resolved_group_by or self._resolve_group_by(message)
-        grouped: dict[str, dict[str, Any]] = {}
-        for row in [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []]:
-            key = self._group_key_for_row(row, group_by)
-            bucket = grouped.setdefault(
-                key,
-                {
-                    "group_key": key,
-                    "record_count": 0,
-                    "device_keys": set(),
-                    "latest_create_time": None,
-                    "water_values": [],
-                },
-            )
-            bucket["record_count"] += 1
-            sn = str(row.get("sn") or "").strip()
-            if sn:
-                bucket["device_keys"].add(sn)
-            timestamp = str(row.get("latest_create_time") or row.get("create_time") or "")
-            if timestamp:
-                bucket["latest_create_time"] = max(str(bucket.get("latest_create_time") or ""), timestamp)
-            water20 = _safe_float(row.get("water20cm"))
-            if water20 is not None:
-                bucket["water_values"].append(water20)
-        rows = []
-        for bucket in grouped.values():
-            device_keys = bucket.pop("device_keys")
-            water_values = bucket.pop("water_values")
-            bucket["device_count"] = len(device_keys)
-            bucket["avg_water20cm"] = round(sum(water_values) / len(water_values), 2) if water_values else None
-            rows.append(bucket)
-        rows.sort(
-            key=lambda item: (
-                -int(item.get("record_count") or 0),
-                -int(item.get("device_count") or 0),
-                str(item.get("latest_create_time") or ""),
-                str(item.get("group_key") or ""),
-            )
+        rows = self._group_rows(
+            [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []],
+            group_by=group_by,
         )
         block_id = f"block_group_{turn_id}"
         query_spec = {
@@ -2180,6 +2257,7 @@ class DataAnswerService:
             "block_type": "group_table",
             "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
             "group_by": group_by,
+            "columns": REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
             "rows": rows,
         }
         base_context = {
@@ -2253,6 +2331,151 @@ class DataAnswerService:
             ],
         }
 
+    async def _reply_standalone_group(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+        resolved_group_by: str | None = None,
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_group",
+                current_context=current_context,
+                allow_inherit_entities=False,
+                turn_id=turn_id,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="group",
+                grain="region_group",
+                clarify_text=str(exc),
+            )
+        records = await self._query_records(resolved_args)
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="group",
+                text="当前条件下没有查到墒情数据，你可以换一个地区、设备或扩大时间范围再试。",
+                current_context=current_context,
+            )
+
+        group_by = resolved_group_by or self._resolve_group_by(message)
+        block_id = f"block_group_{turn_id}"
+        device_rows = self._focus_device_rows(records)
+        record_rows = self._alert_record_rows(records)
+        rows = self._group_rows(record_rows, group_by=group_by)
+        query_spec = self._build_query_spec(
+            capability="group",
+            grain="region_group" if group_by in {"county", "region"} else "aggregate",
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        device_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "device_list"},
+            rule_version=None,
+            rows=device_rows,
+        )
+        record_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "record_list"},
+            rule_version=None,
+            rows=record_rows,
+            snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "group_table",
+            "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
+            "group_by": group_by,
+            "columns": REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
+            "rows": rows,
+        }
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "device_snapshot_id": device_snapshot["snapshot_id"],
+                "record_snapshot_id": record_snapshot["snapshot_id"],
+                "region_group_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="group",
+            grain=query_spec["grain"],
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=[],
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        label = self._entity_label(resolved_entities) or "当前查询范围"
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "group",
+            "final_text": (
+                f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+                f"已按{self._group_label(group_by)}汇总，共 {len(rows)} 组。"
+            ),
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {
+                "has_query": True,
+                "snapshot_ids": [device_snapshot["snapshot_id"], record_snapshot["snapshot_id"]],
+            },
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="group",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(
+                        **self._query_filters_from_args(resolved_args)
+                    ),
+                    row_count=len(records),
+                    snapshot_id=device_snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"rows": rows, "group_by": group_by},
+                    result_digest={"group_count": len(rows)},
+                )
+            ],
+        }
+
     @staticmethod
     def _resolve_group_by(message: str) -> str:
         if "地区" in message or "区域" in message:
@@ -2286,6 +2509,33 @@ class DataAnswerService:
         if group_by == "city":
             return "城市"
         return "分组"
+
+    @staticmethod
+    def _group_rows(rows: list[dict[str, Any]], *, group_by: str) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+        for row in rows:
+            city = str(row.get("city") or "").strip() or None
+            county = str(row.get("county") or "").strip() or None
+            if group_by == "city":
+                key = (city, None)
+                payload = {"city": city}
+            elif group_by == "county":
+                key = (city, county)
+                payload = {"city": city, "county": county}
+            else:
+                key = (city, county)
+                payload = {"city": city, "county": county}
+            if not any(key):
+                continue
+            grouped.setdefault(key, payload)
+        grouped_rows = list(grouped.values())
+        grouped_rows.sort(
+            key=lambda item: (
+                str(item.get("county") or ""),
+                str(item.get("city") or ""),
+            )
+        )
+        return grouped_rows
 
     async def _reply_detail(
         self,
@@ -2819,7 +3069,7 @@ class DataAnswerService:
             "title": "点位详情",
             "label": "点位",
             "columns": FOCUS_DEVICE_COLUMNS,
-            "sort_field": "latest_create_time",
+            "sort_field": "create_time",
         }
 
     def _group_source_snapshot_key(self, current_context: dict[str, Any]) -> str:

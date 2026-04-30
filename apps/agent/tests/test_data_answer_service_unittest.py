@@ -170,7 +170,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreaterEqual(listing["blocks"][0]["pagination"]["total_count"], 0)
         self.assertIn("点位", listing["blocks"][0]["title"])
         for row in listing["blocks"][0]["rows"]:
-            for banned_key in ("risk_score", "display_label", "soil_status", "warning_level"):
+            self.assertIn("create_time", row)
+            for banned_key in ("latest_create_time", "entity_key", "risk_score", "display_label", "soil_status", "warning_level"):
                 self.assertNotIn(banned_key, row)
 
     async def test_detail_block_is_kept_for_evidence_but_marked_hidden_in_chat(self) -> None:
@@ -248,6 +249,12 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("display_mode", grouped["blocks"][0])
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
         self.assertEqual(len(grouped["blocks"][0]["rows"]), region_count)
+        self.assertEqual(grouped["blocks"][0]["columns"], ["city", "county"])
+        for row in grouped["blocks"][0]["rows"]:
+            self.assertIn("city", row)
+            self.assertIn("county", row)
+            for banned_key in ("group_key", "record_count", "device_count", "avg_water20cm", "latest_create_time", "max_risk_score"):
+                self.assertNotIn(banned_key, row)
         self.assertIn("地区", grouped["final_text"])
         self.assertNotIn("当前整体墒情", grouped["final_text"])
 
@@ -387,6 +394,38 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+
+    async def test_standalone_group_query_runs_without_prior_context(self) -> None:
+        grouped = await self.service.reply(
+            message="最近30天按地区汇总墒情数据",
+            session_id="standalone-region-group",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(grouped["blocks"][0]["group_by"], "region")
+        self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
+        self.assertNotIn("请先查询一轮墒情数据", grouped["final_text"])
+
+    async def test_unsupported_derived_ranking_query_returns_guidance_instead_of_follow_up_prompt(self) -> None:
+        reply = await self.service.reply(
+            message="最近30天，哪些地区墒情异常最多？",
+            session_id="unsupported-derived-ranking",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["capability"], "none")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
+        self.assertIn("不支持", reply["final_text"])
+        self.assertIn("按地区汇总", reply["final_text"])
+        self.assertNotIn("请先查询一轮墒情数据", reply["final_text"])
 
     async def test_summary_follow_up_supports_alert_record_alias_expand(self) -> None:
         summary = await self.service.reply(
@@ -883,7 +922,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
         self.assertIn("明确", reply["final_text"])
 
-    async def test_global_scope_question_does_not_inherit_prior_city_scope(self) -> None:
+    async def test_global_scope_group_query_does_not_inherit_prior_city_scope(self) -> None:
         summary = await self.service.reply(
             message="最近南京市墒情情况",
             session_id="nanjing-global-follow-up",
@@ -893,7 +932,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         follow_up = await self.service.reply(
-            message="最近一个月最严重的地方",
+            message="最近一个月按地区汇总墒情数据",
             session_id="nanjing-global-follow-up",
             turn_id=2,
             current_context=summary["turn_context"],
@@ -901,8 +940,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(follow_up["answer_kind"], "business")
-        self.assertEqual(follow_up["capability"], "summary")
-        self.assertNotIn("南京市", follow_up["final_text"])
+        self.assertEqual(follow_up["capability"], "group")
+        self.assertEqual(follow_up["blocks"][0]["group_by"], "region")
+        self.assertGreater(len(follow_up["blocks"][0]["rows"]), 1)
         self.assertFalse(self.guard.calls)
 
     async def test_explicit_province_follow_up_overrides_prior_city_scope(self) -> None:

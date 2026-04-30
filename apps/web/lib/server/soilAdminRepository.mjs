@@ -30,9 +30,6 @@ const FACT_COLUMNS = [
   't80cmfieldstate',
   'lat',
   'lon',
-  'source_file',
-  'source_sheet',
-  'source_row',
 ];
 
 const SELECT_FACT_SQL = `SELECT
@@ -62,10 +59,7 @@ const SELECT_FACT_SQL = `SELECT
   t60cmfieldstate,
   t80cmfieldstate,
   lat,
-  lon,
-  source_file,
-  source_sheet,
-  source_row
+  lon
 FROM fact_soil_moisture`;
 
 function chunkArray(items, chunkSize) {
@@ -80,9 +74,6 @@ function toDbRecord(record) {
   return FACT_COLUMNS.map((column) => {
     if (column === 'time' || column === 'create_time') {
       return record[column] || null;
-    }
-    if (column === 'source_row') {
-      return record[column] ?? null;
     }
     return record[column] ?? null;
   });

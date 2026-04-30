@@ -118,7 +118,6 @@ function ListBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
 }
 
 function SummaryBlock({ block }: { block: ChatBlock }) {
-  const metrics = (block.metrics as Record<string, unknown>) || {};
   const topRegions = Array.isArray(block.top_regions) ? (block.top_regions as Array<Record<string, unknown>>) : [];
   return (
     <section className="turn-block">
@@ -126,16 +125,11 @@ function SummaryBlock({ block }: { block: ChatBlock }) {
         <strong>{block.title || '墒情概览'}</strong>
         <span>{timeWindowLabel(block.time_window)}</span>
       </header>
-      <div className="turn-block-metrics">
-        <div>20cm 平均含水量：{toLabelValue(metrics.avg_water20cm)}%</div>
-        <div>记录数：{toLabelValue(metrics.record_count)}</div>
-        <div>点位数：{toLabelValue(metrics.device_count)}</div>
-        <div>地区数：{toLabelValue(metrics.region_count)}</div>
-        <div>最新记录时间：{toLabelValue(metrics.latest_create_time)}</div>
-      </div>
       {topRegions.length > 0 ? (
-        <BlockTable columns={['city', 'county', 'record_count', 'device_count', 'avg_water20cm', 'latest_create_time']} rows={topRegions} />
-      ) : null}
+        <BlockTable columns={['city', 'county']} rows={topRegions} />
+      ) : (
+        <div className="turn-block-empty">当前没有可展示的原始字段。</div>
+      )}
     </section>
   );
 }
@@ -162,13 +156,19 @@ function DetailBlock({ block }: { block: ChatBlock }) {
 
 function CompareBlock({ block }: { block: ChatBlock }) {
   const rows = Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : [];
+  const columns =
+    Array.isArray(block.columns) && block.columns.length > 0
+      ? (block.columns as string[])
+      : rows[0]
+        ? Object.keys(rows[0])
+        : [];
   return (
     <section className="turn-block">
       <header className="turn-block-header">
         <strong>{block.title || '对比结果'}</strong>
         <span>{timeWindowLabel(block.time_window)}</span>
       </header>
-      <BlockTable columns={['entity', 'record_count', 'device_count', 'region_count', 'avg_water20cm', 'latest_create_time']} rows={rows} />
+      <BlockTable columns={columns} rows={rows} />
     </section>
   );
 }
@@ -223,16 +223,20 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
           return <ListBlock key={block.block_id} turn={turn} block={block} />;
         }
         if (block.block_type === 'group_table') {
+          const rows = Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : [];
+          const columns =
+            Array.isArray(block.columns) && block.columns.length > 0
+              ? (block.columns as string[])
+              : rows[0]
+                ? Object.keys(rows[0])
+                : [];
           return (
             <section className="turn-block" key={block.block_id}>
               <header className="turn-block-header">
                 <strong>{block.title || '分组汇总'}</strong>
                 <span>{toLabelValue(block.group_by)}</span>
               </header>
-              <BlockTable
-                columns={['group_key', 'record_count', 'device_count', 'avg_water20cm', 'latest_create_time']}
-                rows={Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : []}
-              />
+              <BlockTable columns={columns} rows={rows} />
             </section>
           );
         }

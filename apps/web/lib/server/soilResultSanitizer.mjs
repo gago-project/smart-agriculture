@@ -26,9 +26,6 @@ const RAW_SOIL_FIELDS = [
   't80cmfieldstate',
   'lat',
   'lon',
-  'source_file',
-  'source_sheet',
-  'source_row',
 ];
 
 const RAW_SOIL_FIELD_SET = new Set(RAW_SOIL_FIELDS);
@@ -178,7 +175,20 @@ function sanitizeColumns(columns) {
   if (!Array.isArray(columns)) {
     return [];
   }
-  return columns.filter((column) => typeof column === 'string' && RAW_SOIL_FIELD_SET.has(column));
+  const normalized = [];
+  for (const column of columns) {
+    if (typeof column !== 'string') {
+      continue;
+    }
+    if (column === 'latest_create_time') {
+      normalized.push('create_time');
+      continue;
+    }
+    if (RAW_SOIL_FIELD_SET.has(column)) {
+      normalized.push(column);
+    }
+  }
+  return Array.from(new Set(normalized));
 }
 
 function inferColumnsFromRows(rows) {
@@ -196,12 +206,18 @@ function sanitizeTurnBlock(block) {
     return { ...block };
   }
   const cleaned = stripDerivedKeysDeep(block);
-  if (cleaned.block_type === 'summary_card' && Array.isArray(cleaned.top_regions)) {
-    cleaned.top_regions = sanitizeRegionRows(cleaned.top_regions);
+  if (cleaned.block_type === 'summary_card') {
+    delete cleaned.metrics;
+    if (Array.isArray(cleaned.top_regions)) {
+      cleaned.top_regions = sanitizeRegionRows(cleaned.top_regions);
+    }
     return cleaned;
   }
-  if (cleaned.block_type === 'detail_card' && isPlainObject(cleaned.latest_record)) {
-    cleaned.latest_record = sanitizeSnapshotPayload(cleaned.latest_record);
+  if (cleaned.block_type === 'detail_card') {
+    delete cleaned.metrics;
+    if (isPlainObject(cleaned.latest_record)) {
+      cleaned.latest_record = sanitizeSnapshotPayload(cleaned.latest_record);
+    }
     return cleaned;
   }
   if (cleaned.block_type === 'list_table') {
@@ -212,6 +228,12 @@ function sanitizeTurnBlock(block) {
   }
   if (cleaned.block_type === 'group_table') {
     cleaned.rows = sanitizeGroupRows(cleaned.rows, cleaned.group_by);
+    cleaned.columns = inferColumnsFromRows(cleaned.rows);
+    return cleaned;
+  }
+  if (cleaned.block_type === 'compare_card') {
+    delete cleaned.metrics;
+    cleaned.rows = sanitizeRawRows(cleaned.rows);
     cleaned.columns = inferColumnsFromRows(cleaned.rows);
     return cleaned;
   }
@@ -230,6 +252,7 @@ export function sanitizeExecutedResult(value, { queryType = '' } = {}) {
     return value;
   }
   const cleaned = stripDerivedKeysDeep(value);
+  delete cleaned.metrics;
   if (Array.isArray(cleaned.top_regions)) {
     cleaned.top_regions = sanitizeRegionRows(cleaned.top_regions);
   }

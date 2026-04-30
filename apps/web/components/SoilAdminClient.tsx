@@ -255,7 +255,6 @@ export function SoilAdminClient() {
                     <th>地区</th>
                     <th>查询时间</th>
                     <th>20cm</th>
-                    <th>来源</th>
                     <th>字段修改</th>
                     <th>操作</th>
                   </tr>
@@ -278,7 +277,6 @@ export function SoilAdminClient() {
                         <td>{[record.city, record.county].filter(Boolean).join(' / ')}</td>
                         <td>{record.create_time}</td>
                         <td>{record.water20cm ?? '-'}</td>
-                        <td>{record.source_file || '-'}</td>
                         <td>
                           <div className="edit-inline">
                             <select className="input" value={field} onChange={(event) => {

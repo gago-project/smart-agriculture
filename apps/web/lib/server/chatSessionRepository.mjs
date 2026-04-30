@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 
 import { withMysqlConnection, withMysqlTransaction } from './mysql.mjs';
-import { sanitizeExecutedResult, sanitizeTurnBlocks } from './soilResultSanitizer.mjs';
+import { sanitizeExecutedResult, sanitizeSnapshotPayload, sanitizeTurnBlocks } from './soilResultSanitizer.mjs';
 
 const SESSION_TITLE_MAX_LENGTH = 20;
 const SNAPSHOT_PAGE_SIZE_DEFAULT = 50;
@@ -102,7 +102,7 @@ async function loadSnapshotRows(connection, snapshotId, page, pageSize) {
      LIMIT ? OFFSET ?`,
     [snapshotId, safePageSize, offset],
   );
-  return rows.map((row) => parseJsonValue(row.payload_json) || {});
+  return rows.map((row) => sanitizeSnapshotPayload(parseJsonValue(row.payload_json) || {}));
 }
 
 async function hydrateListBlock(connection, block, requestedPage) {

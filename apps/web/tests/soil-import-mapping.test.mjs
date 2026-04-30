@@ -32,9 +32,6 @@ const EXPECTED_RECORD_KEYS = [
   't80cmfieldstate',
   'lat',
   'lon',
-  'source_file',
-  'source_sheet',
-  'source_row',
 ].sort();
 
 test('parseSoilWorkbookBuffer keeps raw excel field contract', () => {
@@ -73,9 +70,6 @@ test('parseSoilWorkbookBuffer keeps raw excel field contract', () => {
   assert.equal(parsed.records[0].county, '江宁区');
   assert.equal(parsed.records[0].time, '2026-04-21 00:00:00');
   assert.equal(parsed.records[0].create_time, '2026-04-21 00:00:00');
-  assert.equal(parsed.records[0].source_file, 'soil.xlsx');
-  assert.equal(parsed.records[0].source_sheet, 'soil');
-  assert.equal(parsed.records[0].source_row, 2);
   assert.deepEqual(Object.keys(parsed.records[0]).sort(), EXPECTED_RECORD_KEYS);
 });
 

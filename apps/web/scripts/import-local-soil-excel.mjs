@@ -39,9 +39,6 @@ const factColumns = [
   't80cmfieldstate',
   'lat',
   'lon',
-  'source_file',
-  'source_sheet',
-  'source_row',
 ];
 
 function normalizePath(pathValue) {
@@ -73,7 +70,7 @@ function chunk(items, size) {
   return output;
 }
 
-function toFactRow(record, filename) {
+function toFactRow(record) {
   return [
     record.id,
     record.sn || null,
@@ -102,9 +99,6 @@ function toFactRow(record, filename) {
     record.t80cmfieldstate || null,
     record.lat ?? null,
     record.lon ?? null,
-    filename,
-    record.source_sheet || null,
-    record.source_row ?? null,
   ];
 }
 
@@ -146,9 +140,9 @@ async function main() {
   await withMysqlConnection(async (connection) => {
     await connection.beginTransaction();
     try {
-      await connection.execute('DELETE FROM fact_soil_moisture WHERE source_file = ?', [filename]);
+      await connection.execute('DELETE FROM fact_soil_moisture');
       for (const recordChunk of chunk(parsed.records, chunkSize)) {
-        const chunkRows = recordChunk.map((record) => toFactRow(record, filename));
+        const chunkRows = recordChunk.map((record) => toFactRow(record));
         await insertFactChunk(connection, chunkRows);
         loadedRows += recordChunk.length;
       }

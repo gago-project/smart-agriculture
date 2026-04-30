@@ -115,11 +115,12 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
             }
         )
 
-        self.assertEqual(normalized["sn"], "SNS00000001")
-        self.assertEqual(normalized["latest_create_time"], "2026-04-30 00:00:00")
+        self.assertEqual(normalized["payload_json"]["sn"], "SNS00000001")
         self.assertNotIn("soil_status", normalized)
         self.assertNotIn("warning_level", normalized)
         self.assertNotIn("risk_score", normalized)
+        self.assertNotIn("latest_create_time", normalized)
+        self.assertNotIn("entity_key", normalized)
         self.assertNotIn("soil_status", normalized["payload_json"])
         self.assertNotIn("warning_level", normalized["payload_json"])
         self.assertNotIn("risk_score", normalized["payload_json"])
@@ -142,7 +143,7 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
         snapshot_insert_params = connection.executed[0][1]
         item_insert_params = connection.executed[1][1]
         self.assertEqual(json.loads(snapshot_insert_params[5])["threshold"], 41.2)
-        self.assertEqual(json.loads(item_insert_params[7])["water20cm"], 41.2)
+        self.assertEqual(json.loads(item_insert_params[2])["water20cm"], 41.2)
         self.assertTrue(connection.committed)
 
     def test_create_snapshot_keeps_original_error_when_rollback_also_fails(self) -> None:
@@ -170,10 +171,10 @@ class ResultSnapshotRepositoryTest(unittest.TestCase):
         snapshot = repository.get_snapshot("snap-1")
 
         self.assertEqual(snapshot["snapshot_id"], "snap-1")
-        self.assertEqual(snapshot["items"][0]["sn"], "SNS0001")
-        self.assertNotIn("soil_status", snapshot["items"][0])
-        self.assertNotIn("warning_level", snapshot["items"][0])
-        self.assertNotIn("risk_score", snapshot["items"][0])
+        self.assertEqual(snapshot["items"][0]["payload_json"]["sn"], "SNS0001")
+        self.assertNotIn("soil_status", snapshot["items"][0]["payload_json"])
+        self.assertNotIn("warning_level", snapshot["items"][0]["payload_json"])
+        self.assertNotIn("risk_score", snapshot["items"][0]["payload_json"])
 
 
 class SnapshotLookupCursor:
@@ -215,12 +216,7 @@ class SnapshotLookupCursor:
         return [
             {
                 "row_index": 0,
-                "entity_key": "device:SNS0001",
-                "city": "南通市",
-                "county": "如东县",
-                "sn": "SNS0001",
-                "latest_create_time": "2026-04-30 00:00:00",
-                "payload_json": "{}",
+                "payload_json": '{"sn": "SNS0001", "city": "南通市"}',
             }
         ]
 

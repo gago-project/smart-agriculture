@@ -26,9 +26,6 @@ export interface SoilRecord {
   t80cmfieldstate?: string | null;
   lat?: number | string | null;
   lon?: number | string | null;
-  source_file?: string | null;
-  source_sheet?: string | null;
-  source_row?: number | string | null;
   [key: string]: unknown;
 }
 

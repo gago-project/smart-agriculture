@@ -878,8 +878,7 @@ def build_filter_records_sql(args: dict[str, str]) -> str:
         f"""
         SELECT id, sn, city, county,
                DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
-               water20cm, water40cm, water60cm, water80cm, t20cm, t40cm,
-               source_file, source_sheet, source_row
+               water20cm, water40cm, water60cm, water80cm, t20cm, t40cm
         FROM fact_soil_moisture
         {where}
         ORDER BY create_time DESC;

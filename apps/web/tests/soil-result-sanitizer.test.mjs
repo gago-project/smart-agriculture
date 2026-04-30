@@ -32,6 +32,38 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
       focus_devices_snapshot_id: 'snap_device',
     },
     {
+      block_id: 'block_detail_legacy',
+      block_type: 'detail_card',
+      title: '南京市',
+      metrics: {
+        record_count: 15,
+        avg_water20cm: 83.1,
+      },
+      latest_record: {
+        city: '南京市',
+        county: '六合区',
+        sn: 'SNS00213738',
+        source_file: 'soil.xlsx',
+        source_sheet: 'soil',
+        source_row: 2,
+        latest_create_time: '2026-04-13 23:59:17',
+        water20cm: '80.96',
+        risk_score: 67.98,
+      },
+    },
+    {
+      block_id: 'block_compare_legacy',
+      block_type: 'compare_card',
+      title: '对比结果',
+      rows: [
+        {
+          entity: '南通市',
+          record_count: 30,
+          avg_water20cm: 88.2,
+        },
+      ],
+    },
+    {
       block_id: 'block_group_2',
       block_type: 'group_table',
       title: '地区汇总',
@@ -65,10 +97,7 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
 
   const cleaned = sanitizeTurnBlocks(legacyBlocks);
 
-  assert.deepEqual(cleaned[0].metrics, {
-    record_count: 15810,
-    avg_water20cm: 95.31,
-  });
+  assert.equal('metrics' in cleaned[0], false);
   assert.deepEqual(cleaned[0].top_regions, [
     {
       city: '淮安市',
@@ -77,15 +106,24 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
   ]);
   assert.equal('alert_records_snapshot_id' in cleaned[0], false);
   assert.equal('focus_devices_snapshot_id' in cleaned[0], false);
-  assert.deepEqual(cleaned[1].rows, [
+  assert.equal('metrics' in cleaned[1], false);
+  assert.deepEqual(cleaned[1].latest_record, {
+    city: '南京市',
+    county: '六合区',
+    sn: 'SNS00213738',
+    create_time: '2026-04-13 23:59:17',
+    water20cm: '80.96',
+  });
+  assert.deepEqual(cleaned[2].rows, []);
+  assert.deepEqual(cleaned[3].rows, [
     {
       city: '南京市',
       county: '六合区',
     },
   ]);
-  assert.deepEqual(cleaned[1].columns, ['city', 'county']);
-  assert.deepEqual(cleaned[2].columns, ['city', 'county', 'sn', 'create_time', 'water20cm']);
-  assert.deepEqual(cleaned[2].rows, [
+  assert.deepEqual(cleaned[3].columns, ['city', 'county']);
+  assert.deepEqual(cleaned[4].columns, ['city', 'county', 'sn', 'create_time', 'water20cm']);
+  assert.deepEqual(cleaned[4].rows, [
     {
       city: '南京市',
       county: '六合区',
@@ -96,7 +134,7 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
   ]);
   assert.doesNotMatch(
     JSON.stringify(cleaned),
-    /max_risk_score|alert_record_count|alert_device_count|warning_level|entity_key|latest_create_time|risk_score/,
+    /max_risk_score|alert_record_count|alert_device_count|warning_level|entity_key|latest_create_time|risk_score|record_count|avg_water20cm|source_file|source_sheet|source_row/,
   );
 });
 
@@ -127,6 +165,9 @@ test('sanitizeExecutedResult keeps only raw soil rows in stored query evidence',
       city: '南京市',
       county: '六合区',
       sn: 'SNS00213738',
+      source_file: 'soil.xlsx',
+      source_sheet: 'soil',
+      source_row: 2,
       latest_create_time: '2026-04-13 23:59:17',
       water20cm: '80.96',
       risk_score: 67.98,
@@ -136,10 +177,6 @@ test('sanitizeExecutedResult keeps only raw soil rows in stored query evidence',
   const cleaned = sanitizeExecutedResult(legacyEvidence);
 
   assert.deepEqual(cleaned, {
-    metrics: {
-      record_count: 15810,
-      avg_water20cm: 95.31,
-    },
     top_regions: [
       {
         city: '淮安市',
@@ -162,7 +199,7 @@ test('sanitizeExecutedResult keeps only raw soil rows in stored query evidence',
   });
   assert.doesNotMatch(
     JSON.stringify(cleaned),
-    /max_risk_score|alert_record_count|alert_device_count|latest_create_time|risk_score/,
+    /max_risk_score|alert_record_count|alert_device_count|latest_create_time|risk_score|record_count|avg_water20cm|source_file|source_sheet|source_row/,
   );
 });
 
@@ -173,6 +210,9 @@ test('sanitizeSnapshotPayload keeps only raw soil columns and rewrites legacy cr
     city: '南京市',
     county: '六合区',
     sn: 'SNS00213738',
+    source_file: 'soil.xlsx',
+    source_sheet: 'soil',
+    source_row: 2,
     latest_create_time: '2026-04-13 23:59:17',
     water20cm: '80.96',
     entity_key: 'SNS00213738',
@@ -187,5 +227,5 @@ test('sanitizeSnapshotPayload keeps only raw soil columns and rewrites legacy cr
     create_time: '2026-04-13 23:59:17',
     water20cm: '80.96',
   });
-  assert.doesNotMatch(JSON.stringify(cleaned), /latest_create_time|entity_key|risk_score|display_label/);
+  assert.doesNotMatch(JSON.stringify(cleaned), /latest_create_time|entity_key|risk_score|display_label|source_file|source_sheet|source_row/);
 });

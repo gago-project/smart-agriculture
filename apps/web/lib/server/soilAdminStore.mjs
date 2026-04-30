@@ -16,9 +16,6 @@ const defaultRecords = [
     t80cm: null,
     lat: 32.328056,
     lon: 120.974167,
-    source_file: '土壤墒情仪数据(2).xlsx',
-    source_sheet: 'Sheet1',
-    source_row: 2,
   },
   {
     id: 'f8de2c8c-871a-4895-aab4-9501c2b02e94',
@@ -37,9 +34,6 @@ const defaultRecords = [
     t80cm: null,
     lat: 32.301111,
     lon: 121.117778,
-    source_file: '土壤墒情仪数据(2).xlsx',
-    source_sheet: 'Sheet1',
-    source_row: 3,
   },
   {
     id: '5dca6d11-4cb1-401d-95f7-d3dff825f7b5',
@@ -58,9 +52,6 @@ const defaultRecords = [
     t80cm: null,
     lat: 32.1458,
     lon: 119.5623,
-    source_file: '土壤墒情仪数据(2).xlsx',
-    source_sheet: 'Sheet1',
-    source_row: 21,
   },
   {
     id: '3998f34d-18d8-4aef-9bd5-88973293427c',
@@ -79,9 +70,6 @@ const defaultRecords = [
     t80cm: null,
     lat: 33.722,
     lon: 119.188,
-    source_file: '土壤墒情仪数据(2).xlsx',
-    source_sheet: 'Sheet1',
-    source_row: 16,
   },
 ];
 
@@ -147,9 +135,6 @@ export function normalizeRecord(record) {
     t80cmfieldstate: '',
     lat: null,
     lon: null,
-    source_file: '',
-    source_sheet: '',
-    source_row: null,
     ...record,
     water20cm: toNumber(record?.water20cm),
     water40cm: toNumber(record?.water40cm),

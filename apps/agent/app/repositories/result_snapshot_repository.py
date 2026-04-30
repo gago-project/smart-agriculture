@@ -13,7 +13,35 @@ from typing import Any
 from uuid import uuid4
 
 
-_DERIVED_RESULT_KEYS = {"soil_status", "warning_level", "risk_score", "display_label", "rule_version"}
+_RAW_SOIL_KEYS = {
+    "id",
+    "sn",
+    "gatewayid",
+    "sensorid",
+    "unitid",
+    "time",
+    "water20cm",
+    "water40cm",
+    "water60cm",
+    "water80cm",
+    "t20cm",
+    "t40cm",
+    "t60cm",
+    "t80cm",
+    "water20cmfieldstate",
+    "water40cmfieldstate",
+    "water60cmfieldstate",
+    "water80cmfieldstate",
+    "t20cmfieldstate",
+    "t40cmfieldstate",
+    "t60cmfieldstate",
+    "t80cmfieldstate",
+    "create_time",
+    "lat",
+    "lon",
+    "city",
+    "county",
+}
 
 
 def _parse_json_value(value: Any) -> Any:
@@ -67,20 +95,8 @@ class ResultSnapshotRepository:
 
     @staticmethod
     def _normalize_row(row: dict[str, Any]) -> dict[str, Any]:
-        payload_json = {key: value for key, value in row.items() if key not in _DERIVED_RESULT_KEYS}
+        payload_json = {key: value for key, value in row.items() if key in _RAW_SOIL_KEYS}
         return {
-            "entity_key": str(
-                row.get("entity_key")
-                or row.get("sn")
-                or row.get("county")
-                or row.get("city")
-                or row.get("id")
-                or ""
-            ),
-            "city": row.get("city"),
-            "county": row.get("county"),
-            "sn": row.get("sn"),
-            "latest_create_time": row.get("latest_create_time") or row.get("create_time"),
             "payload_json": payload_json,
         }
 
@@ -89,18 +105,13 @@ class ResultSnapshotRepository:
         batch_size = max(1, int(self.insert_batch_size or 100))
         for start in range(0, len(normalized_rows), batch_size):
             batch = normalized_rows[start : start + batch_size]
-            value_placeholders = ", ".join(["(%s, %s, %s, %s, %s, %s, %s, %s)"] * len(batch))
+            value_placeholders = ", ".join(["(%s, %s, %s)"] * len(batch))
             values: list[Any] = []
             for offset, row in enumerate(batch, start=start):
                 values.extend(
                     [
                         snapshot_id,
                         offset,
-                        row["entity_key"],
-                        row["city"],
-                        row["county"],
-                        row["sn"],
-                        row["latest_create_time"],
                         _json_dumps(row["payload_json"]),
                     ]
                 )
@@ -109,11 +120,6 @@ class ResultSnapshotRepository:
                 INSERT INTO agent_result_snapshot_item (
                   snapshot_id,
                   row_index,
-                  entity_key,
-                  city,
-                  county,
-                  sn,
-                  latest_create_time,
                   payload_json
                 ) VALUES {value_placeholders}
                 """,
@@ -232,9 +238,7 @@ class ResultSnapshotRepository:
                     return None
                 cursor.execute(
                     """
-                    SELECT row_index, entity_key, city, county, sn,
-                           DATE_FORMAT(latest_create_time, '%%Y-%%m-%%d %%H:%%i:%%s') AS latest_create_time,
-                           payload_json
+                    SELECT row_index, payload_json
                     FROM agent_result_snapshot_item
                     WHERE snapshot_id = %s
                     ORDER BY row_index ASC
@@ -247,11 +251,6 @@ class ResultSnapshotRepository:
                     items.append(
                         {
                             "row_index": row.get("row_index"),
-                            "entity_key": row.get("entity_key"),
-                            "city": row.get("city"),
-                            "county": row.get("county"),
-                            "sn": row.get("sn"),
-                            "latest_create_time": row.get("latest_create_time"),
                             "payload_json": payload,
                         }
                     )

@@ -145,9 +145,6 @@ class RawRowCursor:
                 "t80cmfieldstate": 1,
                 "lat": 32.31,
                 "lon": 121.19,
-                "source_file": "seed.xlsx",
-                "source_sheet": "Sheet1",
-                "source_row": 2,
             }
         ]
 

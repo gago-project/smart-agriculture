@@ -18,6 +18,13 @@ test('chat panel supports selecting assistant replies for evidence review', () =
   assert.match(chatPanelSource, /message\.role === 'assistant'/);
 });
 
+test('chat panel starter examples stay within raw-only query capabilities', () => {
+  const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
+
+  assert.match(chatPanelSource, /最近30天，按地区汇总墒情数据/);
+  assert.doesNotMatch(chatPanelSource, /最近30天，哪些地区墒情异常最多/);
+});
+
 test('assistant text replies are not duplicated by plain-text turn blocks', () => {
   const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
   const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');

@@ -3,9 +3,9 @@ import { sanitizeExecutedResult } from './soilResultSanitizer.mjs';
 
 const MAX_INLINE_EVIDENCE_RESULT_CHARS = 200_000;
 const RESULT_PREVIEW_ROW_LIMIT = 10;
-const RECORD_PREVIEW_COLUMNS = ['create_time', 'latest_create_time', 'city', 'county', 'sn', 'water20cm', 't20cm'];
-const REGION_PREVIEW_COLUMNS = ['region', 'city', 'county', 'record_count', 'device_count', 'avg_water20cm', 'latest_create_time'];
-const COMPARISON_PREVIEW_COLUMNS = ['rank', 'name', 'entity', 'city', 'county', 'record_count', 'device_count', 'region_count', 'avg_water20cm', 'latest_create_time'];
+const RECORD_PREVIEW_COLUMNS = ['create_time', 'city', 'county', 'sn', 'water20cm', 't20cm'];
+const REGION_PREVIEW_COLUMNS = ['city', 'county'];
+const COMPARISON_PREVIEW_COLUMNS = ['create_time', 'city', 'county', 'sn', 'water20cm', 't20cm'];
 
 function parseJsonValue(value) {
   if (value === null || value === undefined || value === '') {
@@ -42,13 +42,15 @@ function inferPreviewColumns(rows) {
   if (!sample) {
     return [];
   }
-  if ('region' in sample && ('record_count' in sample || 'device_count' in sample)) {
-    return pickDefinedColumns(sample, REGION_PREVIEW_COLUMNS);
+  if ('city' in sample || 'county' in sample) {
+    if (!('sn' in sample) && !('create_time' in sample) && !('water20cm' in sample) && !('t20cm' in sample)) {
+      return pickDefinedColumns(sample, REGION_PREVIEW_COLUMNS);
+    }
   }
   if ('name' in sample || 'entity' in sample) {
     return pickDefinedColumns(sample, COMPARISON_PREVIEW_COLUMNS);
   }
-  if ('sn' in sample && ('water20cm' in sample || 'create_time' in sample || 'latest_create_time' in sample)) {
+  if ('sn' in sample && ('water20cm' in sample || 'create_time' in sample)) {
     return pickDefinedColumns(sample, RECORD_PREVIEW_COLUMNS);
   }
   return Object.keys(sample).slice(0, 6);

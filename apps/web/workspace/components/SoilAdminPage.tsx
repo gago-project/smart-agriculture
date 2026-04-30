@@ -653,14 +653,13 @@ export function SoilAdminPage() {
                   <th>20cm 水分</th>
                   <th>20cm 温度</th>
                   <th>状态字段</th>
-                  <th>来源</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody>
                 {data.rows.length === 0 ? (
                   <tr>
-                    <td colSpan={14} className="admin-empty">暂无符合条件的数据。</td>
+                    <td colSpan={13} className="admin-empty">暂无符合条件的数据。</td>
                   </tr>
                 ) : data.rows.map((record) => (
                   <tr key={record.id} className={selectedSet.has(record.id) ? 'selected' : ''}>
@@ -699,7 +698,6 @@ export function SoilAdminPage() {
                       {record.t20cm ?? '-'}
                     </td>
                     <td>{record.water20cmfieldstate || '-'} / {record.t20cmfieldstate || '-'}</td>
-                    <td>{record.source_file || '-'}</td>
                     <td>
                       <button className="danger-outline" onClick={() => void handleDelete(record)} disabled={isDeleting}>
                         删除
