@@ -253,7 +253,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertNotIn("display_mode", grouped["blocks"][0])
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertEqual(len(grouped["blocks"][0]["rows"]), region_count)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["total_count"], region_count)
+        self.assertLessEqual(len(grouped["blocks"][0]["rows"]), 10)
         self.assertEqual(grouped["blocks"][0]["columns"], ["city", "county"])
         for row in grouped["blocks"][0]["rows"]:
             self.assertIn("city", row)
@@ -344,7 +346,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertEqual(len(grouped["blocks"][0]["rows"]), region_count)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["total_count"], region_count)
+        self.assertLessEqual(len(grouped["blocks"][0]["rows"]), 10)
 
     async def test_record_list_follow_up_can_switch_to_involved_device_list(self) -> None:
         summary = await self.service.reply(
@@ -490,7 +494,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertGreater(grouped["blocks"][0]["pagination"]["total_count"], 0)
+        self.assertLessEqual(len(grouped["blocks"][0]["rows"]), 10)
         self.assertNotIn("请先查询一轮墒情数据", grouped["final_text"])
 
     async def test_standalone_group_query_supports_where_has_soil_data_wording(self) -> None:
@@ -506,7 +512,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertGreater(grouped["blocks"][0]["pagination"]["total_count"], 0)
+        self.assertLessEqual(len(grouped["blocks"][0]["rows"]), 10)
         self.assertEqual(grouped["turn_context"]["time_window"]["start_time"], "2026-04-13 00:00:00")
         self.assertEqual(grouped["turn_context"]["time_window"]["end_time"], "2026-04-13 23:59:59")
 
@@ -523,7 +531,9 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["blocks"][0]["block_type"], "group_table")
         self.assertEqual(grouped["blocks"][0]["group_by"], "region")
-        self.assertGreater(len(grouped["blocks"][0]["rows"]), 0)
+        self.assertEqual(grouped["blocks"][0]["pagination"]["page_size"], 10)
+        self.assertGreater(grouped["blocks"][0]["pagination"]["total_count"], 0)
+        self.assertLessEqual(len(grouped["blocks"][0]["rows"]), 10)
         self.assertEqual(grouped["turn_context"]["time_window"]["start_time"], "2026-04-13 00:00:00")
         self.assertEqual(grouped["turn_context"]["time_window"]["end_time"], "2026-04-13 23:59:59")
 

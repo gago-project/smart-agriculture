@@ -35,6 +35,7 @@ from app.services.turn_route_decision_service import TurnRouteDecisionService
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
 LIST_TARGET_FOCUS_DEVICES = "devices"
 LIST_TARGET_ALERT_RECORDS = "records"
+GROUP_TARGET_REGION = "region_group"
 FOCUS_DEVICE_COLUMNS = ["city", "county", "sn", "create_time", "water20cm", "t20cm"]
 ALERT_RECORD_COLUMNS = ["create_time", "city", "county", "sn", "water20cm", "t20cm"]
 REGION_GROUP_COLUMNS = ["city", "county"]
@@ -2508,7 +2509,14 @@ class DataAnswerService:
             "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
             "group_by": group_by,
             "columns": REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
-            "rows": rows,
+            "rows": rows[:LIST_TABLE_PAGE_SIZE],
+            "pagination": {
+                "snapshot_id": snapshot_id,
+                "page": 1,
+                "page_size": LIST_TABLE_PAGE_SIZE,
+                "total_count": len(rows),
+                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
+            },
         }
         base_context = {
             **current_context,
@@ -2646,13 +2654,29 @@ class DataAnswerService:
             rows=record_rows,
             snapshot_kind=LIST_TARGET_ALERT_RECORDS,
         )
+        group_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "group", "grain": query_spec["grain"]},
+            rule_version=None,
+            rows=rows,
+            snapshot_kind=GROUP_TARGET_REGION,
+        )
         block = {
             "block_id": block_id,
             "block_type": "group_table",
             "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
             "group_by": group_by,
             "columns": REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
-            "rows": rows,
+            "rows": rows[:LIST_TABLE_PAGE_SIZE],
+            "pagination": {
+                "snapshot_id": group_snapshot["snapshot_id"],
+                "page": 1,
+                "page_size": LIST_TABLE_PAGE_SIZE,
+                "total_count": len(rows),
+                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
+            },
         }
         base_context = {
             "topic_family": "data",
@@ -2664,7 +2688,7 @@ class DataAnswerService:
             "derived_sets": {
                 "device_snapshot_id": device_snapshot["snapshot_id"],
                 "record_snapshot_id": record_snapshot["snapshot_id"],
-                "region_group_snapshot_id": None,
+                "region_group_snapshot_id": group_snapshot["snapshot_id"],
             },
             "compare_winner_entity": None,
             "closed": False,
@@ -2702,7 +2726,7 @@ class DataAnswerService:
             "turn_context": turn_context,
             "query_ref": {
                 "has_query": True,
-                "snapshot_ids": [device_snapshot["snapshot_id"], record_snapshot["snapshot_id"]],
+                "snapshot_ids": [device_snapshot["snapshot_id"], record_snapshot["snapshot_id"], group_snapshot["snapshot_id"]],
             },
             "conversation_closed": False,
             "session_reset": False,
@@ -3669,6 +3693,8 @@ class DataAnswerService:
         }
 
     def _group_source_snapshot_key(self, current_context: dict[str, Any]) -> str:
+        if current_context.get("derived_sets", {}).get("region_group_snapshot_id"):
+            return "region_group_snapshot_id"
         if self._current_list_grain(current_context) == "record_list":
             return "record_snapshot_id"
         return "device_snapshot_id"

@@ -72,6 +72,7 @@ function ListBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
   const pagination = viewBlock.pagination;
   const page = typeof pagination?.page === 'number' ? pagination.page : 1;
   const totalPages = typeof pagination?.total_pages === 'number' ? pagination.total_pages : 0;
+  const totalUnit = viewBlock.block_type === 'group_table' ? '组' : '条';
 
   async function changePage(nextPage: number) {
     if (!turn.session_id || !turn.turn_id || !viewBlock.block_id || nextPage === page || loading) {
@@ -93,7 +94,7 @@ function ListBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
     <section className="turn-block">
       <header className="turn-block-header">
         <strong>{viewBlock.title || '点位列表'}</strong>
-        <span>{pagination?.total_count ?? 0} 条</span>
+        <span>{pagination?.total_count ?? 0} {totalUnit}</span>
       </header>
       <BlockTable
         columns={Array.isArray(viewBlock.columns) ? viewBlock.columns : []}
@@ -220,22 +221,7 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
           return <ListBlock key={block.block_id} turn={turn} block={block} />;
         }
         if (block.block_type === 'group_table') {
-          const rows = Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : [];
-          const columns =
-            Array.isArray(block.columns) && block.columns.length > 0
-              ? (block.columns as string[])
-              : rows[0]
-                ? Object.keys(rows[0])
-                : [];
-          return (
-            <section className="turn-block" key={block.block_id}>
-              <header className="turn-block-header">
-                <strong>{block.title || '分组汇总'}</strong>
-                <span>{toLabelValue(block.group_by)}</span>
-              </header>
-              <BlockTable columns={columns} rows={rows} />
-            </section>
-          );
+          return <ListBlock key={block.block_id} turn={turn} block={block} />;
         }
         if (block.block_type === 'detail_card') {
           return <DetailBlock key={block.block_id} block={block} />;

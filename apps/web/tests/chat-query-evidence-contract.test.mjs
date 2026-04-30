@@ -35,6 +35,14 @@ test('assistant text replies are not duplicated by plain-text turn blocks', () =
   assert.match(turnRendererSource, /return null;/);
 });
 
+test('group tables reuse the paginated table renderer instead of dumping all rows at once', () => {
+  const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+
+  assert.match(turnRendererSource, /function ListBlock\(/);
+  assert.match(turnRendererSource, /block\.block_type === 'group_table'/);
+  assert.match(turnRendererSource, /<ListBlock key=\{block\.block_id\} turn=\{turn\} block=\{block\} \/>/);
+});
+
 test('template cards stay in evidence only and are not rendered as mock cards in chat', () => {
   const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
 

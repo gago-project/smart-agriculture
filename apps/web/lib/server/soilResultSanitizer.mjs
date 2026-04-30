@@ -228,7 +228,8 @@ function sanitizeTurnBlock(block) {
   }
   if (cleaned.block_type === 'group_table') {
     cleaned.rows = sanitizeGroupRows(cleaned.rows, cleaned.group_by);
-    cleaned.columns = inferColumnsFromRows(cleaned.rows);
+    const columns = sanitizeColumns(cleaned.columns);
+    cleaned.columns = columns.length > 0 ? columns : inferColumnsFromRows(cleaned.rows);
     return cleaned;
   }
   if (cleaned.block_type === 'compare_card') {
