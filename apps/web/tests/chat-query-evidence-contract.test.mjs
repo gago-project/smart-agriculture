@@ -106,3 +106,9 @@ test('admin query evidence sidebar lazy loads oversized raw JSON only when expan
   assert.match(apiSource, /export async function fetchAdminQueryEvidenceResult/);
   assert.match(apiSource, /\/api\/admin\/agent\/query-evidence\/result/);
 });
+
+test('agent query evidence repository sanitizes legacy derived fields before building previews', () => {
+  const repositorySource = readFileSync(new URL('../lib/server/agentLogRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(repositorySource, /sanitizeExecutedResult/);
+});

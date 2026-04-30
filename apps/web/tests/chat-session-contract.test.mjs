@@ -52,6 +52,12 @@ test('chat session repository reserves turn ids before agent execution and final
   assert.match(repositorySource, /return await retryMysqlOperation\(\(\) =>\s*finalizeReservedChatTurn/);
 });
 
+test('chat session repository sanitizes stored legacy turn blocks before returning them', () => {
+  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
+
+  assert.match(repositorySource, /sanitizeTurnBlocks/);
+});
+
 test('chat session repository prevents overlapping in-flight turns in the same session', () => {
   const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
 

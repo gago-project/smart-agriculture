@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 
 import { withMysqlConnection, withMysqlTransaction } from './mysql.mjs';
+import { sanitizeExecutedResult, sanitizeTurnBlocks } from './soilResultSanitizer.mjs';
 
 const SESSION_TITLE_MAX_LENGTH = 20;
 const SNAPSHOT_PAGE_SIZE_DEFAULT = 50;
@@ -78,7 +79,7 @@ function stripBlockRows(block) {
 }
 
 function stripLargeBlocks(blocks) {
-  return asArray(blocks).map((block) => stripBlockRows(block));
+  return sanitizeTurnBlocks(asArray(blocks).map((block) => stripBlockRows(block)));
 }
 
 function buildBusySessionError() {
@@ -115,7 +116,7 @@ async function hydrateListBlock(connection, block, requestedPage) {
   const page = Math.max(1, requestedPage || toPositiveInt(pagination.page, 1));
   const totalPages = totalCount === 0 ? 0 : Math.ceil(totalCount / pageSize);
   const rows = await loadSnapshotRows(connection, snapshotId, page, pageSize);
-  return {
+  return sanitizeTurnBlocks([{
     ...block,
     rows,
     pagination: {
@@ -126,7 +127,7 @@ async function hydrateListBlock(connection, block, requestedPage) {
       total_pages: totalPages,
       snapshot_id: snapshotId,
     },
-  };
+  }])[0];
 }
 
 async function hydrateTurnBlocks(connection, blocks, requestedBlockId = null, requestedPage = null) {
@@ -141,7 +142,7 @@ async function hydrateTurnBlocks(connection, blocks, requestedBlockId = null, re
     }
     hydrated.push(block);
   }
-  return hydrated;
+  return sanitizeTurnBlocks(hydrated);
 }
 
 async function retryMysqlOperation(operation, exhaustedMessage = '当前会话处理中，请稍后重试') {
@@ -165,7 +166,7 @@ async function retryMysqlOperation(operation, exhaustedMessage = '当前会话�
 
 function normalizeTurnRecord(row, hydratedBlocks) {
   const queryRef = parseJsonValue(row.query_ref_json) || { has_query: false, snapshot_ids: [] };
-  const blocks = hydratedBlocks ?? parseJsonValue(row.blocks_json) ?? [];
+  const blocks = sanitizeTurnBlocks(hydratedBlocks ?? parseJsonValue(row.blocks_json) ?? []);
   return {
     session_id: row.session_id,
     turn_id: Number(row.turn_id || 0),
@@ -212,7 +213,13 @@ async function loadTurnRowBySessionAndClient(connection, sessionId, clientMessag
 }
 
 async function insertQueryLogs(connection, entries) {
-  const rows = asArray(entries).filter((entry) => entry && typeof entry === 'object' && entry.query_id);
+  const rows = asArray(entries)
+    .filter((entry) => entry && typeof entry === 'object' && entry.query_id)
+    .map((entry) => ({
+      ...entry,
+      executed_result_json: sanitizeExecutedResult(entry.executed_result_json, { queryType: entry.query_type }),
+      result_digest_json: sanitizeExecutedResult(entry.result_digest_json, { queryType: entry.query_type }),
+    }));
   if (rows.length === 0) {
     return;
   }
@@ -462,7 +469,8 @@ async function finalizeReservedChatTurn({
       );
     }
 
-    const storedBlocks = stripLargeBlocks(agentResult.blocks);
+    const sanitizedBlocks = sanitizeTurnBlocks(asArray(agentResult.blocks));
+    const storedBlocks = stripLargeBlocks(sanitizedBlocks);
     const nextContext = agentResult.turn_context ?? currentContext ?? parseJsonValue(sessionRow.current_context_json) ?? null;
     await connection.execute(
       `UPDATE agent_chat_turn
@@ -505,7 +513,7 @@ async function finalizeReservedChatTurn({
       answer_kind: agentResult.answer_kind || 'fallback',
       capability: agentResult.capability || 'none',
       final_text: agentResult.final_text || '',
-      blocks: asArray(agentResult.blocks),
+      blocks: sanitizedBlocks,
       topic: agentResult.topic ?? formatTopicContext(nextContext),
       query_ref: agentResult.query_ref ?? { has_query: false, snapshot_ids: [] },
       conversation_closed: Boolean(agentResult.conversation_closed),
@@ -777,7 +785,7 @@ export async function getChatBlockPage({ ownerUserId, sessionId, turnId, blockId
       throw new Error('轮次不存在');
     }
 
-    const blocks = parseJsonValue(turnRow.blocks_json) || [];
+    const blocks = sanitizeTurnBlocks(parseJsonValue(turnRow.blocks_json) || []);
     const matched = blocks.find((block) => block?.block_id === blockId);
     if (!matched) {
       throw new Error('区块不存在');
@@ -786,7 +794,7 @@ export async function getChatBlockPage({ ownerUserId, sessionId, turnId, blockId
     if (matched.block_type === 'list_table') {
       return await hydrateListBlock(connection, matched, Math.max(1, toPositiveInt(page, 1)));
     }
-    return matched;
+    return sanitizeTurnBlocks([matched])[0];
   });
 }
 

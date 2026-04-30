@@ -1,4 +1,5 @@
 import { withMysqlConnection } from './mysql.mjs';
+import { sanitizeExecutedResult } from './soilResultSanitizer.mjs';
 
 const MAX_INLINE_EVIDENCE_RESULT_CHARS = 200_000;
 const RESULT_PREVIEW_ROW_LIMIT = 10;
@@ -153,6 +154,7 @@ function fromDbSummaryLog(row) {
 }
 
 function fromDbDetailLog(row) {
+  const queryType = String(row.query_type || '');
   return {
     query_id: row.query_id,
     session_id: row.session_id,
@@ -173,7 +175,7 @@ function fromDbDetailLog(row) {
     query_plan_json: parseJsonValue(row.query_plan_json),
     time_range_json: parseJsonValue(row.time_range_json),
     filters_json: parseJsonValue(row.filters_json),
-    executed_result_json: parseJsonValue(row.executed_result_json),
+    executed_result_json: sanitizeExecutedResult(parseJsonValue(row.executed_result_json), { queryType }),
     source_files_json: parseJsonValue(row.source_files_json),
     has_executed_sql_text: Boolean(row.executed_sql_text),
     has_executed_result_json: row.executed_result_json !== null && row.executed_result_json !== undefined,
@@ -182,7 +184,8 @@ function fromDbDetailLog(row) {
 
 function fromDbEvidenceEntry(row, entryIndex) {
   const resultChars = toPositiveNumber(row.result_chars);
-  const rawResult = parseJsonValue(row.executed_result_json);
+  const queryType = String(row.query_type || '');
+  const rawResult = sanitizeExecutedResult(parseJsonValue(row.executed_result_json), { queryType });
   const inlineResultAllowed = rawResult !== null && resultChars <= MAX_INLINE_EVIDENCE_RESULT_CHARS;
   const previewResult = rawResult === null ? null : (inlineResultAllowed ? rawResult : buildResultPreview(rawResult));
   const missingFields = [];
@@ -413,6 +416,7 @@ export async function getAgentQueryEvidenceResultByQueryId(query_id) {
     const [rows] = await connection.query(
       `SELECT
          query_id,
+         query_type,
          executed_result_json,
          CHAR_LENGTH(CAST(executed_result_json AS CHAR)) AS result_chars
        FROM agent_query_log
@@ -428,7 +432,9 @@ export async function getAgentQueryEvidenceResultByQueryId(query_id) {
 
     return {
       query_id: row.query_id,
-      executed_result_json: parseJsonValue(row.executed_result_json),
+      executed_result_json: sanitizeExecutedResult(parseJsonValue(row.executed_result_json), {
+        queryType: String(row.query_type || ''),
+      }),
       result_chars: toPositiveNumber(row.result_chars),
     };
   });
