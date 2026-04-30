@@ -1455,6 +1455,23 @@ class DataAnswerService:
                 return True
         return False
 
+    @staticmethod
+    def _target_supports_scope_free_follow_up(target: dict[str, Any] | None) -> bool:
+        if not target:
+            return False
+        slots = target.get("slots") or {}
+        if any(slots.get(slot_name) for slot_name in ("province", "city", "county", "sn")):
+            return False
+        capability = str(target.get("capability") or "")
+        grain = str(target.get("grain") or "")
+        return (capability, grain) in {
+            ("summary", "aggregate"),
+            ("list", "device_list"),
+            ("list", "record_list"),
+            ("group", "region_group"),
+            ("group", "aggregate"),
+        }
+
     def _inherited_time_window_from_target(
         self,
         *,
@@ -1543,7 +1560,10 @@ class DataAnswerService:
             and follow_up.operation in {"inherit", "switch_capability", "drilldown_ref"}
         ):
             if not self._inherit_scope_from_target(raw_args=raw_args, target=latest_target):
-                raise ValueError("这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。")
+                if follow_up.operation == "inherit" and self._target_supports_scope_free_follow_up(latest_target):
+                    pass
+                else:
+                    raise ValueError("这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。")
         elif (
             not has_explicit_scope
             and allow_inherit_entities

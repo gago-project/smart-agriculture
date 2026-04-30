@@ -839,6 +839,31 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("南京市", follow_up["final_text"])
         self.assertFalse(self.guard.calls)
 
+    async def test_time_only_follow_up_reuses_prior_global_warning_summary_scope(self) -> None:
+        summary = await self.service.reply(
+            message="2月6号 全省出现墒情预警信息的点位有多少个",
+            session_id="global-warning-summary-time-follow-up",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="2月1号呢",
+            session_id="global-warning-summary-time-follow-up",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertEqual(follow_up["turn_context"]["time_window"]["start_time"], "2026-02-01 00:00:00")
+        self.assertEqual(follow_up["turn_context"]["time_window"]["end_time"], "2026-02-01 23:59:59")
+        self.assertIn("2026-02-01至2026-02-01", follow_up["final_text"])
+        self.assertTrue(follow_up["query_ref"]["has_query"])
+        self.assertNotIn("对象还不够明确", follow_up["final_text"])
+
     async def test_city_follow_up_inherits_prior_time_window(self) -> None:
         summary = await self.service.reply(
             message="南通最近7天墒情怎么样",
