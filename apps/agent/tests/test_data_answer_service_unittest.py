@@ -205,6 +205,56 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("地区", grouped["final_text"])
         self.assertNotIn("当前整体墒情", grouped["final_text"])
 
+    async def test_focus_device_follow_up_can_switch_back_to_alert_record_list(self) -> None:
+        clarify = await self.service.reply(
+            message="江苏最新的墒情情况",
+            session_id="device-list-back-to-record-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        summary = await self.service.reply(
+            message="1个月",
+            session_id="device-list-back-to-record-list",
+            turn_id=2,
+            current_context=clarify["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        grouped = await self.service.reply(
+            message="哪17个地区",
+            session_id="device-list-back-to-record-list",
+            turn_id=3,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        focus_devices = await self.service.reply(
+            message="23个重点关注点位是哪些",
+            session_id="device-list-back-to-record-list",
+            turn_id=4,
+            current_context=grouped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        alert_records = await self.service.reply(
+            message="84条预警详情",
+            session_id="device-list-back-to-record-list",
+            turn_id=5,
+            current_context=focus_devices["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(alert_records["answer_kind"], "business")
+        self.assertEqual(alert_records["capability"], "list")
+        self.assertEqual(alert_records["blocks"][0]["block_type"], "list_table")
+        self.assertIn("预警记录", alert_records["blocks"][0]["title"])
+        self.assertEqual(
+            alert_records["blocks"][0]["pagination"]["total_count"],
+            summary["blocks"][0]["metrics"]["alert_record_count"],
+        )
+
     async def test_legacy_summary_context_without_alert_snapshot_rebuilds_record_list(self) -> None:
         summary = await self.service.reply(
             message="江苏最近墒情情况如何",

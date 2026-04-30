@@ -281,7 +281,17 @@ class DataAnswerService:
         has_data_context = context.get("topic_family") == "data"
         has_follow_up_reference = any(token in normalized for token in ("这些", "这44条", "这44个", "这里的", "刚才", "上面的"))
         has_list_verb = any(token in normalized for token in ("列出", "列一下", "展示", "查看", "看看", "名单", "列表"))
-        mentions_record = "记录" in normalized or ("数据" in normalized and "规则" not in normalized and "模板" not in normalized)
+        mentions_alert_records = (
+            "预警记录" in normalized
+            or "预警详情" in normalized
+            or "预警明细" in normalized
+            or (any(token in normalized for token in ("预警", "异常")) and "条" in normalized)
+        )
+        mentions_record = (
+            mentions_alert_records
+            or "记录" in normalized
+            or ("数据" in normalized and "规则" not in normalized and "模板" not in normalized)
+        )
         mentions_device = any(token in normalized for token in ("点位", "设备"))
         mentions_focus_devices = any(token in normalized for token in ("重点关注的点位", "重点关注点位", "设备名单"))
 
