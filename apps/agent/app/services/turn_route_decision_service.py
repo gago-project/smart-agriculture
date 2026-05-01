@@ -423,6 +423,8 @@ class TurnRouteDecisionService:
             return LIST_TARGET_FOCUS_DEVICES
         if has_data_context and prior_grain == "record_list" and has_follow_up_reference:
             return LIST_TARGET_ALERT_RECORDS
+        if mentions_device and any(token in text for token in DETAIL_HINT_TOKENS):
+            return LIST_TARGET_FOCUS_DEVICES
         if mentions_device and (
             has_list_verb
             or has_follow_up_reference

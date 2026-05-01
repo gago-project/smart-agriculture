@@ -200,6 +200,10 @@ class QueryProfileResolverService:
     @staticmethod
     def is_count_request(text: str) -> bool:
         normalized = str(text or "")
+        if QueryProfileResolverService.is_field_request(normalized):
+            return False
+        if QueryProfileResolverService.is_compare_request(normalized):
+            return False
         if "多少" not in normalized and "数量" not in normalized:
             return False
         return any(token in normalized for token in ("点位", "设备", "记录", "地区", "区县", "地方"))
@@ -221,6 +225,8 @@ class QueryProfileResolverService:
     def is_compare_request(text: str) -> bool:
         normalized = str(text or "")
         if "对比" in normalized or "比较" in normalized or "谁更" in normalized:
+            return True
+        if ("和" in normalized or "与" in normalized) and any(token in normalized for token in ("更多", "更高", "更低", "更少", "更大", "更小")):
             return True
         return bool(re.search(r"(最近|近|前)\s*[0-9一二两三四五六七八九十百]+\s*天.*和.*前\s*[0-9一二两三四五六七八九十百]+\s*天", normalized))
 
@@ -362,13 +368,32 @@ class QueryProfileResolverService:
     @staticmethod
     def _extract_depth_fields(text: str) -> list[str]:
         normalized = str(text or "")
+        lowered = normalized.lower()
+        explicit_depth_matches = [
+            (match.start(), match.group(1))
+            for match in re.finditer(r"(?<!\d)(20|40|60|80)\s*(?:cm|厘米)", lowered)
+        ]
+        water_field_matches = [
+            (match.start(), match.group(1))
+            for match in re.finditer(r"water(20|40|60|80)cm", lowered)
+        ]
+        temp_field_matches = [
+            (match.start(), match.group(1))
+            for match in re.finditer(r"t(20|40|60|80)cm", lowered)
+        ]
         matches: list[str] = []
-        for depth in ("20", "40", "60", "80"):
-            if depth in normalized and ("含水量" in normalized or "water" in normalized):
-                matches.append(DEPTH_TO_WATER_FIELD[depth])
-            if depth in normalized and ("温度" in normalized or re.search(rf"{depth}\s*(?:cm|厘米).*(温度|t)", normalized)):
-                field = DEPTH_TO_TEMP_FIELD[depth]
-                if field not in matches:
+        water_requested = "含水量" in normalized or "water" in lowered
+        temp_requested = "温度" in normalized or "t" in lowered
+
+        if water_requested:
+            for _position, depth in sorted(explicit_depth_matches + water_field_matches, key=lambda item: item[0]):
+                field = DEPTH_TO_WATER_FIELD.get(depth)
+                if field and field not in matches:
+                    matches.append(field)
+        if temp_requested:
+            for _position, depth in sorted(explicit_depth_matches + temp_field_matches, key=lambda item: item[0]):
+                field = DEPTH_TO_TEMP_FIELD.get(depth)
+                if field and field not in matches:
                     matches.append(field)
         return matches
 

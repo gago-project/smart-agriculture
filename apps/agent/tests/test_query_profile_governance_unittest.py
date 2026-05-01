@@ -77,6 +77,8 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
             _alias("徐州市", "徐州市", "city"),
             _alias("江宁", "江宁区", "county", "南京市"),
             _alias("江宁区", "江宁区", "county", "南京市"),
+            _alias("如东", "如东县", "county", "南通市"),
+            _alias("如东县", "如东县", "county", "南通市"),
             _alias("睢宁", "睢宁县", "county", "徐州市"),
             _alias("睢宁县", "睢宁县", "county", "徐州市"),
             _alias("沛县", "沛县", "county", "徐州市"),
@@ -141,6 +143,48 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     t80cm=18.5,
                     water20cmfieldstate="1",
                 ),
+                _field_record(
+                    record_id=990005,
+                    sn="SNS20406080",
+                    create_time="2026-04-13 10:00:00",
+                    water20cm=71.0,
+                    water40cm=41.0,
+                    water60cm=31.0,
+                    water80cm=21.0,
+                    t20cm=14.0,
+                    t40cm=15.0,
+                    t60cm=16.0,
+                    t80cm=17.0,
+                    water20cmfieldstate="1",
+                ),
+                _field_record(
+                    record_id=990006,
+                    sn="SNS20406080",
+                    create_time="2026-04-12 10:00:00",
+                    water20cm=72.0,
+                    water40cm=42.0,
+                    water60cm=32.0,
+                    water80cm=22.0,
+                    t20cm=14.5,
+                    t40cm=15.5,
+                    t60cm=17.0,
+                    t80cm=18.0,
+                    water20cmfieldstate="1",
+                ),
+                _field_record(
+                    record_id=990007,
+                    sn="SNS20406080",
+                    create_time="2026-04-11 10:00:00",
+                    water20cm=73.0,
+                    water40cm=43.0,
+                    water60cm=33.0,
+                    water80cm=23.0,
+                    t20cm=15.0,
+                    t40cm=16.0,
+                    t60cm=18.0,
+                    t80cm=19.0,
+                    water20cmfieldstate="1",
+                ),
             ]
         )
         self.repository = repository
@@ -194,6 +238,38 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["measure"], "alert_device_count")
         self.assertIn("12个点位", reply["final_text"])
 
+    async def test_warning_record_count_zero_still_returns_zero_count_card(self) -> None:
+        reply = await self.service.reply(
+            message="最近30天如东县有多少条预警记录",
+            session_id="qp-warning-record-count-zero",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "count")
+        self.assertEqual(reply["blocks"][0]["block_type"], "count_card")
+        self.assertEqual(reply["blocks"][0]["count"], 0)
+        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["measure"], "alert_record_count")
+        self.assertIn("0条预警记录", reply["final_text"])
+
+    async def test_warning_summary_query_uses_warning_focused_text(self) -> None:
+        reply = await self.service.reply(
+            message="最近30天全省有没有预警点位",
+            session_id="qp-warning-summary",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "summary")
+        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertIn("预警", reply["final_text"])
+        self.assertNotIn("墒情概况", reply["final_text"])
+
     async def test_warning_top_counties_question_returns_ranked_group_rows(self) -> None:
         reply = await self.service.reply(
             message="最近30天预警最多的前5个县是哪些",
@@ -234,6 +310,20 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["answer_mode"], "list")
 
+    async def test_warning_device_detail_query_returns_list_instead_of_detail(self) -> None:
+        reply = await self.service.reply(
+            message="最近7天出现预警的点位详情",
+            session_id="qp-warning-device-detail-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "list")
+        self.assertEqual(reply["blocks"][0]["block_type"], "list_table")
+        self.assertIn("点位", reply["blocks"][0]["title"])
+
     async def test_compare_metric_question_returns_winner_and_metric_summary(self) -> None:
         reply = await self.service.reply(
             message="徐州和南通最近30天20厘米平均含水量谁更高",
@@ -250,6 +340,39 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["winner"], "徐州市")
         self.assertIn("徐州市", reply["final_text"])
         self.assertIn("106.09%", reply["final_text"])
+
+    async def test_warning_compare_metric_query_returns_winner_even_with_zero_side(self) -> None:
+        reply = await self.service.reply(
+            message="徐州和南通最近30天哪个预警点位更多",
+            session_id="qp-warning-compare-winner",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "compare")
+        self.assertEqual(reply["blocks"][0]["block_type"], "compare_card")
+        self.assertEqual(reply["blocks"][0]["metric"], "alert_device_count")
+        self.assertEqual(reply["blocks"][0]["winner"], "徐州市")
+        self.assertEqual(reply["blocks"][0]["left_value"], 9)
+        self.assertEqual(reply["blocks"][0]["right_value"], 0)
+        self.assertIn("徐州市", reply["final_text"])
+
+    async def test_dual_sn_compare_query_returns_compare_card(self) -> None:
+        reply = await self.service.reply(
+            message="SNS00204333和SNS00213807最近7天对比一下",
+            session_id="qp-dual-sn-compare",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "compare")
+        self.assertEqual(reply["blocks"][0]["block_type"], "compare_card")
+        compared_entities = [row["entity"] for row in reply["blocks"][0]["rows"]]
+        self.assertEqual(compared_entities, ["SNS00204333", "SNS00213807"])
 
     async def test_time_compare_question_returns_time_compare_mode(self) -> None:
         reply = await self.service.reply(
@@ -283,6 +406,48 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["value"], 50.0)
         self.assertIn("50.0", reply["final_text"])
 
+    async def test_seed_field_aggregate_query_ignores_sn_digits_for_depth_matching(self) -> None:
+        records = self.repository.filter_records(
+            sn="SNS20406080",
+            start_time="2026-04-07 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        valid_values = [float(record["water40cm"]) for record in records if record.get("water40cm") is not None]
+        expected = round(sum(valid_values) / len(valid_values), 2)
+        reply = await self.service.reply(
+            message="SNS20406080最近7天40厘米含水量平均是多少",
+            session_id="qp-seed-water40-aggregate",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "field")
+        self.assertEqual(reply["blocks"][0]["field"], "water40cm")
+        self.assertEqual(reply["blocks"][0]["value"], expected)
+
+    async def test_seed_temperature_aggregate_query_ignores_sn_digits_for_depth_matching(self) -> None:
+        records = self.repository.filter_records(
+            sn="SNS20406080",
+            start_time="2026-04-07 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        valid_values = [float(record["t60cm"]) for record in records if record.get("t60cm") is not None]
+        expected = round(sum(valid_values) / len(valid_values), 2)
+        reply = await self.service.reply(
+            message="SNS20406080最近7天60厘米温度平均是多少",
+            session_id="qp-seed-t60-aggregate",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "field")
+        self.assertEqual(reply["blocks"][0]["field"], "t60cm")
+        self.assertEqual(reply["blocks"][0]["value"], expected)
+
     async def test_field_projection_query_returns_requested_latest_raw_fields(self) -> None:
         reply = await self.service.reply(
             message="SNS00990001的gatewayid、sensorid、unitid是什么",
@@ -300,6 +465,59 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["values"]["gatewayid"], "GW-TEST-1")
         self.assertEqual(reply["blocks"][0]["values"]["sensorid"], "SENSOR-TEST-1")
         self.assertEqual(reply["blocks"][0]["values"]["unitid"], "UNIT-TEST-1")
+
+    async def test_latest_projection_questions_with_duoshao_route_to_field(self) -> None:
+        latest_record = self.repository.filter_records(sn="SNS00204333", limit=1)[0]
+        reply = await self.service.reply(
+            message="SNS00204333最新记录的经纬度是多少",
+            session_id="qp-field-lat-lon",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "field")
+        self.assertEqual(reply["blocks"][0]["field_mode"], "latest_projection")
+        self.assertEqual(reply["blocks"][0]["fields"], ["lat", "lon"])
+        self.assertEqual(reply["blocks"][0]["values"]["lat"], latest_record["lat"])
+        self.assertEqual(reply["blocks"][0]["values"]["lon"], latest_record["lon"])
+
+    async def test_latest_multi_depth_projection_returns_requested_fields(self) -> None:
+        latest_record = self.repository.filter_records(sn="SNS00204333", limit=1)[0]
+        reply = await self.service.reply(
+            message="SNS00204333最新一条记录的20cm、40cm、60cm、80cm含水量分别是多少",
+            session_id="qp-field-depth-projection",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "field")
+        self.assertEqual(reply["blocks"][0]["field_mode"], "latest_projection")
+        self.assertEqual(
+            reply["blocks"][0]["fields"],
+            ["water20cm", "water40cm", "water60cm", "water80cm"],
+        )
+        self.assertEqual(reply["blocks"][0]["values"]["water20cm"], latest_record["water20cm"])
+        self.assertEqual(reply["blocks"][0]["values"]["water40cm"], latest_record["water40cm"])
+        self.assertEqual(reply["blocks"][0]["values"]["water60cm"], latest_record["water60cm"])
+        self.assertEqual(reply["blocks"][0]["values"]["water80cm"], latest_record["water80cm"])
+
+    async def test_latest_record_query_returns_compact_fact_summary(self) -> None:
+        reply = await self.service.reply(
+            message="SNS00204333最新一条记录是什么",
+            session_id="qp-latest-record-rich-text",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "detail")
+        self.assertIn("20cm含水量", reply["final_text"])
+        self.assertIn("位于", reply["final_text"])
 
     async def test_fieldstate_filtered_list_query_returns_only_abnormal_devices(self) -> None:
         reply = await self.service.reply(

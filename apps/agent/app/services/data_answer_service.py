@@ -2191,10 +2191,11 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
-        records = await self._query_records(resolved_args)
+        base_records = await self._query_records(resolved_args)
+        records = list(base_records)
         if query_profile.get("data_focus") == "warning_only":
             records, _rule_row = await self._warning_filtered_records(records)
-        if not records:
+        if not base_records:
             return self._build_fallback_response(
                 turn_id=turn_id,
                 capability="summary",
@@ -2239,6 +2240,7 @@ class DataAnswerService:
             metrics=metrics,
             entity_confidence=resolution_meta["entity_confidence"],
             resolved_entities=resolved_entities,
+            warning_only=query_profile.get("data_focus") == "warning_only",
         )
         block = {
             "block_id": block_id,
@@ -2355,10 +2357,11 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
-        records = await self._query_records(resolved_args)
+        base_records = await self._query_records(resolved_args)
+        records = list(base_records)
         if query_profile["data_focus"] == "warning_only":
             records, _rule_row = await self._warning_filtered_records(records)
-        if not records:
+        if not base_records:
             return self._build_fallback_response(
                 turn_id=turn_id,
                 capability="count",
@@ -2588,10 +2591,14 @@ class DataAnswerService:
         if time_window:
             final_text = (
                 f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}范围内的最新一条记录时间为 "
-                f"{latest_record.get('create_time') or '暂无'}。"
+                f"{latest_record.get('create_time') or '暂无'}，"
+                f"{self._latest_record_brief(latest_record)}。"
             )
         else:
-            final_text = f"{scope}的最新一条记录时间为 {latest_record.get('create_time') or '暂无'}。"
+            final_text = (
+                f"{scope}的最新一条记录时间为 {latest_record.get('create_time') or '暂无'}，"
+                f"{self._latest_record_brief(latest_record)}。"
+            )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -3817,6 +3824,10 @@ class DataAnswerService:
             canonical_name = item["canonical_name"]
             if canonical_name not in names:
                 names.append(canonical_name)
+        for sn in entities.get("sn") or []:
+            canonical_sn = str(sn or "").strip().upper()
+            if canonical_sn and canonical_sn not in names:
+                names.append(canonical_sn)
         context_slots = self._slots_from_context(current_context)
         query_profile = self._resolve_query_profile(
             message=message,
@@ -4025,8 +4036,7 @@ class DataAnswerService:
             unit = "%" if str(query_profile.get("measure") or "").startswith("avg_") else ""
             final_text = f"{winner} 更高，分别为 {left_value}{unit} 和 {right_value}{unit}。"
         else:
-            entity_names = " 和 ".join(item["canonical_name"] for item in resolved_entities[:2]) or "两个对象"
-            final_text = f"已按相同时间范围整理 {entity_names} 的对比结果。"
+            final_text = self._render_compare_digest(compared, resolved_entities)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -4772,20 +4782,62 @@ class DataAnswerService:
         metrics: dict[str, Any],
         entity_confidence: str,
         resolved_entities: list[dict[str, Any]],
+        warning_only: bool = False,
     ) -> str:
         scope = label or "当前整体墒情"
         avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
         latest_time = str(metrics.get("latest_create_time") or "暂无")
-        text = (
-            f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的墒情概况如下："
-            f"20cm平均相对含水量约 {avg_text}，"
-            f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 个点位，"
-            f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
-        )
+        if warning_only:
+            if int(metrics.get("record_count") or 0) > 0:
+                text = (
+                    f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}命中预警记录 "
+                    f"{metrics['record_count']} 条，涉及 {metrics['device_count']} 个预警点位，"
+                    f"覆盖 {metrics['region_count']} 个预警地区，最新预警时间为 {latest_time}。"
+                )
+            else:
+                text = (
+                    f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+                    "没有命中预警规则的点位或记录。"
+                )
+        else:
+            text = (
+                f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的墒情概况如下："
+                f"20cm平均相对含水量约 {avg_text}，"
+                f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 个点位，"
+                f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
+            )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
         text += " 如需继续查看，可以直接回复：列出点位详情、列出记录详情，或按地区汇总。"
         return text
+
+    @staticmethod
+    def _latest_record_brief(latest_record: dict[str, Any]) -> str:
+        location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
+        parts: list[str] = []
+        if location:
+            parts.append(f"位于 {location}")
+        if latest_record.get("water20cm") is not None:
+            parts.append(f"20cm含水量 {latest_record.get('water20cm')}%")
+        if latest_record.get("t20cm") is not None:
+            parts.append(f"20cm温度 {latest_record.get('t20cm')}℃")
+        return "，".join(parts) if parts else "暂无更多原始字段信息"
+
+    @staticmethod
+    def _render_compare_digest(
+        compared: list[dict[str, Any]],
+        resolved_entities: list[dict[str, Any]],
+    ) -> str:
+        entity_names = " 和 ".join(item["canonical_name"] for item in resolved_entities[:2]) or "两个对象"
+        if not compared:
+            return f"已按相同时间范围整理 {entity_names} 的对比结果。"
+        summaries = []
+        for row in compared[:2]:
+            avg_text = "暂无" if row.get("avg_water20cm") is None else f"{row.get('avg_water20cm')}%"
+            summaries.append(
+                f"{row.get('entity')}：{row.get('record_count')}条记录，{row.get('device_count')}个点位，20cm平均含水量 {avg_text}"
+            )
+        return "；".join(summaries) + "。"
 
     @staticmethod
     def _render_detail_text(
