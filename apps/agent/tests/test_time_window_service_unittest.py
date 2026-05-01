@@ -72,6 +72,24 @@ class TimeWindowServiceTest(unittest.TestCase):
         self.assertEqual(result.start_time, "2026-04-01 00:00:00")
         self.assertEqual(result.end_time, "2026-04-10 23:59:59")
 
+    def test_absolute_year_prefix_range_with_second_date_without_year_keeps_full_range(self) -> None:
+        result = self.service.resolve("2026年4月1日到4月13日徐州市墒情怎么样", self.latest_business_time)
+
+        self.assertTrue(result.matched)
+        self.assertTrue(result.has_time_signal)
+        self.assertEqual(result.time_source, "rule_absolute")
+        self.assertEqual(result.start_time, "2026-04-01 00:00:00")
+        self.assertEqual(result.end_time, "2026-04-13 23:59:59")
+
+    def test_absolute_year_prefix_range_with_zhi_variant_keeps_full_range(self) -> None:
+        result = self.service.resolve("2026年4月1日至4月13日徐州市墒情怎么样", self.latest_business_time)
+
+        self.assertTrue(result.matched)
+        self.assertTrue(result.has_time_signal)
+        self.assertEqual(result.time_source, "rule_absolute")
+        self.assertEqual(result.start_time, "2026-04-01 00:00:00")
+        self.assertEqual(result.end_time, "2026-04-13 23:59:59")
+
     def test_single_absolute_day_with_four_digit_year_expands_to_one_day_window(self) -> None:
         result = self.service.resolve("2026年3月20日全省出现墒情预警信息的点位是哪些", self.latest_business_time)
 

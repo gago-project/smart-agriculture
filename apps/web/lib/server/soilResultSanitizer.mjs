@@ -37,9 +37,6 @@ const DERIVED_KEYS = new Set([
   'risk_score',
   'display_label',
   'rule_version',
-  'alert_record_count',
-  'alert_device_count',
-  'alert_region_count',
   'alert_count',
   'avg_risk_score',
   'max_risk_score',
@@ -51,8 +48,10 @@ const DERIVED_KEYS = new Set([
 const LEGACY_BLOCK_KEYS = new Set([
   'alert_records_snapshot_id',
   'focus_devices_snapshot_id',
-  'winner',
 ]);
+
+const GROUP_METRIC_FIELDS = ['alert_device_count', 'alert_record_count', 'latest_alert_time'];
+const CARD_META_FIELDS = ['count', 'measure', 'data_focus', 'field_mode', 'field', 'fields', 'values', 'aggregation', 'value', 'metric', 'compare_mode', 'winner', 'left_value', 'right_value'];
 
 function isPlainObject(value) {
   return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
@@ -136,6 +135,11 @@ function sanitizeRegionRows(rows) {
       if (typeof cleaned.county === 'string' && cleaned.county.trim()) {
         next.county = cleaned.county.trim();
       }
+      for (const field of GROUP_METRIC_FIELDS) {
+        if (field in cleaned) {
+          next[field] = cleaned[field];
+        }
+      }
       return Object.keys(next).length > 0 ? next : null;
     })
     .filter(Boolean);
@@ -184,7 +188,7 @@ function sanitizeColumns(columns) {
       normalized.push('create_time');
       continue;
     }
-    if (RAW_SOIL_FIELD_SET.has(column)) {
+    if (RAW_SOIL_FIELD_SET.has(column) || GROUP_METRIC_FIELDS.includes(column)) {
       normalized.push(column);
     }
   }
@@ -197,6 +201,24 @@ function inferColumnsFromRows(rows) {
   }
   return RAW_SOIL_FIELDS.filter((field) => rows.some((row) => isPlainObject(row) && field in row));
 }
+
+function sanitizeTableColumns(columns, rows) {
+  const cleanedColumns = sanitizeColumns(columns);
+  return cleanedColumns.length > 0 ? cleanedColumns : inferColumnsFromRows(rows);
+}
+
+const TABLE_BLOCK_SANITIZERS = {
+  list_table(cleaned) {
+    cleaned.rows = sanitizeRawRows(cleaned.rows);
+    cleaned.columns = sanitizeTableColumns(cleaned.columns, cleaned.rows);
+    return cleaned;
+  },
+  group_table(cleaned) {
+    cleaned.rows = sanitizeGroupRows(cleaned.rows, cleaned.group_by);
+    cleaned.columns = sanitizeTableColumns(cleaned.columns, cleaned.rows);
+    return cleaned;
+  },
+};
 
 function sanitizeTurnBlock(block) {
   if (!isPlainObject(block)) {
@@ -220,22 +242,26 @@ function sanitizeTurnBlock(block) {
     }
     return cleaned;
   }
-  if (cleaned.block_type === 'list_table') {
-    cleaned.rows = sanitizeRawRows(cleaned.rows);
-    const columns = sanitizeColumns(cleaned.columns);
-    cleaned.columns = columns.length > 0 ? columns : inferColumnsFromRows(cleaned.rows);
+  if (cleaned.block_type === 'count_card' || cleaned.block_type === 'field_card') {
+    for (const field of CARD_META_FIELDS) {
+      if (field in block) {
+        cleaned[field] = stripDerivedKeysDeep(block[field]);
+      }
+    }
     return cleaned;
   }
-  if (cleaned.block_type === 'group_table') {
-    cleaned.rows = sanitizeGroupRows(cleaned.rows, cleaned.group_by);
-    const columns = sanitizeColumns(cleaned.columns);
-    cleaned.columns = columns.length > 0 ? columns : inferColumnsFromRows(cleaned.rows);
-    return cleaned;
+  if (typeof cleaned.block_type === 'string' && TABLE_BLOCK_SANITIZERS[cleaned.block_type]) {
+    return TABLE_BLOCK_SANITIZERS[cleaned.block_type](cleaned);
   }
   if (cleaned.block_type === 'compare_card') {
     delete cleaned.metrics;
-    cleaned.rows = sanitizeRawRows(cleaned.rows);
-    cleaned.columns = inferColumnsFromRows(cleaned.rows);
+    for (const field of CARD_META_FIELDS) {
+      if (field in block) {
+        cleaned[field] = stripDerivedKeysDeep(block[field]);
+      }
+    }
+    cleaned.rows = Array.isArray(cleaned.rows) ? stripDerivedKeysDeep(cleaned.rows) : [];
+    cleaned.columns = Array.isArray(cleaned.columns) ? cleaned.columns.filter((item) => typeof item === 'string') : [];
     return cleaned;
   }
   return cleaned;

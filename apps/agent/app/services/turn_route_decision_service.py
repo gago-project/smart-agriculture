@@ -6,6 +6,8 @@ from dataclasses import dataclass, field
 import re
 from typing import Any
 
+from app.services.query_profile_resolver_service import QueryProfileResolverService
+
 
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
 LIST_TARGET_FOCUS_DEVICES = "devices"
@@ -37,12 +39,14 @@ QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需
 DETAIL_HINT_TOKENS = ("详情", "明细")
 LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
+RANKING_MARKERS = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
     re.compile(r"^[0-9一二两三四五六七八九十百]+\s*个?\s*(地方|地区|区域)(?:呢|详情|明细)?$"),
     re.compile(r"^(这些|这几个|那些|上面的)\s*(地方|地区|区域)(?:呢|详情|明细)?$"),
 )
+PLAIN_GROUP_FOLLOW_UP_PATTERN = re.compile(r"^(?:地区|地方|区域)(?:详情|明细)?(?:呢)?$")
 TEXT_NORMALIZATION_RULES: tuple[tuple[str, str], ...] = (
     ("又哪些地方", "有哪些地方"),
     ("又哪些地区", "有哪些地区"),
@@ -114,9 +118,13 @@ class TurnRouteDecisionService:
 
         has_explicit_detail = self._has_explicit_detail(normalized_text, extracted_entities)
         is_group_request = self._is_group_request(normalized_text)
+        is_plain_group_follow_up = self._is_plain_group_follow_up_phrase(normalized_text)
         group_by = self._resolve_group_by(normalized_text) if is_group_request else None
         list_target = None if is_group_request else self._resolve_list_target(normalized_text, context)
         is_compare_request = self._is_compare_request(normalized_text)
+        is_latest_record_request = QueryProfileResolverService.is_latest_record_request(normalized_text)
+        is_count_request = QueryProfileResolverService.is_count_request(normalized_text)
+        is_field_request = QueryProfileResolverService.is_field_request(normalized_text)
         is_detail_request = self._is_detail_request(normalized_text, extracted_entities)
         should_follow_up_detail = self._should_follow_up_detail(
             text=normalized_text,
@@ -146,16 +154,16 @@ class TurnRouteDecisionService:
             entities=extracted_entities,
             time_evidence=time_evidence,
         )
+        should_follow_up_count = self._should_follow_up_count(
+            text=normalized_text,
+            current_context=context,
+            entities=extracted_entities,
+            time_evidence=time_evidence,
+            is_group_request=is_group_request,
+            list_target=list_target,
+            is_compare_request=is_compare_request,
+        )
         action_operation = str(getattr(action_result, "operation", "") or "")
-
-        if has_explicit_detail:
-            return self._decision(
-                route="explicit_detail",
-                normalized_text=normalized_text,
-                normalized_changed=normalized_changed,
-                query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="explicit_detail"),
-                reason_codes=("explicit_detail",),
-            )
 
         if is_group_request and should_group_standalone:
             return self._decision(
@@ -177,7 +185,57 @@ class TurnRouteDecisionService:
                 reason_codes=("list_request", "standalone_signals"),
             )
 
-        if action_operation == "clarify":
+        if is_count_request:
+            return self._decision(
+                route="count",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(
+                    subject="soil",
+                    action="count",
+                    grain=self._count_grain(normalized_text),
+                    mode="standalone",
+                ),
+                reason_codes=("count_request",),
+            )
+
+        if is_field_request:
+            return self._decision(
+                route="field",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="soil", action="field", grain="entity", mode="standalone"),
+                reason_codes=("field_request",),
+            )
+
+        if is_compare_request:
+            return self._decision(
+                route="compare",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="soil", action="compare", grain="entity", mode="standalone"),
+                reason_codes=("compare_request",),
+            )
+
+        if is_latest_record_request:
+            return self._decision(
+                route="latest_record",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="standalone"),
+                reason_codes=("latest_record_request",),
+            )
+
+        if has_explicit_detail:
+            return self._decision(
+                route="explicit_detail",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="explicit_detail"),
+                reason_codes=("explicit_detail",),
+            )
+
+        if action_operation == "clarify" and not list_target and not is_plain_group_follow_up:
             return self._decision(
                 route="follow_up_action_clarify",
                 normalized_text=normalized_text,
@@ -231,15 +289,6 @@ class TurnRouteDecisionService:
                 reason_codes=("group_request", "context_follow_up"),
             )
 
-        if is_compare_request:
-            return self._decision(
-                route="compare",
-                normalized_text=normalized_text,
-                normalized_changed=normalized_changed,
-                query_shape=QueryShape(subject="soil", action="compare", grain="entity", mode="standalone"),
-                reason_codes=("compare_request",),
-            )
-
         if should_follow_up_detail:
             return self._decision(
                 route="follow_up_detail",
@@ -248,6 +297,16 @@ class TurnRouteDecisionService:
                 route_source="context",
                 query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="contextual"),
                 reason_codes=("detail_context", "context_follow_up"),
+            )
+
+        if should_follow_up_count:
+            return self._decision(
+                route="count",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                route_source="context",
+                query_shape=QueryShape(subject="soil", action="count", grain="entity", mode="contextual"),
+                reason_codes=("count_context", "context_follow_up"),
             )
 
         if is_detail_request:
@@ -326,6 +385,15 @@ class TurnRouteDecisionService:
     def _resolve_list_target(self, text: str, context: dict[str, Any]) -> str | None:
         if self._is_group_request(text):
             return None
+        if any(
+            (
+                QueryProfileResolverService.is_latest_record_request(text),
+                QueryProfileResolverService.is_count_request(text),
+                QueryProfileResolverService.is_field_request(text),
+                QueryProfileResolverService.is_compare_request(text),
+            )
+        ):
+            return None
 
         prior_grain = self._current_list_grain(context)
         has_data_context = context.get("topic_family") == "data"
@@ -371,6 +439,15 @@ class TurnRouteDecisionService:
     def _is_group_request(text: str) -> bool:
         if "归类" in text or "汇总" in text:
             return True
+        if TurnRouteDecisionService._is_plain_group_follow_up_phrase(text):
+            return True
+        lowered = str(text or "").lower()
+        if any(marker in lowered for marker in RANKING_MARKERS) and any(token in text for token in ("县", "区", "市", "地区", "地方")):
+            if any(token in text for token in ("预警", "异常", "关注")):
+                return True
+        if "哪个县" in text or "哪个区" in text or "哪个市" in text:
+            if any(token in text for token in ("预警", "异常", "关注")):
+                return True
         return any(pattern.search(text) for pattern in REGION_GROUP_REQUEST_PATTERNS)
 
     @staticmethod
@@ -379,32 +456,71 @@ class TurnRouteDecisionService:
         if not normalized:
             return False
         lowered = normalized.lower()
-        ranking_markers = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
-        if any(token in normalized for token in ("异常", "预警", "风险")) and any(marker in lowered for marker in ranking_markers):
+        if any(token in normalized for token in ("风险",)) and any(marker in lowered for marker in RANKING_MARKERS):
+            return True
+        if "最严重" in normalized and "风险" in normalized:
             return True
         if "最严重" in normalized and any(token in normalized for token in ("地方", "地区", "区域", "点位", "设备", "哪里", "哪个")):
             return True
         return False
 
     @staticmethod
+    def _is_plain_group_follow_up_phrase(text: str) -> bool:
+        return bool(PLAIN_GROUP_FOLLOW_UP_PATTERN.fullmatch(str(text or "").strip()))
+
+    @staticmethod
     def _is_compare_request(text: str) -> bool:
-        return "谁更" in text or ("和" in text and any(token in text for token in ("对比", "比较", "更差")))
+        return QueryProfileResolverService.is_compare_request(text)
 
     @staticmethod
     def _has_explicit_detail(text: str, entities: dict[str, Any]) -> bool:
-        if SN_PATTERN.search(text):
+        if SN_PATTERN.search(text) and not any(
+            (
+                QueryProfileResolverService.is_latest_record_request(text),
+                QueryProfileResolverService.is_count_request(text),
+                QueryProfileResolverService.is_field_request(text),
+                QueryProfileResolverService.is_compare_request(text),
+                "怎么样" in text or "情况" in text or "如何" in text,
+            )
+        ):
             return True
         if not any(entities.get(key) for key in ("province", "city", "county", "sn")):
             return False
-        return any(token in text for token in DETAIL_HINT_TOKENS)
+        return any(token in text for token in DETAIL_HINT_TOKENS) and not any(
+            (
+                QueryProfileResolverService.is_count_request(text),
+                QueryProfileResolverService.is_field_request(text),
+                QueryProfileResolverService.is_compare_request(text),
+                "点位详情" in text,
+                "记录详情" in text,
+            )
+        )
 
     @staticmethod
     def _is_detail_request(text: str, entities: dict[str, Any]) -> bool:
-        if SN_PATTERN.search(text):
+        if SN_PATTERN.search(text) and not any(
+            (
+                QueryProfileResolverService.is_latest_record_request(text),
+                QueryProfileResolverService.is_count_request(text),
+                QueryProfileResolverService.is_field_request(text),
+                QueryProfileResolverService.is_compare_request(text),
+                "怎么样" in text or "情况" in text or "如何" in text,
+            )
+        ):
             return True
         if any(token in text for token in DETAIL_HINT_TOKENS):
             return True
-        return bool(entities.get("sn"))
+        return False
+
+    @staticmethod
+    def _count_grain(text: str) -> str:
+        if any(token in text for token in ("点位", "设备")):
+            return "device"
+        if any(token in text for token in ("记录", "条")):
+            return "record"
+        if any(token in text for token in ("地区", "区县", "地方")):
+            return "region"
+        return "none"
 
     def _should_follow_up_detail(
         self,
@@ -440,6 +556,9 @@ class TurnRouteDecisionService:
         if any(marker in text for marker in CONTEXTUAL_FOLLOW_UP_MARKERS):
             return bool(has_explicit_scope or time_has_signal)
 
+        if time_has_signal and text.startswith(contextual_prefixes) and not has_explicit_scope:
+            return True
+
         if has_explicit_scope and time_has_signal and any(token in text for token in full_query_reset_tokens):
             return False
 
@@ -453,6 +572,34 @@ class TurnRouteDecisionService:
             return True
 
         return False
+
+    def _should_follow_up_count(
+        self,
+        *,
+        text: str,
+        current_context: dict[str, Any],
+        entities: dict[str, Any],
+        time_evidence: Any,
+        is_group_request: bool,
+        list_target: str | None,
+        is_compare_request: bool,
+    ) -> bool:
+        if current_context.get("topic_family") != "data":
+            return False
+        query_state = current_context.get("query_state") or {}
+        if str(query_state.get("capability") or "") != "count":
+            return False
+        if is_group_request or list_target or is_compare_request:
+            return False
+        if any(marker in text for marker in GLOBAL_SCOPE_RESET_MARKERS):
+            return False
+        if any(pattern.fullmatch(text) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+            return True
+        has_explicit_scope = any(entities.get(key) for key in ("province", "city", "county", "sn"))
+        time_has_signal = bool(getattr(time_evidence, "has_time_signal", False))
+        if has_explicit_scope:
+            return False
+        return bool(time_has_signal and text.startswith(("那", "那就", "换成", "改成", "还是")))
 
     def _should_return_safe_hint_before_summary(
         self,

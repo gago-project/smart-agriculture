@@ -59,6 +59,13 @@ class RuntimeAlignmentTest(unittest.TestCase):
                 f"Old service should be deleted: {path}",
             )
 
+    def test_data_answer_service_uses_shared_paginated_table_helper(self) -> None:
+        project_root = Path(__file__).resolve().parents[1]
+        content = (project_root / "app/services/data_answer_service.py").read_text(encoding="utf-8")
+
+        self.assertIn("def _build_paginated_table_block(", content)
+        self.assertGreaterEqual(content.count("self._build_paginated_table_block("), 4)
+
 
 if __name__ == "__main__":
     unittest.main()

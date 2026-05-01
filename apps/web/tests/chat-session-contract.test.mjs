@@ -67,11 +67,14 @@ test('chat session repository clamps list block page size to 10 for snapshot pag
 });
 
 test('chat session repository paginates group tables through the same snapshot block endpoint', () => {
+  assert.equal(existsSync(new URL('../lib/chatBlockContract.mjs', import.meta.url)), true);
   const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
+  const contractSource = readFileSync(new URL('../lib/chatBlockContract.mjs', import.meta.url), 'utf8');
 
-  assert.match(repositorySource, /if \(block\.block_type !== 'list_table' && block\.block_type !== 'group_table'\)/);
-  assert.match(repositorySource, /if \(block\?\.block_type === 'list_table' \|\| block\?\.block_type === 'group_table'\)/);
-  assert.match(repositorySource, /if \(matched\.block_type === 'list_table' \|\| matched\.block_type === 'group_table'\)/);
+  assert.match(contractSource, /PAGINATED_TABLE_BLOCK_TYPES/);
+  assert.match(contractSource, /group_table/);
+  assert.match(repositorySource, /from '\.\.\/chatBlockContract\.mjs'/);
+  assert.match(repositorySource, /isPaginatedTableBlock/);
 });
 
 test('chat session snapshot pagination avoids prepared execute for LIMIT/OFFSET', () => {

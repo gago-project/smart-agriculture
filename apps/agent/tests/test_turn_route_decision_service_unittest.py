@@ -128,6 +128,84 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.grain, "entity")
         self.assertEqual(result.query_shape.mode, "explicit_detail")
 
+    def test_device_with_time_and_zenmeyang_defaults_to_summary_instead_of_detail(self) -> None:
+        result = self.service.decide(
+            message="SNS00204333最近7天怎么样",
+            current_context={},
+            entities=_entities(sn="SNS00204333"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "summary")
+        self.assertEqual(result.query_shape.action, "summary")
+        self.assertEqual(result.query_shape.mode, "standalone")
+
+    def test_latest_record_phrase_routes_to_latest_record(self) -> None:
+        result = self.service.decide(
+            message="SNS00204333最新一条记录是什么",
+            current_context={},
+            entities=_entities(sn="SNS00204333"),
+            time_evidence=_time_window(),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "latest_record")
+        self.assertEqual(result.query_shape.action, "detail")
+        self.assertEqual(result.query_shape.mode, "standalone")
+
+    def test_count_query_routes_to_count_shape(self) -> None:
+        result = self.service.decide(
+            message="最近7天南通市涉及多少个点位",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "count")
+        self.assertEqual(result.query_shape.action, "count")
+        self.assertEqual(result.query_shape.grain, "device")
+
+    def test_field_query_routes_to_field_shape(self) -> None:
+        result = self.service.decide(
+            message="SNS00204333最近7天40厘米含水量平均是多少",
+            current_context={},
+            entities=_entities(sn="SNS00204333"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "field")
+        self.assertEqual(result.query_shape.action, "field")
+        self.assertEqual(result.query_shape.mode, "standalone")
+
+    def test_device_compare_query_with_two_sn_routes_to_compare(self) -> None:
+        result = self.service.decide(
+            message="SNS00204333和SNS00213807最近7天对比一下",
+            current_context={},
+            entities=_entities(sn="SNS00204333"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "compare")
+        self.assertEqual(result.query_shape.action, "compare")
+        self.assertEqual(result.query_shape.mode, "standalone")
+
+    def test_time_window_compare_query_routes_to_compare(self) -> None:
+        result = self.service.decide(
+            message="南通市最近7天和前7天对比一下",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "compare")
+        self.assertEqual(result.query_shape.action, "compare")
+        self.assertEqual(result.query_shape.mode, "standalone")
+
     def test_safe_hint_route_is_used_before_summary_when_signals_are_absent(self) -> None:
         result = self.service.decide(
             message="比你好",

@@ -8,7 +8,9 @@ import json
 import logging
 import re
 from collections import defaultdict
+from dataclasses import asdict
 from datetime import datetime, timedelta
+from types import SimpleNamespace
 from typing import Any
 
 from app.repositories.result_snapshot_repository import ResultSnapshotRepository
@@ -28,8 +30,10 @@ from app.services.parameter_resolver_service import (
     CONFIDENCE_LOW,
     ParameterResolverService,
 )
+from app.services.query_profile_resolver_service import QueryProfileResolverService
 from app.services.time_window_service import TimeWindowService
 from app.services.turn_route_decision_service import TurnRouteDecisionService
+from app.services.warning_predicate_service import WarningPredicateService
 
 
 SN_PATTERN = re.compile(r"SNS\d{8}", re.IGNORECASE)
@@ -142,6 +146,8 @@ class DataAnswerService:
         parameter_resolver: ParameterResolverService | None = None,
         follow_up_intent_resolver: FollowUpIntentResolverService | None = None,
         turn_route_decision_service: TurnRouteDecisionService | None = None,
+        query_profile_resolver: QueryProfileResolverService | None = None,
+        warning_predicate_service: WarningPredicateService | None = None,
     ) -> None:
         self.repository = repository or SoilRepository.from_env()
         self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
@@ -153,6 +159,8 @@ class DataAnswerService:
         self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
         self.follow_up_intent_resolver = follow_up_intent_resolver or FollowUpIntentResolverService()
         self.turn_route_decision_service = turn_route_decision_service or TurnRouteDecisionService()
+        self.query_profile_resolver = query_profile_resolver or QueryProfileResolverService()
+        self.warning_predicate_service = warning_predicate_service or WarningPredicateService()
 
     async def reply(
         self,
@@ -223,6 +231,12 @@ class DataAnswerService:
                 current_context=context,
                 guidance_reason="clarification",
             )
+        if route_decision.route == "count":
+            return await self._reply_count(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if route_decision.route == "field":
+            return await self._reply_field(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if route_decision.route == "latest_record":
+            return await self._reply_latest_record(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "explicit_detail":
             return await self._reply_detail(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "standalone_group":
@@ -686,10 +700,34 @@ class DataAnswerService:
                 mapping[key] = "inherited"
             else:
                 mapping[key] = "explicit" if operation == "standalone" else "inherited"
-        mapping["time"] = "inherited" if time_source == "history_inherited" else "explicit"
-        if operation == "correct_slot" and mapping.get("time") == "explicit" and time_source == "history_inherited":
-            mapping["time"] = "corrected"
+        if time_source:
+            mapping["time"] = "inherited" if time_source == "history_inherited" else "explicit"
+            if operation == "correct_slot" and mapping.get("time") == "explicit" and time_source == "history_inherited":
+                mapping["time"] = "corrected"
         return mapping
+
+    def _resolve_query_profile(
+        self,
+        *,
+        message: str,
+        route: str,
+        current_context: dict[str, Any],
+        slots: dict[str, Any],
+        time_window: dict[str, Any],
+        follow_up_mode: str,
+        list_target: str | None = None,
+        group_by: str | None = None,
+    ) -> dict[str, Any]:
+        route_stub = SimpleNamespace(route=route, list_target=list_target, group_by=group_by)
+        profile = self.query_profile_resolver.resolve(
+            message=message,
+            route_decision=route_stub,
+            current_context=current_context,
+            slots=slots,
+            time_window=time_window,
+            follow_up_mode=follow_up_mode,
+        )
+        return asdict(profile)
 
     def _build_query_state(
         self,
@@ -701,8 +739,9 @@ class DataAnswerService:
         time_window: dict[str, Any],
         slot_confidence: dict[str, str],
         slot_source: dict[str, str],
+        query_profile: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        return {
+        query_state = {
             "intent": capability,
             "capability": capability,
             "grain": grain,
@@ -713,6 +752,9 @@ class DataAnswerService:
             "source_turn_id": turn_id,
             "last_active_turn_id": turn_id,
         }
+        if query_profile is not None:
+            query_state["query_profile"] = query_profile
+        return query_state
 
     def _build_result_refs(self, *, turn_id: int, block: dict[str, Any]) -> list[dict[str, Any]]:
         block_type = block.get("block_type")
@@ -810,6 +852,37 @@ class DataAnswerService:
                     }
                 )
         return refs[:RESULT_REF_LIMIT]
+
+    @staticmethod
+    def _build_table_pagination(*, snapshot_id: str, total_count: int) -> dict[str, Any]:
+        return {
+            "snapshot_id": snapshot_id,
+            "page": 1,
+            "page_size": LIST_TABLE_PAGE_SIZE,
+            "total_count": total_count,
+            "total_pages": 0 if total_count <= 0 else ((total_count - 1) // LIST_TABLE_PAGE_SIZE) + 1,
+        }
+
+    def _build_paginated_table_block(
+        self,
+        *,
+        block_id: str,
+        block_type: str,
+        title: str,
+        columns: list[str],
+        rows: list[dict[str, Any]],
+        snapshot_id: str,
+        extra_fields: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        return {
+            "block_id": block_id,
+            "block_type": block_type,
+            "title": title,
+            **(extra_fields or {}),
+            "columns": columns,
+            "rows": rows[:LIST_TABLE_PAGE_SIZE],
+            "pagination": self._build_table_pagination(snapshot_id=snapshot_id, total_count=len(rows)),
+        }
 
     def _build_summary_action_targets(
         self,
@@ -1467,6 +1540,10 @@ class DataAnswerService:
         grain = str(target.get("grain") or "")
         return (capability, grain) in {
             ("summary", "aggregate"),
+            ("count", "aggregate"),
+            ("count", "device_list"),
+            ("count", "record_list"),
+            ("count", "region_group"),
             ("list", "device_list"),
             ("list", "record_list"),
             ("group", "region_group"),
@@ -1510,7 +1587,7 @@ class DataAnswerService:
             return "上一次查询上下文已经过期了，请重新说明地区、设备或时间范围。"
         return "这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。"
 
-    async def _resolve_filters(
+    async def _resolve_filters_with_policy(
         self,
         *,
         message: str,
@@ -1518,6 +1595,7 @@ class DataAnswerService:
         current_context: dict[str, Any],
         allow_inherit_entities: bool = True,
         turn_id: int,
+        require_time: bool = True,
     ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
         latest_business_time = await self._latest_business_time()
         entities = await self._extract_entities(message)
@@ -1581,37 +1659,55 @@ class DataAnswerService:
                 current_context=current_context,
                 target=latest_target,
             )
-            if follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"} and inherited_time_window is None:
+            if require_time and follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"} and inherited_time_window is None:
                 raise ValueError("这轮缺少可继承的时间范围，请直接补充具体时间段，例如最近7天或最近1个月。")
 
-        resolved = await self.parameter_resolver.resolve(
-            tool_name=tool_name,
-            raw_args=raw_args,
-            latest_business_time=latest_business_time,
-            user_input=message,
-            time_evidence=time_evidence,
-            inherited_time_window=inherited_time_window,
-        )
-        if resolved.should_clarify:
-            raise ValueError(resolved.clarify_message or "当前查询条件还不够明确，请补充后再试。")
+        resolved_args: dict[str, Any]
+        entity_confidence = CONFIDENCE_HIGH
+        time_confidence = ""
+        time_source = ""
+        if require_time or getattr(time_evidence, "has_time_signal", False) or inherited_time_window is not None:
+            resolved = await self.parameter_resolver.resolve(
+                tool_name=tool_name,
+                raw_args=raw_args,
+                latest_business_time=latest_business_time,
+                user_input=message,
+                time_evidence=time_evidence,
+                inherited_time_window=inherited_time_window,
+            )
+            if resolved.should_clarify:
+                raise ValueError(resolved.clarify_message or "当前查询条件还不够明确，请补充后再试。")
+            resolved_args = dict(resolved.resolved_args)
+            entity_confidence = resolved.entity_confidence
+            time_confidence = resolved.time_confidence
+            time_source = str(resolved.time_source or "")
+        else:
+            alias_index = await self.parameter_resolver._load_alias_index()
+            entity_resolution = await self.parameter_resolver._resolve_entities(raw_args, alias_index)
+            if entity_resolution.should_clarify:
+                raise ValueError(entity_resolution.clarify_message or "当前查询条件还不够明确，请补充后再试。")
+            resolved_args = dict(entity_resolution.resolved_args)
+            entity_confidence = entity_resolution.confidence
 
-        time_window = {
-            "start_time": resolved.resolved_args["start_time"],
-            "end_time": resolved.resolved_args["end_time"],
-            "source": resolved.time_source or "default_recent_7d",
-        }
+        time_window = {}
+        if resolved_args.get("start_time") and resolved_args.get("end_time"):
+            time_window = {
+                "start_time": resolved_args["start_time"],
+                "end_time": resolved_args["end_time"],
+                "source": time_source or "explicit",
+            }
         resolved_entities: list[dict[str, Any]] = []
-        if raw_args.get("province") and not resolved.resolved_args.get("city") and not resolved.resolved_args.get("county") and not resolved.resolved_args.get("sn"):
+        if raw_args.get("province") and not resolved_args.get("city") and not resolved_args.get("county") and not resolved_args.get("sn"):
             resolved_entities.append({"kind": "province", "canonical_name": raw_args["province"]})
-        if resolved.resolved_args.get("city"):
-            resolved_entities.append({"kind": "city", "canonical_name": resolved.resolved_args["city"]})
-        if resolved.resolved_args.get("county"):
-            if resolved.resolved_args.get("city") and not any(item["kind"] == "city" for item in resolved_entities):
-                resolved_entities.append({"kind": "city", "canonical_name": resolved.resolved_args["city"]})
-            resolved_entities.append({"kind": "county", "canonical_name": resolved.resolved_args["county"]})
-        if resolved.resolved_args.get("sn"):
-            resolved_entities.append({"kind": "device", "canonical_name": resolved.resolved_args["sn"]})
-        slots = self._slots_from_resolved_args({**resolved.resolved_args, "province": raw_args.get("province")})
+        if resolved_args.get("city"):
+            resolved_entities.append({"kind": "city", "canonical_name": resolved_args["city"]})
+        if resolved_args.get("county"):
+            if resolved_args.get("city") and not any(item["kind"] == "city" for item in resolved_entities):
+                resolved_entities.append({"kind": "city", "canonical_name": resolved_args["city"]})
+            resolved_entities.append({"kind": "county", "canonical_name": resolved_args["county"]})
+        if resolved_args.get("sn"):
+            resolved_entities.append({"kind": "device", "canonical_name": resolved_args["sn"]})
+        slots = self._slots_from_resolved_args({**resolved_args, "province": raw_args.get("province")})
         explicit_slots = {key for key in ("province", "city", "county", "sn") if key in raw_args and raw_args.get(key)}
         inherited_slots = {
             key for key in ("province", "city", "county", "sn")
@@ -1620,20 +1716,20 @@ class DataAnswerService:
         corrected_slots = set(explicit_slots) if follow_up.operation == "correct_slot" else set()
         context_meta = {
             "slots": slots,
-            "entity_confidence": resolved.entity_confidence,
-            "time_confidence": resolved.time_confidence,
+            "entity_confidence": entity_confidence,
+            "time_confidence": time_confidence,
             "slot_source": self._slot_source_map(
                 slots=slots,
                 explicit_slots=explicit_slots,
                 inherited_slots=inherited_slots,
                 corrected_slots=corrected_slots,
-                time_source=time_window["source"],
+                time_source=time_window.get("source", ""),
                 operation=follow_up.operation,
             ),
             "slot_confidence": self._slot_confidence_map(
                 slots=slots,
-                entity_confidence=resolved.entity_confidence,
-                time_confidence=resolved.time_confidence,
+                entity_confidence=entity_confidence,
+                time_confidence=time_confidence,
             ),
             "operation": follow_up.operation,
             "parent_target_key": (latest_target or {}).get("target_key"),
@@ -1650,7 +1746,25 @@ class DataAnswerService:
             follow_up.clarify_reason,
             context_meta["rejected_candidates"],
         )
-        return resolved.resolved_args, time_window, resolved_entities, context_meta
+        return resolved_args, time_window, resolved_entities, context_meta
+
+    async def _resolve_filters(
+        self,
+        *,
+        message: str,
+        tool_name: str,
+        current_context: dict[str, Any],
+        allow_inherit_entities: bool = True,
+        turn_id: int,
+    ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
+        return await self._resolve_filters_with_policy(
+            message=message,
+            tool_name=tool_name,
+            current_context=current_context,
+            allow_inherit_entities=allow_inherit_entities,
+            turn_id=turn_id,
+            require_time=True,
+        )
 
     @staticmethod
     def _query_filters_from_args(resolved_args: dict[str, Any]) -> dict[str, Any]:
@@ -1777,6 +1891,140 @@ class DataAnswerService:
             "region_count": len(region_keys),
             "avg_water20cm": round(sum(valid_water) / len(valid_water), 2) if valid_water else None,
             "latest_create_time": latest_create_time,
+        }
+
+    async def _warning_filtered_records(
+        self,
+        records: list[dict[str, Any]],
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        rule_row_getter = getattr(self.repository, "warning_rule_row_async", None)
+        rule_row = await rule_row_getter() if callable(rule_row_getter) else None
+        return self.warning_predicate_service.filter_records(records, rule_row), rule_row
+
+    @staticmethod
+    def _count_value(records: list[dict[str, Any]], measure: str | None) -> int:
+        if measure in {"device_count", "alert_device_count"}:
+            return len({str(record.get("sn") or "").strip() for record in records if str(record.get("sn") or "").strip()})
+        if measure in {"region_count", "alert_region_count"}:
+            return len(
+                {
+                    (str(record.get("city") or "").strip(), str(record.get("county") or "").strip())
+                    for record in records
+                    if str(record.get("city") or "").strip() or str(record.get("county") or "").strip()
+                }
+            )
+        return len(records)
+
+    @staticmethod
+    def _fieldstate_is_abnormal(value: Any) -> bool:
+        if value is None:
+            return False
+        normalized = str(value).strip()
+        return normalized not in {"1", "NORMAL", "normal", "正常"}
+
+    @staticmethod
+    def _group_metric_rows(
+        records: list[dict[str, Any]],
+        *,
+        group_by: str,
+        data_focus: str,
+        top_n: int | None = None,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str | None, str | None], dict[str, Any]] = {}
+        for record in records:
+            city = str(record.get("city") or "").strip() or None
+            county = str(record.get("county") or "").strip() or None
+            if group_by == "city":
+                key = (city, None)
+                payload = {"city": city}
+            else:
+                key = (city, county)
+                payload = {"city": city, "county": county}
+            if not any(key):
+                continue
+            bucket = grouped.setdefault(
+                key,
+                {
+                    **payload,
+                    "device_keys": set(),
+                    "record_count": 0,
+                    "latest_time": str(record.get("create_time") or ""),
+                },
+            )
+            sn = str(record.get("sn") or "").strip()
+            if sn:
+                bucket["device_keys"].add(sn)
+            bucket["record_count"] += 1
+            bucket["latest_time"] = max(bucket["latest_time"], str(record.get("create_time") or ""))
+
+        rows: list[dict[str, Any]] = []
+        for bucket in grouped.values():
+            row = {
+                "city": bucket.get("city"),
+                **({"county": bucket.get("county")} if group_by != "city" else {}),
+            }
+            if data_focus == "warning_only":
+                row.update(
+                    {
+                        "alert_device_count": len(bucket["device_keys"]),
+                        "alert_record_count": int(bucket["record_count"] or 0),
+                        "latest_alert_time": bucket.get("latest_time"),
+                    }
+                )
+            rows.append(row)
+
+        if data_focus == "warning_only":
+            rows.sort(
+                key=lambda item: (
+                    -int(item.get("alert_device_count") or 0),
+                    -int(item.get("alert_record_count") or 0),
+                    str(item.get("latest_alert_time") or ""),
+                    str(item.get("county") or ""),
+                    str(item.get("city") or ""),
+                ),
+                reverse=False,
+            )
+        else:
+            rows.sort(key=lambda item: (str(item.get("county") or ""), str(item.get("city") or "")))
+        return rows[:top_n] if top_n else rows
+
+    @staticmethod
+    def _group_preview_text(rows: list[dict[str, Any]], *, group_by: str, limit: int = 5) -> str:
+        preview: list[str] = []
+        for row in rows[:limit]:
+            if group_by == "city":
+                label = str(row.get("city") or "").strip()
+            else:
+                city = str(row.get("city") or "").strip()
+                county = str(row.get("county") or "").strip()
+                label = f"{city}{county}" if city or county else ""
+            if label:
+                preview.append(label)
+        return "、".join(preview)
+
+    @staticmethod
+    def _compare_metric_value(records: list[dict[str, Any]], metric: str | None) -> float | int | None:
+        if metric in {"device_count", "alert_device_count", "record_count", "alert_record_count", "region_count", "alert_region_count"}:
+            return DataAnswerService._count_value(records, metric)
+        if metric and metric.startswith("avg_"):
+            field_name = metric.removeprefix("avg_")
+            values = [_safe_float(record.get(field_name)) for record in records]
+            valid = [value for value in values if value is not None]
+            return round(sum(valid) / len(valid), 2) if valid else None
+        return None
+
+    @staticmethod
+    def _prior_time_window(time_window: dict[str, Any]) -> dict[str, str]:
+        start = datetime.strptime(str(time_window["start_time"]), "%Y-%m-%d %H:%M:%S")
+        end = datetime.strptime(str(time_window["end_time"]), "%Y-%m-%d %H:%M:%S")
+        day_span = max((end.date() - start.date()).days + 1, 1)
+        prior_end = start - timedelta(seconds=1)
+        prior_start = datetime(prior_end.year, prior_end.month, prior_end.day, 23, 59, 59) - timedelta(days=day_span - 1)
+        prior_start = datetime(prior_start.year, prior_start.month, prior_start.day, 0, 0, 0)
+        return {
+            "start_time": prior_start.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": datetime(prior_end.year, prior_end.month, prior_end.day, 23, 59, 59).strftime("%Y-%m-%d %H:%M:%S"),
+            "source": "time_compare_previous_window",
         }
 
     async def _create_focus_snapshot(
@@ -1935,7 +2183,17 @@ class DataAnswerService:
                 grain="aggregate",
                 clarify_text=str(exc),
             )
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="summary",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
         records = await self._query_records(resolved_args)
+        if query_profile.get("data_focus") == "warning_only":
+            records, _rule_row = await self._warning_filtered_records(records)
         if not records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -2016,6 +2274,7 @@ class DataAnswerService:
             time_window=time_window,
             slot_confidence=resolution_meta["slot_confidence"],
             slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -2059,6 +2318,532 @@ class DataAnswerService:
                     filters=query_spec["filters"],
                     executed_result=executed_result,
                     result_digest={"metrics": metrics},
+                )
+            ],
+        }
+
+    async def _reply_count(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_summary",
+                current_context=current_context,
+                turn_id=turn_id,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="count",
+                grain="aggregate",
+                clarify_text=str(exc),
+            )
+
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="count",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        records = await self._query_records(resolved_args)
+        if query_profile["data_focus"] == "warning_only":
+            records, _rule_row = await self._warning_filtered_records(records)
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="count",
+                text="当前条件下没有查到符合要求的数据，你可以换一个地区、设备或扩大时间范围再试。",
+                current_context=current_context,
+            )
+
+        device_rows = self._focus_device_rows(records)
+        record_rows = self._alert_record_rows(records)
+        metrics = self._summary_metrics(records, device_rows)
+        count_value = self._count_value(records, query_profile.get("measure"))
+        block_id = f"block_count_{turn_id}"
+        query_spec = self._build_query_spec(
+            capability="count",
+            grain=str(query_profile.get("result_grain") or "aggregate"),
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        device_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "device_list"},
+            rule_version=None,
+            rows=device_rows,
+        )
+        record_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "record_list"},
+            rule_version=None,
+            rows=record_rows,
+            snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "count_card",
+            "title": "数量统计",
+            "time_window": time_window,
+            "count": count_value,
+            "measure": query_profile.get("measure"),
+            "data_focus": query_profile.get("data_focus"),
+            "device_snapshot_id": device_snapshot["snapshot_id"],
+            "record_snapshot_id": record_snapshot["snapshot_id"],
+        }
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "device_snapshot_id": device_snapshot["snapshot_id"],
+                "record_snapshot_id": record_snapshot["snapshot_id"],
+                "region_group_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="count",
+            grain=str(query_profile.get("result_grain") or "aggregate"),
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=[],
+            action_targets=self._build_summary_action_targets(
+                turn_id=turn_id,
+                block={
+                    "metrics": metrics,
+                    "device_snapshot_id": device_snapshot["snapshot_id"],
+                    "record_snapshot_id": record_snapshot["snapshot_id"],
+                },
+            ),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        measure_label = {
+            "device_count": "点位",
+            "alert_device_count": "点位",
+            "record_count": "记录",
+            "alert_record_count": "预警记录",
+            "region_count": "地区",
+            "alert_region_count": "预警地区",
+        }.get(str(query_profile.get("measure") or ""), "结果")
+        final_text = (
+            f"{(self._entity_label(resolved_entities) or '当前查询范围')}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+            f"共有 {count_value}{'个' if '点位' in measure_label or '地区' in measure_label else '条'}{measure_label}。"
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "count",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [device_snapshot["snapshot_id"], record_snapshot["snapshot_id"]]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="count",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    row_count=len(records),
+                    snapshot_id=device_snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"count": count_value, "measure": query_profile.get("measure")},
+                    result_digest={"count": count_value},
+                )
+            ],
+        }
+
+    async def _reply_latest_record(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters_with_policy(
+                message=message,
+                tool_name="query_soil_latest_record",
+                current_context=current_context,
+                turn_id=turn_id,
+                require_time=False,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="detail",
+                grain="entity_detail",
+                clarify_text=str(exc),
+            )
+
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="latest_record",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        records = await self.repository.filter_records_async(
+            **self._query_filters_from_args(resolved_args),
+            limit=1,
+        )
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="detail",
+                text="当前条件下没有查到对应的最新记录，你可以换一个地区、设备或时间范围再试。",
+                current_context=current_context,
+            )
+
+        latest_record = self._raw_row(records[0])
+        block_id = f"block_latest_{turn_id}"
+        query_spec = self._build_query_spec(
+            capability="detail",
+            grain="entity_detail",
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "detail_card",
+            "display_mode": "evidence_only",
+            "title": self._entity_label(resolved_entities) or str(latest_record.get("sn") or "最新记录"),
+            "time_window": time_window,
+            "latest_record": latest_record,
+        }
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="detail",
+            grain="entity_detail",
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        scope = self._entity_label(resolved_entities) or "当前查询范围"
+        if time_window:
+            final_text = (
+                f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}范围内的最新一条记录时间为 "
+                f"{latest_record.get('create_time') or '暂无'}。"
+            )
+        else:
+            final_text = f"{scope}的最新一条记录时间为 {latest_record.get('create_time') or '暂无'}。"
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "detail",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="latest_record",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(
+                        **self._query_filters_from_args(resolved_args),
+                        limit=1,
+                    ),
+                    row_count=1,
+                    snapshot_id=None,
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={"latest_record": latest_record},
+                    result_digest={"latest_sn": latest_record.get("sn")},
+                )
+            ],
+        }
+
+    async def _reply_field(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        seed_profile = self._resolve_query_profile(
+            message=message,
+            route="field",
+            current_context=current_context,
+            slots=self._slots_from_context(current_context),
+            time_window=current_context.get("time_window") or {},
+            follow_up_mode="standalone",
+        )
+        field_mode = "latest_projection"
+        if seed_profile.get("aggregation"):
+            field_mode = "aggregate"
+        elif seed_profile.get("field"):
+            field_mode = "filtered_list"
+
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters_with_policy(
+                message=message,
+                tool_name="query_soil_field",
+                current_context=current_context,
+                turn_id=turn_id,
+                require_time=field_mode != "latest_projection",
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="field",
+                grain="entity_detail",
+                clarify_text=str(exc),
+            )
+
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="field",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        records = await self._query_records(resolved_args)
+        if not records:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="field",
+                text="当前条件下没有查到对应的数据字段结果，你可以换一个地区、设备或时间范围再试。",
+                current_context=current_context,
+            )
+
+        block_id = f"block_field_{turn_id}"
+        query_spec = self._build_query_spec(
+            capability="field",
+            grain=str(query_profile.get("result_grain") or "entity_detail"),
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+
+        if field_mode == "aggregate":
+            metric = str(query_profile.get("field") or "")
+            values = [_safe_float(record.get(metric)) for record in records]
+            valid = [value for value in values if value is not None]
+            if not valid:
+                return self._build_fallback_response(
+                    turn_id=turn_id,
+                    capability="field",
+                    text="当前条件下没有可用于聚合的数值字段结果。",
+                    current_context=current_context,
+                )
+            aggregation = str(query_profile.get("aggregation") or "avg")
+            if aggregation == "min":
+                value = min(valid)
+            elif aggregation == "max":
+                value = max(valid)
+            else:
+                value = round(sum(valid) / len(valid), 2)
+            block = {
+                "block_id": block_id,
+                "block_type": "field_card",
+                "title": "字段结果",
+                "field_mode": "aggregate",
+                "field": metric,
+                "aggregation": aggregation,
+                "value": value,
+                "time_window": time_window,
+            }
+            final_text = f"{self._entity_label(resolved_entities) or '当前查询范围'}{metric} 的{aggregation}结果为 {value}。"
+            query_log_result = {"field": metric, "aggregation": aggregation, "value": value}
+            action_targets: list[dict[str, Any]] = []
+            result_refs: list[dict[str, Any]] = []
+        elif field_mode == "filtered_list":
+            metric = str(query_profile.get("field") or "")
+            abnormal_rows: list[dict[str, Any]] = []
+            latest_by_sn: dict[str, dict[str, Any]] = {}
+            for record in records:
+                if not self._fieldstate_is_abnormal(record.get(metric)):
+                    continue
+                sn = str(record.get("sn") or "").strip()
+                if not sn or sn in latest_by_sn:
+                    continue
+                latest_by_sn[sn] = {
+                    "city": record.get("city"),
+                    "county": record.get("county"),
+                    "sn": record.get("sn"),
+                    "create_time": record.get("create_time"),
+                    metric: record.get(metric),
+                }
+            abnormal_rows = list(latest_by_sn.values())
+            abnormal_rows.sort(key=lambda item: str(item.get("create_time") or ""), reverse=True)
+            snapshot = await self._create_focus_snapshot(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                query_spec={**query_spec, "grain": "device_list"},
+                rule_version=None,
+                rows=abnormal_rows,
+                snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+            )
+            base_context["derived_sets"] = {"device_snapshot_id": snapshot["snapshot_id"]}
+            block = self._build_paginated_table_block(
+                block_id=block_id,
+                block_type="list_table",
+                title="字段异常点位",
+                columns=["city", "county", "sn", "create_time", metric],
+                rows=abnormal_rows,
+                snapshot_id=snapshot["snapshot_id"],
+            )
+            final_text = f"当前条件下共有 {len(abnormal_rows)} 个点位的 {metric} 不正常。"
+            query_log_result = {"rows": block["rows"], "field": metric, "total_count": len(abnormal_rows)}
+            action_targets = self._build_list_action_targets(
+                turn_id=turn_id,
+                snapshot_id=snapshot["snapshot_id"],
+                snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                rows=abnormal_rows,
+            )
+            result_refs = self._build_result_refs(turn_id=turn_id, block=block)
+        else:
+            latest_record = records[0]
+            fields = list(query_profile.get("fields") or [])
+            values = {field: latest_record.get(field) for field in fields}
+            block = {
+                "block_id": block_id,
+                "block_type": "field_card",
+                "title": "字段结果",
+                "field_mode": "latest_projection",
+                "fields": fields,
+                "values": values,
+                "time_window": time_window,
+            }
+            joined_values = "，".join(f"{field}={values.get(field)}" for field in fields)
+            final_text = f"{self._entity_label(resolved_entities) or '当前对象'}的最新字段结果：{joined_values}。"
+            query_log_result = {"fields": fields, "values": values}
+            action_targets = []
+            result_refs = []
+
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="field",
+            grain=str(query_profile.get("result_grain") or "entity_detail"),
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=result_refs,
+            action_targets=action_targets,
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "field",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [turn_context.get("derived_sets", {}).get("device_snapshot_id")] if turn_context.get("derived_sets", {}).get("device_snapshot_id") else []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="field",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    row_count=len(records),
+                    snapshot_id=turn_context.get("derived_sets", {}).get("device_snapshot_id"),
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result=query_log_result,
+                    result_digest=query_log_result,
                 )
             ],
         }
@@ -2158,21 +2943,14 @@ class DataAnswerService:
                 source_snapshot_id=next_snapshot_id,
                 rows=rows,
             )
-        page_rows = rows[:LIST_TABLE_PAGE_SIZE]
-        block = {
-            "block_id": block_id,
-            "block_type": "list_table",
-            "title": snapshot_config["title"],
-            "columns": snapshot_config["columns"],
-            "rows": page_rows,
-            "pagination": {
-                "snapshot_id": next_snapshot_id,
-                "page": 1,
-                "page_size": LIST_TABLE_PAGE_SIZE,
-                "total_count": len(rows),
-                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
-            },
-        }
+        block = self._build_paginated_table_block(
+            block_id=block_id,
+            block_type="list_table",
+            title=snapshot_config["title"],
+            columns=snapshot_config["columns"],
+            rows=rows,
+            snapshot_id=next_snapshot_id,
+        )
         resolved_entities = self._merge_context_entities(current_context, filter_entities)
         derived_sets = {
             **(current_context.get("derived_sets") or {}),
@@ -2211,6 +2989,15 @@ class DataAnswerService:
             time_source=current_context.get("time_window", {}).get("source") or "",
             operation="subset" if follow_up_mode == "subset" else "inherit",
         )
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="follow_up_list",
+            current_context=current_context,
+            slots=slots,
+            time_window=current_context.get("time_window") or {},
+            follow_up_mode=follow_up_mode,
+            list_target=list_target,
+        )
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="list",
@@ -2219,6 +3006,7 @@ class DataAnswerService:
             time_window=current_context.get("time_window") or {},
             slot_confidence=slot_confidence,
             slot_source=slot_source,
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -2270,7 +3058,7 @@ class DataAnswerService:
                     snapshot_id=next_snapshot_id,
                     time_window=current_context.get("time_window") or {},
                     filters=query_spec["filters"],
-                    executed_result={"rows": page_rows, "total_count": len(rows)},
+                    executed_result={"rows": block["rows"], "total_count": len(rows)},
                     result_digest={"total_count": len(rows)},
                 )
             ],
@@ -2303,7 +3091,18 @@ class DataAnswerService:
                 clarify_text=str(exc),
             )
 
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="standalone_list",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            list_target=list_target,
+        )
         records = await self._query_records(resolved_args)
+        if query_profile.get("data_focus") == "warning_only":
+            records, _rule_row = await self._warning_filtered_records(records)
         if not records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -2343,20 +3142,14 @@ class DataAnswerService:
                 source_snapshot_id=snapshot["snapshot_id"],
                 rows=rows,
             )
-        block = {
-            "block_id": block_id,
-            "block_type": "list_table",
-            "title": snapshot_config["title"],
-            "columns": snapshot_config["columns"],
-            "rows": rows[:LIST_TABLE_PAGE_SIZE],
-            "pagination": {
-                "snapshot_id": snapshot["snapshot_id"],
-                "page": 1,
-                "page_size": LIST_TABLE_PAGE_SIZE,
-                "total_count": len(rows),
-                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
-            },
-        }
+        block = self._build_paginated_table_block(
+            block_id=block_id,
+            block_type="list_table",
+            title=snapshot_config["title"],
+            columns=snapshot_config["columns"],
+            rows=rows,
+            snapshot_id=snapshot["snapshot_id"],
+        )
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -2379,6 +3172,7 @@ class DataAnswerService:
             time_window=time_window,
             slot_confidence=resolution_meta["slot_confidence"],
             slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -2432,7 +3226,7 @@ class DataAnswerService:
                     snapshot_id=snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": rows[:LIST_TABLE_PAGE_SIZE], "total_count": len(rows)},
+                    executed_result={"rows": block["rows"], "total_count": len(rows)},
                     result_digest={"total_count": len(rows)},
                 )
             ],
@@ -2485,10 +3279,16 @@ class DataAnswerService:
             )
 
         group_by = resolved_group_by or self._resolve_group_by(message)
-        rows = self._group_rows(
-            [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []],
-            group_by=group_by,
-        )
+        prior_query_profile = ((current_context.get("query_state") or {}).get("query_profile") or {})
+        if snapshot_id == current_context.get("derived_sets", {}).get("region_group_snapshot_id"):
+            inherited_group_by = str(prior_query_profile.get("group_by") or "")
+            if inherited_group_by:
+                group_by = inherited_group_by
+        raw_snapshot_rows = [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []]
+        if snapshot_id == current_context.get("derived_sets", {}).get("region_group_snapshot_id"):
+            rows = raw_snapshot_rows
+        else:
+            rows = self._group_rows(raw_snapshot_rows, group_by=group_by)
         block_id = f"block_group_{turn_id}"
         query_spec = {
             **(current_context.get("primary_query_spec") or {}),
@@ -2503,21 +3303,15 @@ class DataAnswerService:
                 "follow_up_mode": "subset",
             },
         }
-        block = {
-            "block_id": block_id,
-            "block_type": "group_table",
-            "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
-            "group_by": group_by,
-            "columns": REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
-            "rows": rows[:LIST_TABLE_PAGE_SIZE],
-            "pagination": {
-                "snapshot_id": snapshot_id,
-                "page": 1,
-                "page_size": LIST_TABLE_PAGE_SIZE,
-                "total_count": len(rows),
-                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
-            },
-        }
+        block = self._build_paginated_table_block(
+            block_id=block_id,
+            block_type="group_table",
+            title="地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
+            columns=REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
+            rows=rows,
+            snapshot_id=snapshot_id,
+            extra_fields={"group_by": group_by},
+        )
         base_context = {
             **current_context,
             "active_topic_turn_id": turn_id,
@@ -2528,6 +3322,15 @@ class DataAnswerService:
         slots = self._slots_from_context(current_context)
         slot_confidence = dict((current_context.get("query_state") or {}).get("slot_confidence") or {})
         slot_source = dict((current_context.get("query_state") or {}).get("slot_source") or {})
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="follow_up_group",
+            current_context=current_context,
+            slots=slots,
+            time_window=current_context.get("time_window") or {},
+            follow_up_mode="inherit",
+            group_by=group_by,
+        )
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="group",
@@ -2547,6 +3350,7 @@ class DataAnswerService:
                 time_source=current_context.get("time_window", {}).get("source") or "",
                 operation="inherit",
             ),
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -2557,11 +3361,15 @@ class DataAnswerService:
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
             action_targets=[],
         )
+        preview = self._group_preview_text(rows, group_by=group_by)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "group",
-            "final_text": f"已按{self._group_label(group_by)}完成汇总，共 {len(rows)} 组。",
+            "final_text": (
+                f"已按{self._group_label(group_by)}完成汇总，共 {len(rows)} 组。"
+                f"{f' 当前可见：{preview}。' if preview else ''}"
+            ),
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
@@ -2625,10 +3433,36 @@ class DataAnswerService:
             )
 
         group_by = resolved_group_by or self._resolve_group_by(message)
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="standalone_group",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            group_by=group_by,
+        )
+        if query_profile.get("data_focus") == "warning_only":
+            records, _rule_row = await self._warning_filtered_records(records)
+            if not records:
+                return self._build_fallback_response(
+                    turn_id=turn_id,
+                    capability="group",
+                    text="当前时间范围内没有命中预警规则的地区数据。",
+                    current_context=current_context,
+                )
         block_id = f"block_group_{turn_id}"
         device_rows = self._focus_device_rows(records)
         record_rows = self._alert_record_rows(records)
-        rows = self._group_rows(record_rows, group_by=group_by)
+        if query_profile.get("data_focus") == "warning_only" or query_profile.get("top_n"):
+            rows = self._group_metric_rows(
+                records,
+                group_by=group_by,
+                data_focus=str(query_profile.get("data_focus") or "all_records"),
+                top_n=query_profile.get("top_n"),
+            )
+        else:
+            rows = self._group_rows(record_rows, group_by=group_by)
         query_spec = self._build_query_spec(
             capability="group",
             grain="region_group" if group_by in {"county", "region"} else "aggregate",
@@ -2663,21 +3497,22 @@ class DataAnswerService:
             rows=rows,
             snapshot_kind=GROUP_TARGET_REGION,
         )
-        block = {
-            "block_id": block_id,
-            "block_type": "group_table",
-            "title": "地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
-            "group_by": group_by,
-            "columns": REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS,
-            "rows": rows[:LIST_TABLE_PAGE_SIZE],
-            "pagination": {
-                "snapshot_id": group_snapshot["snapshot_id"],
-                "page": 1,
-                "page_size": LIST_TABLE_PAGE_SIZE,
-                "total_count": len(rows),
-                "total_pages": 0 if not rows else ((len(rows) - 1) // LIST_TABLE_PAGE_SIZE) + 1,
-            },
-        }
+        block = self._build_paginated_table_block(
+            block_id=block_id,
+            block_type="group_table",
+            title="地区汇总" if group_by == "region" else f"{self._group_label(group_by)}汇总",
+            columns=(
+                (
+                    (REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS)
+                    + ["alert_device_count", "alert_record_count", "latest_alert_time"]
+                )
+                if query_profile.get("data_focus") == "warning_only"
+                else (REGION_GROUP_COLUMNS if group_by in {"region", "county"} else CITY_GROUP_COLUMNS)
+            ),
+            rows=rows,
+            snapshot_id=group_snapshot["snapshot_id"],
+            extra_fields={"group_by": group_by},
+        )
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -2701,6 +3536,7 @@ class DataAnswerService:
             time_window=time_window,
             slot_confidence=resolution_meta["slot_confidence"],
             slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -2713,6 +3549,7 @@ class DataAnswerService:
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
         label = self._entity_label(resolved_entities) or "当前查询范围"
+        preview = self._group_preview_text(rows, group_by=group_by)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -2720,6 +3557,7 @@ class DataAnswerService:
             "final_text": (
                 f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
                 f"已按{self._group_label(group_by)}汇总，共 {len(rows)} 组。"
+                f"{f' 当前可见：{preview}。' if preview else ''}"
             ),
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
@@ -2880,6 +3718,14 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="detail",
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+        )
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="detail",
@@ -2888,6 +3734,7 @@ class DataAnswerService:
             time_window=time_window,
             slot_confidence=resolution_meta["slot_confidence"],
             slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -2945,54 +3792,144 @@ class DataAnswerService:
         latest_business_time = await self._latest_business_time()
         time_evidence = self.time_window_service.resolve(message, latest_business_time)
         base_resolved = await self.parameter_resolver.resolve(
-            tool_name="query_soil_summary",
+            tool_name="query_soil_compare",
             raw_args={},
             latest_business_time=latest_business_time,
             user_input=message,
             time_evidence=time_evidence,
             inherited_time_window=(current_context.get("time_window") or None) if current_context.get("topic_family") == "data" else None,
         )
+        if base_resolved.should_clarify:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=base_resolved.clarify_message or "请先补充明确的对比时间范围。",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
         time_window = {
             "start_time": base_resolved.resolved_args["start_time"],
             "end_time": base_resolved.resolved_args["end_time"],
-            "source": base_resolved.time_source or "default_recent_7d",
+            "source": base_resolved.time_source or "explicit",
         }
         entities = await self._extract_entities(message)
-        names = []
+        names: list[str] = []
         for item in entities["resolved"]:
             canonical_name = item["canonical_name"]
             if canonical_name not in names:
                 names.append(canonical_name)
-        if len(names) < 2:
-            return self._build_guidance_response(
-                turn_id=turn_id,
-                text="对比查询至少需要两个地区或设备，例如：南通和盐城最近哪边更差。",
-                current_context=current_context,
-                guidance_reason="clarification",
-            )
+        context_slots = self._slots_from_context(current_context)
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="compare",
+            current_context=current_context,
+            slots=context_slots,
+            time_window=time_window,
+            follow_up_mode="standalone",
+        )
+        compare_mode = str(query_profile.get("compare_mode") or "entity_compare")
+        compared: list[dict[str, Any]] = []
+        winner: str | None = None
+        left_value: float | int | None = None
+        right_value: float | int | None = None
+        resolved_entities: list[dict[str, Any]] = []
 
-        compared = []
-        for name in names[:2]:
-            filters = {
-                "city": name if name.endswith("市") else None,
-                "county": name if name.endswith(("县", "区")) else None,
-                "sn": name if name.startswith("SNS") else None,
-                "start_time": time_window["start_time"],
-                "end_time": time_window["end_time"],
-            }
-            records = await self.repository.filter_records_async(**filters)
-            focus_rows = self._focus_device_rows(records)
-            metrics = self._summary_metrics(records, focus_rows)
-            compared.append(
-                {
-                    "entity": name,
-                    "record_count": metrics["record_count"],
-                    "device_count": metrics["device_count"],
-                    "region_count": metrics["region_count"],
-                    "avg_water20cm": metrics["avg_water20cm"],
-                    "latest_create_time": metrics["latest_create_time"],
-                }
+        if compare_mode == "time_compare":
+            entity_name = names[0] if names else (context_slots.get("sn") or context_slots.get("county") or context_slots.get("city"))
+            if not entity_name:
+                return self._build_guidance_response(
+                    turn_id=turn_id,
+                    text="时间对比还缺少明确对象，请直接告诉我地区或设备，例如：南通市最近7天和前7天对比一下。",
+                    current_context=current_context,
+                    guidance_reason="clarification",
+                )
+            resolved_entities = (
+                [{"kind": "device", "canonical_name": entity_name}]
+                if str(entity_name).startswith("SNS")
+                else [{"kind": "city", "canonical_name": entity_name}] if str(entity_name).endswith("市")
+                else [{"kind": "county", "canonical_name": entity_name}]
             )
+            prior_window = self._prior_time_window(time_window)
+            window_pairs = [
+                ("当前时间窗", time_window),
+                ("前一时间窗", prior_window),
+            ]
+            for label, current_window in window_pairs:
+                filters = {
+                    "city": entity_name if str(entity_name).endswith("市") else None,
+                    "county": entity_name if str(entity_name).endswith(("县", "区")) else None,
+                    "sn": entity_name if str(entity_name).startswith("SNS") else None,
+                    "start_time": current_window["start_time"],
+                    "end_time": current_window["end_time"],
+                }
+                records = await self.repository.filter_records_async(**filters)
+                if query_profile.get("data_focus") == "warning_only":
+                    records, _rule_row = await self._warning_filtered_records(records)
+                focus_rows = self._focus_device_rows(records)
+                metrics = self._summary_metrics(records, focus_rows)
+                metric_value = self._compare_metric_value(records, query_profile.get("measure"))
+                compared.append(
+                    {
+                        "entity": label,
+                        "record_count": metrics["record_count"],
+                        "device_count": metrics["device_count"],
+                        "region_count": metrics["region_count"],
+                        "avg_water20cm": metrics["avg_water20cm"],
+                        "latest_create_time": metrics["latest_create_time"],
+                        "metric_value": metric_value,
+                        "window": current_window,
+                    }
+                )
+            if len(compared) == 2:
+                left_value = compared[0].get("metric_value")
+                right_value = compared[1].get("metric_value")
+        else:
+            if len(names) < 2:
+                return self._build_guidance_response(
+                    turn_id=turn_id,
+                    text="对比查询至少需要两个地区或设备，例如：南通和盐城最近哪边更差。",
+                    current_context=current_context,
+                    guidance_reason="clarification",
+                )
+            names = names[:2]
+            for name in names:
+                filters = {
+                    "city": name if name.endswith("市") else None,
+                    "county": name if name.endswith(("县", "区")) else None,
+                    "sn": name if name.startswith("SNS") else None,
+                    "start_time": time_window["start_time"],
+                    "end_time": time_window["end_time"],
+                }
+                records = await self.repository.filter_records_async(**filters)
+                if query_profile.get("data_focus") == "warning_only":
+                    records, _rule_row = await self._warning_filtered_records(records)
+                focus_rows = self._focus_device_rows(records)
+                metrics = self._summary_metrics(records, focus_rows)
+                metric_value = self._compare_metric_value(records, query_profile.get("measure"))
+                compared.append(
+                    {
+                        "entity": name,
+                        "record_count": metrics["record_count"],
+                        "device_count": metrics["device_count"],
+                        "region_count": metrics["region_count"],
+                        "avg_water20cm": metrics["avg_water20cm"],
+                        "latest_create_time": metrics["latest_create_time"],
+                        "metric_value": metric_value,
+                    }
+                )
+            resolved_entities = [
+                {"kind": "device", "canonical_name": name} if name.startswith("SNS")
+                else {"kind": "city", "canonical_name": name} if name.endswith("市")
+                else {"kind": "county", "canonical_name": name}
+                for name in names
+            ]
+            if len(compared) == 2:
+                left_value = compared[0].get("metric_value")
+                right_value = compared[1].get("metric_value")
+                if query_profile.get("measure") and left_value is not None and right_value is not None:
+                    if left_value > right_value:
+                        winner = compared[0]["entity"]
+                    elif right_value > left_value:
+                        winner = compared[1]["entity"]
         block_id = f"block_compare_{turn_id}"
         query_spec = {
             "spec_id": f"qs_{turn_id}_compare",
@@ -3000,7 +3937,11 @@ class DataAnswerService:
             "capability": "compare",
             "grain": "entity_compare",
             "time_window": time_window,
-            "entities": {"city": names, "county": [], "sn": []},
+            "entities": {
+                "city": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "city"],
+                "county": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "county"],
+                "sn": [item["canonical_name"] for item in resolved_entities if item.get("kind") == "device"],
+            },
             "filters": {"source_snapshot_id": None},
             "sort": {"field": "entity", "direction": "asc"},
             "page": {"page": 1, "page_size": 50},
@@ -3012,6 +3953,11 @@ class DataAnswerService:
             "display_mode": "evidence_only",
             "title": "对比结果",
             "time_window": time_window,
+            "metric": query_profile.get("measure"),
+            "compare_mode": compare_mode,
+            "winner": winner,
+            "left_value": left_value,
+            "right_value": right_value,
             "rows": compared,
         }
         base_context = {
@@ -3020,12 +3966,25 @@ class DataAnswerService:
             "primary_block_id": block_id,
             "primary_query_spec": query_spec,
             "time_window": time_window,
-            "resolved_entities": [{"kind": "city", "canonical_name": name} for name in names[:2]],
+            "resolved_entities": resolved_entities,
             "derived_sets": {},
-            "compare_winner_entity": None,
+            "compare_winner_entity": winner,
             "closed": False,
         }
-        slots = {"province": None, "city": None, "county": None, "sn": None}
+        slots = {
+            "province": None,
+            "city": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "city"), None),
+            "county": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "county"), None),
+            "sn": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "device"), None),
+        }
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route="compare",
+            current_context=current_context,
+            slots=slots,
+            time_window=time_window,
+            follow_up_mode="standalone",
+        )
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="compare",
@@ -3045,6 +4004,7 @@ class DataAnswerService:
                 time_source=time_window["source"],
                 operation="standalone",
             ),
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -3055,11 +4015,23 @@ class DataAnswerService:
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
             action_targets=[],
         )
+        if compare_mode == "time_compare":
+            final_text = (
+                f"已按 {resolved_entities[0]['canonical_name']} 的两个相邻时间窗完成对比。"
+                if resolved_entities
+                else "已完成时间窗对比。"
+            )
+        elif query_profile.get("measure") and winner and left_value is not None and right_value is not None:
+            unit = "%" if str(query_profile.get("measure") or "").startswith("avg_") else ""
+            final_text = f"{winner} 更高，分别为 {left_value}{unit} 和 {right_value}{unit}。"
+        else:
+            entity_names = " 和 ".join(item["canonical_name"] for item in resolved_entities[:2]) or "两个对象"
+            final_text = f"已按相同时间范围整理 {entity_names} 的对比结果。"
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "compare",
-            "final_text": f"已按相同时间范围整理 {names[0]} 和 {names[1]} 的原始统计对比，可继续查看其中一个对象的详情。",
+            "final_text": final_text,
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
@@ -3075,19 +4047,20 @@ class DataAnswerService:
                     query_spec=query_spec,
                     executed_sql_text=";\n\n".join(
                         self.repository.build_filter_records_audit_sql(
-                            city=name if name.endswith("市") else None,
-                            county=name if name.endswith(("县", "区")) else None,
+                            city=(item.get("canonical_name") if item.get("kind") == "city" else None),
+                            county=(item.get("canonical_name") if item.get("kind") == "county" else None),
+                            sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
                             start_time=time_window["start_time"],
                             end_time=time_window["end_time"],
                         )
-                        for name in names[:2]
+                        for item in resolved_entities[:2]
                     ),
                     row_count=sum(int(item["record_count"]) for item in compared),
                     snapshot_id=None,
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": compared},
-                    result_digest={"entities": names[:2]},
+                    executed_result={"rows": compared, "metric": query_profile.get("measure"), "winner": winner},
+                    result_digest={"entities": [item["canonical_name"] for item in resolved_entities[:2]]},
                 )
             ],
         }

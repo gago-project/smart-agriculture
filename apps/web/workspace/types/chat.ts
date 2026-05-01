@@ -1,7 +1,7 @@
 export type ChatMode = 'business' | 'guidance' | 'fallback' | 'unknown';
 export type MessageRole = 'user' | 'assistant';
 export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
-export type ChatCapability = 'summary' | 'list' | 'group' | 'detail' | 'compare' | 'rule' | 'template' | 'none';
+export type ChatCapability = 'summary' | 'list' | 'group' | 'detail' | 'compare' | 'count' | 'field' | 'rule' | 'template' | 'none';
 
 export interface ChatTopic {
   topic_family?: 'data' | 'rule' | 'template' | string | null;
@@ -26,8 +26,10 @@ export interface ChatBlock {
   block_id: string;
   block_type:
     | 'summary_card'
+    | 'count_card'
     | 'list_table'
     | 'group_table'
+    | 'field_card'
     | 'detail_card'
     | 'compare_card'
     | 'rule_card'

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 
+import { isPaginatedTableBlockType, paginatedTableTotalUnit } from '../../lib/chatBlockContract.mjs';
 import { fetchChatBlock } from '../services/chatApi';
 import type { ChatBlock, ChatTurnView } from '../types/chat';
 
@@ -58,7 +59,7 @@ function BlockTable({
   );
 }
 
-function ListBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
+function PaginatedTableBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
   const [viewBlock, setViewBlock] = useState(block);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -72,7 +73,7 @@ function ListBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
   const pagination = viewBlock.pagination;
   const page = typeof pagination?.page === 'number' ? pagination.page : 1;
   const totalPages = typeof pagination?.total_pages === 'number' ? pagination.total_pages : 0;
-  const totalUnit = viewBlock.block_type === 'group_table' ? '组' : '条';
+  const totalUnit = paginatedTableTotalUnit(viewBlock.block_type);
 
   async function changePage(nextPage: number) {
     if (!turn.session_id || !turn.turn_id || !viewBlock.block_id || nextPage === page || loading) {
@@ -135,6 +136,21 @@ function SummaryBlock({ block }: { block: ChatBlock }) {
   );
 }
 
+function CountBlock({ block }: { block: ChatBlock }) {
+  return (
+    <section className="turn-block">
+      <header className="turn-block-header">
+        <strong>{block.title || '数量统计'}</strong>
+        <span>{timeWindowLabel(block.time_window)}</span>
+      </header>
+      <div className="turn-block-empty">
+        {toLabelValue(block.count)}
+        {typeof block.measure === 'string' ? ` (${block.measure})` : ''}
+      </div>
+    </section>
+  );
+}
+
 function DetailBlock({ block }: { block: ChatBlock }) {
   const latestRecord =
     block.latest_record && typeof block.latest_record === 'object' && !Array.isArray(block.latest_record)
@@ -153,6 +169,38 @@ function DetailBlock({ block }: { block: ChatBlock }) {
       )}
     </section>
   );
+}
+
+function FieldBlock({ block }: { block: ChatBlock }) {
+  const values =
+    block.values && typeof block.values === 'object' && !Array.isArray(block.values)
+      ? (block.values as Record<string, unknown>)
+      : null;
+  if (block.field_mode === 'aggregate') {
+    return (
+      <section className="turn-block">
+        <header className="turn-block-header">
+          <strong>{block.title || '字段结果'}</strong>
+          <span>{timeWindowLabel(block.time_window)}</span>
+        </header>
+        <div className="turn-block-empty">
+          {toLabelValue(block.field)} {toLabelValue(block.aggregation)} = {toLabelValue(block.value)}
+        </div>
+      </section>
+    );
+  }
+  if (values) {
+    return (
+      <section className="turn-block">
+        <header className="turn-block-header">
+          <strong>{block.title || '字段结果'}</strong>
+          <span>{timeWindowLabel(block.time_window)}</span>
+        </header>
+        <BlockTable columns={Object.keys(values)} rows={[values]} />
+      </section>
+    );
+  }
+  return <SimpleTextBlock block={block} />;
 }
 
 function CompareBlock({ block }: { block: ChatBlock }) {
@@ -217,11 +265,14 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
         if (block.block_type === 'summary_card') {
           return <SummaryBlock key={block.block_id} block={block} />;
         }
-        if (block.block_type === 'list_table') {
-          return <ListBlock key={block.block_id} turn={turn} block={block} />;
+        if (block.block_type === 'count_card') {
+          return <CountBlock key={block.block_id} block={block} />;
         }
-        if (block.block_type === 'group_table') {
-          return <ListBlock key={block.block_id} turn={turn} block={block} />;
+        if (isPaginatedTableBlockType(block.block_type)) {
+          return <PaginatedTableBlock key={block.block_id} turn={turn} block={block} />;
+        }
+        if (block.block_type === 'field_card') {
+          return <FieldBlock key={block.block_id} block={block} />;
         }
         if (block.block_type === 'detail_card') {
           return <DetailBlock key={block.block_id} block={block} />;

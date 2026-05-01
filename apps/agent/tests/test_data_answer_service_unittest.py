@@ -190,6 +190,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail["capability"], "detail")
         self.assertEqual(detail["blocks"][0]["block_type"], "detail_card")
         self.assertEqual(detail["blocks"][0]["display_mode"], "evidence_only")
+        self.assertEqual(detail["turn_context"]["query_state"]["query_profile"]["answer_mode"], "detail")
         latest_record = detail["blocks"][0]["latest_record"]
         for banned_key in ("risk_score", "display_label", "soil_status", "warning_level"):
             self.assertNotIn(banned_key, latest_record)
@@ -452,8 +453,22 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("点位", listing["blocks"][0]["title"])
         self.assertEqual(listing["turn_context"]["time_window"]["start_time"], "2026-03-20 00:00:00")
         self.assertEqual(listing["turn_context"]["time_window"]["end_time"], "2026-03-20 23:59:59")
+        self.assertEqual(listing["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertGreater(len(listing["blocks"][0]["rows"]), 0)
         self.assertTrue(all(str(row.get("create_time") or "").startswith("2026-03-20") for row in listing["blocks"][0]["rows"]))
+        from app.services.warning_predicate_service import WarningPredicateService
+
+        warning_rows = WarningPredicateService().filter_records(
+            self.repository.filter_records(
+                start_time="2026-03-20 00:00:00",
+                end_time="2026-03-20 23:59:59",
+            ),
+            self.repository.warning_rule_row(),
+        )
+        expected_devices = {str(row.get("sn") or "") for row in warning_rows if str(row.get("sn") or "")}
+        returned_devices = {str(row.get("sn") or "") for row in listing["blocks"][0]["rows"] if str(row.get("sn") or "")}
+        self.assertEqual(listing["blocks"][0]["pagination"]["total_count"], len(expected_devices))
+        self.assertTrue(returned_devices.issubset(expected_devices))
 
     async def test_explicit_warning_device_query_is_not_captured_by_previous_follow_up_context(self) -> None:
         summary = await self.service.reply(
@@ -537,7 +552,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["turn_context"]["time_window"]["start_time"], "2026-04-13 00:00:00")
         self.assertEqual(grouped["turn_context"]["time_window"]["end_time"], "2026-04-13 23:59:59")
 
-    async def test_unsupported_derived_ranking_query_returns_guidance_instead_of_follow_up_prompt(self) -> None:
+    async def test_warning_ranking_query_returns_group_result_instead_of_guidance(self) -> None:
         reply = await self.service.reply(
             message="最近30天，哪些地区墒情异常最多？",
             session_id="unsupported-derived-ranking",
@@ -546,12 +561,12 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             timezone="Asia/Shanghai",
         )
 
-        self.assertEqual(reply["answer_kind"], "guidance")
-        self.assertEqual(reply["capability"], "none")
-        self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
-        self.assertIn("不支持", reply["final_text"])
-        self.assertIn("按地区汇总", reply["final_text"])
-        self.assertNotIn("请先查询一轮墒情数据", reply["final_text"])
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "group")
+        self.assertEqual(reply["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(reply["blocks"][0]["group_by"], "region")
+        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertIn("徐州市睢宁县", reply["final_text"])
 
     async def test_summary_follow_up_supports_alert_record_alias_expand(self) -> None:
         summary = await self.service.reply(
@@ -944,8 +959,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(follow_up["answer_kind"], "business")
-        self.assertEqual(follow_up["capability"], "detail")
-        self.assertEqual(follow_up["blocks"][0]["block_type"], "detail_card")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertEqual(follow_up["blocks"][0]["block_type"], "summary_card")
         self.assertIn("SNS00204333", follow_up["final_text"])
 
     async def test_detail_explicit_new_region_follow_up_keeps_detail_capability(self) -> None:

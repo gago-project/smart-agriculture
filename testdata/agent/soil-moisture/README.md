@@ -10,6 +10,7 @@
 
 - `apps/agent/tests/test_turn_route_decision_service_unittest.py`
 - `apps/agent/tests/test_turn_route_query_shape_matrix_unittest.py`
+- `apps/agent/tests/test_query_profile_governance_unittest.py`
 
 ## 正式规模
 
@@ -83,4 +84,5 @@
 - `outputs/` 仍只放一次性测试结果，不作为长期规则源
 - 当前正式库已覆盖 `最近13天 / 近2周 / 近3月 / 过去21天 / 两周 / 三个月` 等相对时间，以及 `这几天 / 最近400天 / 开始时间晚于结束时间` 的统一澄清口径
 - 当前 deterministic `/chat-v2` 顶层查询路由由 `TurnRouteDecisionService` 的中心 `QueryShape` 分类层负责；新增问法时先补该层与路由矩阵
+- 当前 deterministic `/chat-v2` 的真正执行真相由 `QueryProfile` 统一承载；多轮继承、`warning_only` 数据焦点、`count/field/latest_record/compare` 等能力回归优先补到 `test_query_profile_governance_unittest.py`
 - 如未来确实需要结构化导出，再考虑新增 `json/csv/xlsx` 副本；当前仍以 Markdown 主库为准

@@ -9,6 +9,7 @@
 > - 每条 Case 都保留完整的 `当前回答` 长文本样例。
 > - 每条业务 Case 都必须带 `数据库校验断言` 与 `是否符合事实`。
 > - 正式通过的业务 Case，`是否符合事实` 必须为 `是`。
+> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 56 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
 >
 > **业务时间锚点**：
 > - 全库统一以 `2026-04-13 23:59:59` 作为"数据库最新业务时间（latest_business_time）"。

@@ -1,5 +1,6 @@
 import crypto from 'node:crypto';
 
+import { isPaginatedTableBlock } from '../chatBlockContract.mjs';
 import { withMysqlConnection, withMysqlTransaction } from './mysql.mjs';
 import { sanitizeExecutedResult, sanitizeSnapshotPayload, sanitizeTurnBlocks } from './soilResultSanitizer.mjs';
 
@@ -66,10 +67,7 @@ function formatTopicContext(currentContext) {
 }
 
 function stripBlockRows(block) {
-  if (!block || typeof block !== 'object' || Array.isArray(block)) {
-    return block;
-  }
-  if (block.block_type !== 'list_table' && block.block_type !== 'group_table') {
+  if (!isPaginatedTableBlock(block)) {
     return block;
   }
   const next = { ...block };
@@ -133,7 +131,7 @@ async function hydrateListBlock(connection, block, requestedPage) {
 async function hydrateTurnBlocks(connection, blocks, requestedBlockId = null, requestedPage = null) {
   const hydrated = [];
   for (const block of asArray(blocks)) {
-    if (block?.block_type === 'list_table' || block?.block_type === 'group_table') {
+    if (isPaginatedTableBlock(block)) {
       const shouldHydrate = !requestedBlockId || block.block_id === requestedBlockId;
       hydrated.push(
         shouldHydrate ? await hydrateListBlock(connection, block, requestedPage) : await hydrateListBlock(connection, block, null),
@@ -791,7 +789,7 @@ export async function getChatBlockPage({ ownerUserId, sessionId, turnId, blockId
       throw new Error('区块不存在');
     }
 
-    if (matched.block_type === 'list_table' || matched.block_type === 'group_table') {
+    if (isPaginatedTableBlock(matched)) {
       return await hydrateListBlock(connection, matched, Math.max(1, toPositiveInt(page, 1)));
     }
     return sanitizeTurnBlocks([matched])[0];

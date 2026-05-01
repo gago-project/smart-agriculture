@@ -57,6 +57,10 @@ _FULL_DATE_RANGE_PATTERNS = (
         r"(?P<y1>\d{4})\s*年\s*(?P<m1>\d{1,2})\s*月\s*(?P<d1>\d{1,2})\s*日?\s*(?:到|至|-)\s*"
         r"(?P<y2>\d{4})\s*年\s*(?P<m2>\d{1,2})\s*月\s*(?P<d2>\d{1,2})\s*日?"
     ),
+    re.compile(
+        r"(?P<y1>\d{2}|\d{4})\s*年\s*(?P<m1>\d{1,2})\s*月\s*(?P<d1>\d{1,2})\s*[日号]?\s*(?:到|至|-)\s*"
+        r"(?:(?P<y2>\d{2}|\d{4})\s*年\s*)?(?P<m2>\d{1,2})\s*月\s*(?P<d2>\d{1,2})\s*[日号]?"
+    ),
 )
 _MONTH_DAY_RANGE_PATTERN = re.compile(
     r"(?P<m1>\d{1,2})\s*月\s*(?P<d1>\d{1,2})\s*日?\s*(?:到|至|-)\s*"
@@ -117,8 +121,11 @@ class TimeWindowService:
             match = pattern.search(text)
             if not match:
                 continue
+            start_year = self._normalize_year(match.group("y1"), anchor)
+            end_year_token = match.groupdict().get("y2")
+            end_year = self._normalize_year(end_year_token, anchor) if end_year_token else start_year
             start = datetime(
-                int(match.group("y1")),
+                start_year,
                 int(match.group("m1")),
                 int(match.group("d1")),
                 0,
@@ -126,7 +133,7 @@ class TimeWindowService:
                 0,
             )
             end = datetime(
-                int(match.group("y2")),
+                end_year,
                 int(match.group("m2")),
                 int(match.group("d2")),
                 23,
