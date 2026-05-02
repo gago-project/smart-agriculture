@@ -54,6 +54,12 @@ test('template cards stay in evidence only and are not rendered as mock cards in
   assert.doesNotMatch(turnRendererSource, /非真实数据/);
 });
 
+test('count cards stay available for evidence but are not rendered in the main chat body', () => {
+  const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+
+  assert.match(turnRendererSource, /block\?\.block_type !== 'count_card'/);
+});
+
 test('chat turn tables keep message width constrained and scroll horizontally', () => {
   const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 

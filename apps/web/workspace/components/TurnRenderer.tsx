@@ -143,21 +143,6 @@ function SummaryBlock({ block }: { block: ChatBlock }) {
   );
 }
 
-function CountBlock({ block }: { block: ChatBlock }) {
-  return (
-    <section className="turn-block">
-      <header className="turn-block-header">
-        <strong>{block.title || '数量统计'}</strong>
-        <span>{timeWindowLabel(block.time_window)}</span>
-      </header>
-      <div className="turn-block-empty">
-        {toLabelValue(block.count)}
-        {typeof block.measure === 'string' ? ` (${block.measure})` : ''}
-      </div>
-    </section>
-  );
-}
-
 function DetailBlock({ block }: { block: ChatBlock }) {
   const latestRecord =
     block.latest_record && typeof block.latest_record === 'object' && !Array.isArray(block.latest_record)
@@ -255,7 +240,9 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
     return null;
   }
 
-  const visibleBlocks = turn.blocks.filter((block) => block?.display_mode !== 'evidence_only');
+  const visibleBlocks = turn.blocks.filter(
+    (block) => block?.display_mode !== 'evidence_only' && block?.block_type !== 'count_card',
+  );
   if (visibleBlocks.length === 0) {
     return null;
   }
@@ -271,9 +258,6 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
         }
         if (block.block_type === 'summary_card') {
           return <SummaryBlock key={block.block_id} block={block} />;
-        }
-        if (block.block_type === 'count_card') {
-          return <CountBlock key={block.block_id} block={block} />;
         }
         if (isPaginatedTableBlockType(block.block_type)) {
           return <PaginatedTableBlock key={block.block_id} block={block} />;
