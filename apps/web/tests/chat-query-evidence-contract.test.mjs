@@ -70,17 +70,21 @@ test('chat store persists selected assistant message ids by session', () => {
   assert.match(chatStoreSource, /partialize:[\s\S]*selectedAssistantMessageIds/);
 });
 
-test('chat store persists only lightweight query references instead of full evidence payloads', () => {
+test('chat store persists local sessions while keeping backend evidence out of local storage', () => {
   const chatStoreSource = readFileSync(new URL('../workspace/store/chatStore.ts', import.meta.url), 'utf8');
 
+  assert.match(chatStoreSource, /compactPersistedSessions/);
   assert.match(chatStoreSource, /function compactMessageData/);
   assert.match(chatStoreSource, /function compactMessageMeta/);
   assert.match(chatStoreSource, /session_id/);
   assert.match(chatStoreSource, /turn_id/);
   assert.match(chatStoreSource, /should_query/);
+  assert.match(chatStoreSource, /currentContext/);
   assert.match(chatStoreSource, /migrate:/);
   assert.match(chatStoreSource, /selectedAssistantMessageIds/);
-  assert.doesNotMatch(chatStoreSource, /sessions:\s*compactPersistedSessions/);
+  assert.match(chatStoreSource, /sessions:\s*compactPersistedSessions\(state\.sessions\)/);
+  assert.doesNotMatch(chatStoreSource, /executed_result_json/);
+  assert.doesNotMatch(chatStoreSource, /query_log_entries/);
 });
 
 test('chat actions stop storing intermediate evidence and processing blobs in message meta', () => {

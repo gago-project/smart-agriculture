@@ -1,10 +1,4 @@
-import type {
-  ChatApiErrorPayload,
-  ChatBlockResponse,
-  ChatResponse,
-  ChatSessionDetailResponse,
-  ChatSessionListResponse,
-} from '../types/chat';
+import type { ChatApiErrorPayload, ChatBlockResponse, ChatResponse, ChatTurnContext } from '../types/chat';
 import { useAuthStore } from '../store/authStore';
 
 const DEFAULT_TIMEOUT_MS = 30000;
@@ -55,53 +49,27 @@ async function requestJson<T>(input: string, init: RequestInit): Promise<T> {
   return payload as T;
 }
 
-export async function createChatSession(title = '新会话'): Promise<{ session_id: string; title: string }> {
-  return await requestJson('/api/agent/sessions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
-  });
-}
-
-export async function fetchChatSessions(): Promise<ChatSessionListResponse> {
-  return await requestJson('/api/agent/sessions', { method: 'GET' });
-}
-
-export async function fetchChatSession(sessionId: string): Promise<ChatSessionDetailResponse> {
-  return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, { method: 'GET' });
-}
-
-export async function renameChatSession(sessionId: string, title: string): Promise<{ session_id: string; title: string }> {
-  return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}`, {
-    method: 'PATCH',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title }),
-  });
-}
-
-export async function archiveChatSession(sessionId: string): Promise<{ session_id: string; archived: boolean }> {
-  return await requestJson(`/api/agent/sessions/${encodeURIComponent(sessionId)}/archive`, { method: 'POST' });
-}
-
 export async function fetchChatBlock(
-  sessionId: string,
-  turnId: number,
-  blockId: string,
+  snapshotId: string,
+  blockType: string,
   page: number,
+  pageSize = 10,
 ): Promise<ChatBlockResponse> {
   const params = new URLSearchParams({
-    session_id: sessionId,
-    turn_id: String(turnId),
-    block_id: blockId,
+    snapshot_id: snapshotId,
+    block_type: blockType,
     page: String(page),
+    page_size: String(pageSize),
   });
   return await requestJson(`/api/agent/chat-block?${params.toString()}`, { method: 'GET' });
 }
 
 export async function sendChat(
   sessionId: string,
+  turnId: number,
   clientMessageId: string,
   message: string,
+  currentContext: ChatTurnContext,
   timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<ChatResponse> {
   const controller = new AbortController();
@@ -113,7 +81,9 @@ export async function sendChat(
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         session_id: sessionId,
+        turn_id: turnId,
         client_message_id: clientMessageId,
+        current_context: currentContext,
         message,
         timezone: 'Asia/Shanghai',
       }),

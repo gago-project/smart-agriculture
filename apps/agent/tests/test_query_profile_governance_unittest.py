@@ -20,7 +20,7 @@ def _alias(alias_name: str, canonical_name: str, region_level: str, parent_city_
 
 def _field_record(
     *,
-    record_id: int,
+    row_id: int,
     sn: str,
     create_time: str,
     water20cm: float,
@@ -34,7 +34,7 @@ def _field_record(
     water20cmfieldstate: str | None,
 ) -> dict[str, object]:
     return {
-        "id": record_id,
+        "id": row_id,
         "sn": sn,
         "gatewayid": "GW-TEST-1",
         "sensorid": "SENSOR-TEST-1",
@@ -88,7 +88,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         repository.records.extend(
             [
                 _field_record(
-                    record_id=990001,
+                    row_id=990001,
                     sn="SNS00990001",
                     create_time="2026-04-13 08:00:00",
                     water20cm=81.0,
@@ -102,7 +102,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     water20cmfieldstate="2",
                 ),
                 _field_record(
-                    record_id=990002,
+                    row_id=990002,
                     sn="SNS00990001",
                     create_time="2026-04-12 08:00:00",
                     water20cm=82.0,
@@ -116,7 +116,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     water20cmfieldstate="2",
                 ),
                 _field_record(
-                    record_id=990003,
+                    row_id=990003,
                     sn="SNS00990001",
                     create_time="2026-04-11 08:00:00",
                     water20cm=83.0,
@@ -130,7 +130,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     water20cmfieldstate="2",
                 ),
                 _field_record(
-                    record_id=990004,
+                    row_id=990004,
                     sn="SNS00990002",
                     create_time="2026-04-13 09:00:00",
                     water20cm=78.0,
@@ -144,7 +144,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     water20cmfieldstate="1",
                 ),
                 _field_record(
-                    record_id=990005,
+                    row_id=990005,
                     sn="SNS20406080",
                     create_time="2026-04-13 10:00:00",
                     water20cm=71.0,
@@ -158,7 +158,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     water20cmfieldstate="1",
                 ),
                 _field_record(
-                    record_id=990006,
+                    row_id=990006,
                     sn="SNS20406080",
                     create_time="2026-04-12 10:00:00",
                     water20cm=72.0,
@@ -172,7 +172,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
                     water20cmfieldstate="1",
                 ),
                 _field_record(
-                    record_id=990007,
+                    row_id=990007,
                     sn="SNS20406080",
                     create_time="2026-04-11 10:00:00",
                     water20cm=73.0,

@@ -10,7 +10,8 @@
 
 - Browser only calls `web`.
 - `web` calls `agent` through `AGENT_BASE_URL`.
-- `agent` reads MySQL for facts and uses server-backed session context passed in from `web`.
+- `agent` reads MySQL for facts and uses browser-side session context passed in from `web`.
+- Chat history itself lives in browser localStorage; MySQL only keeps query evidence and audit logs.
 - Soniox long-lived key stays in `web` environment variables only.
 
 ## First Visible Features

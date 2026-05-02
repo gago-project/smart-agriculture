@@ -3,10 +3,8 @@
 ## Web
 
 - `GET /api/health`: web health check.
-- `POST /api/agent/chat`: authenticated session-based BFF proxy to agent `/chat-v2`.
-- `GET /api/agent/chat-block`: authenticated block pagination and drill-down.
-- `GET /api/agent/sessions`: authenticated session list.
-- `POST /api/agent/sessions`: authenticated session create.
+- `POST /api/agent/chat`: authenticated BFF proxy to agent `/chat-v2`; request must include `session_id`、`turn_id`、`client_message_id`、`current_context`、`message`.
+- `GET /api/agent/chat-block`: authenticated snapshot pagination; request must include `snapshot_id`、`block_type`、`page`.
 - `POST /api/soniox/token`: creates a temporary Soniox WebSocket token.
 
 ## Agent

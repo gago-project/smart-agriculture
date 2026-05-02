@@ -59,7 +59,7 @@ function BlockTable({
   );
 }
 
-function PaginatedTableBlock({ turn, block }: { turn: ChatTurnView; block: ChatBlock }) {
+function PaginatedTableBlock({ block }: { block: ChatBlock }) {
   const [viewBlock, setViewBlock] = useState(block);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -76,14 +76,21 @@ function PaginatedTableBlock({ turn, block }: { turn: ChatTurnView; block: ChatB
   const totalUnit = paginatedTableTotalUnit(viewBlock.block_type);
 
   async function changePage(nextPage: number) {
-    if (!turn.session_id || !turn.turn_id || !viewBlock.block_id || nextPage === page || loading) {
+    const snapshotId = typeof pagination?.snapshot_id === 'string' ? pagination.snapshot_id : '';
+    const pageSize = typeof pagination?.page_size === 'number' ? pagination.page_size : 10;
+    if (!snapshotId || nextPage === page || loading) {
       return;
     }
     setLoading(true);
     setError(null);
     try {
-      const nextBlock = await fetchChatBlock(turn.session_id, turn.turn_id, viewBlock.block_id, nextPage);
-      setViewBlock(nextBlock);
+      const nextBlock = await fetchChatBlock(snapshotId, viewBlock.block_type, nextPage, pageSize);
+      setViewBlock((current) => ({
+        ...current,
+        ...nextBlock,
+        rows: Array.isArray(nextBlock.rows) ? nextBlock.rows : current.rows,
+        pagination: nextBlock.pagination ?? current.pagination,
+      }));
     } catch (caughtError) {
       setError(caughtError instanceof Error ? caughtError.message : '分页加载失败');
     } finally {
@@ -269,7 +276,7 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
           return <CountBlock key={block.block_id} block={block} />;
         }
         if (isPaginatedTableBlockType(block.block_type)) {
-          return <PaginatedTableBlock key={block.block_id} turn={turn} block={block} />;
+          return <PaginatedTableBlock key={block.block_id} block={block} />;
         }
         if (block.block_type === 'field_card') {
           return <FieldBlock key={block.block_id} block={block} />;

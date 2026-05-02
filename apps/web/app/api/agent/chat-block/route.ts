@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireRequestUser } from '../../../../lib/server/auth.mjs';
-import { getChatBlockPage } from '../../../../lib/server/chatSessionRepository.mjs';
+import { getChatBlockPageBySnapshot } from '../../../../lib/server/chatBlockRepository.mjs';
 
 export async function GET(request: NextRequest) {
   try {
@@ -9,16 +9,15 @@ export async function GET(request: NextRequest) {
     if (!session) {
       throw new AuthRequestError('authentication required', 401);
     }
-    const sessionId = request.nextUrl.searchParams.get('session_id') || '';
-    const turnId = Number(request.nextUrl.searchParams.get('turn_id') || '0');
-    const blockId = request.nextUrl.searchParams.get('block_id') || '';
+    const snapshotId = request.nextUrl.searchParams.get('snapshot_id') || '';
+    const blockType = request.nextUrl.searchParams.get('block_type') || '';
     const page = Number(request.nextUrl.searchParams.get('page') || '1');
-    const result = await getChatBlockPage({
-      ownerUserId: session.user.id,
-      sessionId,
-      turnId,
-      blockId,
+    const pageSize = Number(request.nextUrl.searchParams.get('page_size') || '10');
+    const result = await getChatBlockPageBySnapshot({
+      snapshotId,
+      blockType,
       page,
+      pageSize,
     });
     return NextResponse.json(result);
   } catch (error) {

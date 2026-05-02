@@ -2,106 +2,87 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
-test('server-backed chat session routes exist for sessions archive and block pagination', () => {
-  assert.equal(existsSync(new URL('../app/api/agent/sessions/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/agent/sessions/[sessionId]/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/agent/sessions/[sessionId]/archive/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/agent/chat-block/route.ts', import.meta.url)), true);
-});
+test('server chat session routes are removed in favor of a thin chat runtime', () => {
+  assert.equal(existsSync(new URL('../app/api/agent/sessions/route.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../app/api/agent/sessions/[sessionId]/route.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../app/api/agent/sessions/[sessionId]/archive/route.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../app/api/agent/chat/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../lib/server/agentChatRuntime.mjs', import.meta.url)), true);
 
-test('chat session detail route also supports renaming the session title', () => {
-  const routeSource = readFileSync(new URL('../app/api/agent/sessions/[sessionId]/route.ts', import.meta.url), 'utf8');
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-
-  assert.match(routeSource, /export async function PATCH/);
-  assert.match(routeSource, /payload\?\.title/);
-  assert.match(routeSource, /renameChatSession/);
-  assert.match(repositorySource, /export async function renameChatSession/);
-  assert.match(repositorySource, /UPDATE agent_chat_session/);
-  assert.match(repositorySource, /SET title = \?, updated_at = NOW\(\)/);
-});
-
-test('agent chat route uses client_message_id and no longer derives turn_id from local history', () => {
   const routeSource = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
 
-  assert.match(routeSource, /client_message_id/);
+  assert.match(routeSource, /runAgentChatTurn/);
   assert.match(routeSource, /session_id/);
-  assert.doesNotMatch(routeSource, /history\.length \+ 1/);
-  assert.doesNotMatch(routeSource, /thread_id/);
-  assert.doesNotMatch(routeSource, /history:/);
+  assert.match(routeSource, /turn_id/);
+  assert.match(routeSource, /current_context/);
+  assert.match(routeSource, /client_message_id/);
+  assert.match(routeSource, /message is required/);
+  assert.doesNotMatch(routeSource, /executeChatTurn/);
+  assert.doesNotMatch(routeSource, /chatSessionRepository/);
+  assert.doesNotMatch(routeSource, /createChatSession/);
 });
 
-test('chat session repository uses transaction locking and idempotent turn lookup', () => {
-  assert.equal(existsSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url)), true);
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-  const mysqlSource = readFileSync(new URL('../lib/server/mysql.mjs', import.meta.url), 'utf8');
+test('agent chat runtime keeps the upstream /chat-v2 bridge and query-log write path', () => {
+  const runtimeSource = readFileSync(new URL('../lib/server/agentChatRuntime.mjs', import.meta.url), 'utf8');
 
-  assert.match(repositorySource, /FOR UPDATE/);
-  assert.match(repositorySource, /client_message_id/);
-  assert.match(repositorySource, /last_turn_id/);
-  assert.match(mysqlSource, /export async function withMysqlTransaction/);
+  assert.match(runtimeSource, /export async function runAgentChatTurn/);
+  assert.match(runtimeSource, /chat-v2/);
+  assert.match(runtimeSource, /turn_id/);
+  assert.match(runtimeSource, /current_context/);
+  assert.match(runtimeSource, /query_log_entries/);
+  assert.match(runtimeSource, /INSERT INTO agent_query_log/);
 });
 
-test('chat session repository reserves turn ids before agent execution and finalizes afterwards', () => {
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-
-  assert.match(repositorySource, /async function reserveChatTurn/);
-  assert.match(repositorySource, /async function finalizeReservedChatTurn/);
-  assert.match(repositorySource, /const reservedTurn = await retryMysqlOperation\(\(\) =>\s*reserveChatTurn/);
-  assert.match(repositorySource, /agentResult = await callAgentChatV2/);
-  assert.match(repositorySource, /return await retryMysqlOperation\(\(\) =>\s*finalizeReservedChatTurn/);
-});
-
-test('chat session repository sanitizes stored legacy turn blocks before returning them', () => {
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-
-  assert.match(repositorySource, /sanitizeTurnBlocks/);
-});
-
-test('chat session repository clamps list block page size to 10 for snapshot pagination', () => {
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-
-  assert.match(repositorySource, /const SNAPSHOT_PAGE_SIZE_DEFAULT = 10;/);
-  assert.match(repositorySource, /Math\.min\(SNAPSHOT_PAGE_SIZE_DEFAULT,\s*Math\.max\(1,\s*toPositiveInt\(pageSize,\s*SNAPSHOT_PAGE_SIZE_DEFAULT\)\)\)/);
-  assert.match(repositorySource, /Math\.min\(SNAPSHOT_PAGE_SIZE_DEFAULT,\s*Math\.max\(1,\s*toPositiveInt\(pagination\.page_size,\s*SNAPSHOT_PAGE_SIZE_DEFAULT\)\)\)/);
-});
-
-test('chat session repository paginates group tables through the same snapshot block endpoint', () => {
-  assert.equal(existsSync(new URL('../lib/chatBlockContract.mjs', import.meta.url)), true);
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-  const contractSource = readFileSync(new URL('../lib/chatBlockContract.mjs', import.meta.url), 'utf8');
-
-  assert.match(contractSource, /PAGINATED_TABLE_BLOCK_TYPES/);
-  assert.match(contractSource, /group_table/);
-  assert.match(repositorySource, /from '\.\.\/chatBlockContract\.mjs'/);
-  assert.match(repositorySource, /isPaginatedTableBlock/);
-});
-
-test('chat session snapshot pagination avoids prepared execute for LIMIT/OFFSET', () => {
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-
-  assert.match(
-    repositorySource,
-    /const \[rows\] = await connection\.query\([\s\S]*WHERE snapshot_id = \?[\s\S]*ORDER BY row_index ASC[\s\S]*LIMIT \? OFFSET \?/,
-  );
-  assert.doesNotMatch(
-    repositorySource,
-    /const \[rows\] = await connection\.execute\([\s\S]*WHERE snapshot_id = \?[\s\S]*ORDER BY row_index ASC[\s\S]*LIMIT \? OFFSET \?/,
-  );
-});
-
-test('chat session repository prevents overlapping in-flight turns in the same session', () => {
-  const repositorySource = readFileSync(new URL('../lib/server/chatSessionRepository.mjs', import.meta.url), 'utf8');
-
-  assert.match(repositorySource, /answer_kind = 'pending'/);
-  assert.match(repositorySource, /当前会话处理中，请稍后重试/);
-});
-
-test('chat store persists active selection only and no longer persists full session transcripts', () => {
+test('chat store persists local sessions current context and selected assistant message ids', () => {
   const storeSource = readFileSync(new URL('../workspace/store/chatStore.ts', import.meta.url), 'utf8');
 
+  assert.match(storeSource, /sessions/);
   assert.match(storeSource, /activeSessionId/);
   assert.match(storeSource, /selectedAssistantMessageIds/);
+  assert.match(storeSource, /currentContext/);
   assert.match(storeSource, /partialize:/);
-  assert.doesNotMatch(storeSource, /sessions:\s*compactPersistedSessions/);
+  assert.match(storeSource, /sessions:\s*compactPersistedSessions\(state\.sessions\)/);
+  assert.match(storeSource, /selectedAssistantMessageIds:\s*compactSelectedAssistantMessageIds/);
+});
+
+test('chat actions are fully local and send turn id plus current context to the backend', () => {
+  const actionsSource = readFileSync(new URL('../workspace/hooks/useChatActions.ts', import.meta.url), 'utf8');
+
+  assert.doesNotMatch(actionsSource, /fetchChatSessions/);
+  assert.doesNotMatch(actionsSource, /fetchChatSession/);
+  assert.doesNotMatch(actionsSource, /createChatSession/);
+  assert.doesNotMatch(actionsSource, /archiveChatSession/);
+  assert.doesNotMatch(actionsSource, /renameChatSession/);
+  assert.match(actionsSource, /const turnId = session \? session\.lastTurnId \+ 1 : 1;/);
+  assert.match(actionsSource, /currentContext/);
+  assert.match(actionsSource, /sendChat\(sessionId,\s*turnId,\s*clientMessageId,\s*question,\s*currentContext/);
+  assert.match(actionsSource, /turn_context/);
+});
+
+test('chat block pagination is driven by snapshot ids instead of server-side turn storage', () => {
+  assert.equal(existsSync(new URL('../app/api/agent/chat-block/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../lib/server/chatBlockRepository.mjs', import.meta.url)), true);
+
+  const routeSource = readFileSync(new URL('../app/api/agent/chat-block/route.ts', import.meta.url), 'utf8');
+  const repositorySource = readFileSync(new URL('../lib/server/chatBlockRepository.mjs', import.meta.url), 'utf8');
+  const apiSource = readFileSync(new URL('../workspace/services/chatApi.ts', import.meta.url), 'utf8');
+  const rendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+
+  assert.match(routeSource, /snapshot_id/);
+  assert.match(routeSource, /block_type/);
+  assert.match(routeSource, /page_size/);
+  assert.doesNotMatch(routeSource, /session_id/);
+  assert.doesNotMatch(routeSource, /turn_id/);
+  assert.doesNotMatch(routeSource, /block_id/);
+  assert.match(repositorySource, /agent_result_snapshot_item/);
+  assert.match(repositorySource, /WHERE snapshot_id = \?/);
+  assert.match(apiSource, /export async function fetchChatBlock/);
+  assert.match(apiSource, /snapshot_id: snapshotId/);
+  assert.match(apiSource, /block_type: blockType/);
+  assert.match(apiSource, /snapshot_id/);
+  assert.doesNotMatch(rendererSource, /turn\.session_id/);
+  assert.doesNotMatch(rendererSource, /turn\.turn_id/);
+  assert.match(rendererSource, /pagination\?\.snapshot_id/);
+  assert.match(rendererSource, /fetchChatBlock\(snapshotId,\s*viewBlock\.block_type,\s*nextPage/);
 });

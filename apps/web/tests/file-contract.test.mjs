@@ -46,15 +46,19 @@ test('workspace app renders neutral loading while redirecting guarded routes', (
   assert.match(appSource, /auth-loading/);
 });
 
-test('agent chat route forwards the server-backed session contract to executeChatTurn', () => {
+test('agent chat route forwards local session context to the runtime bridge', () => {
   const source = readFileSync(new URL('../app/api/agent/chat/route.ts', import.meta.url), 'utf8');
 
   assert.match(source, /AGENT_BASE_URL/);
-  assert.match(source, /executeChatTurn/);
+  assert.match(source, /runAgentChatTurn/);
   assert.match(source, /session_id/);
+  assert.match(source, /turn_id/);
   assert.match(source, /client_message_id/);
+  assert.match(source, /current_context/);
   assert.match(source, /timezone/);
   assert.match(source, /message is required/);
+  assert.doesNotMatch(source, /executeChatTurn/);
+  assert.doesNotMatch(source, /chatSessionRepository/);
   assert.doesNotMatch(source, /thread_id/);
   assert.doesNotMatch(source, /history/);
   assert.doesNotMatch(source, /output_mode/);
@@ -152,7 +156,7 @@ test('workspace user menu uses final dropdown class names', () => {
   assert.match(menuSource, /targetPath !== currentPath/);
 });
 
-test('session sidebar uses a dropdown menu with inline rename and archive actions', () => {
+test('session sidebar uses a dropdown menu with inline rename and local delete actions', () => {
   const sidebarSource = readFileSync(new URL('../workspace/components/SessionSidebar.tsx', import.meta.url), 'utf8');
   const actionsSource = readFileSync(new URL('../workspace/hooks/useChatActions.ts', import.meta.url), 'utf8');
   const apiSource = readFileSync(new URL('../workspace/services/chatApi.ts', import.meta.url), 'utf8');
@@ -163,13 +167,14 @@ test('session sidebar uses a dropdown menu with inline rename and archive action
   assert.match(sidebarSource, /session-item-action/);
   assert.match(sidebarSource, /session-item-menu/);
   assert.match(sidebarSource, /修改名称/);
-  assert.match(sidebarSource, /归档/);
+  assert.match(sidebarSource, /删除/);
   assert.match(sidebarSource, /session-rename-input/);
   assert.match(sidebarSource, /onKeyDown/);
   assert.match(actionsSource, /renameSession/);
-  assert.match(actionsSource, /patchSession\(sessionId,\s*\{\s*title:/);
-  assert.match(apiSource, /export async function renameChatSession/);
-  assert.match(apiSource, /method:\s*'PATCH'/);
+  assert.match(actionsSource, /patchSession\(sessionId,\s*\{/);
+  assert.match(actionsSource, /deleteSessionFromStore\(sessionId\)/);
+  assert.doesNotMatch(apiSource, /renameChatSession/);
+  assert.doesNotMatch(apiSource, /archiveChatSession/);
   assert.match(globalsSource, /\.session-rename-input/);
 });
 

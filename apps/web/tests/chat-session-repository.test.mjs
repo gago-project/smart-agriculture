@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 function loadRepositoryModule() {
-  return import(new URL(`../lib/server/chatSessionRepository.mjs?ts=${Date.now()}`, import.meta.url));
+  return import(new URL(`../lib/server/agentChatRuntime.mjs?ts=${Date.now()}`, import.meta.url));
 }
 
 test('parseAgentChatV2Response keeps upstream plain-text failures readable', async () => {

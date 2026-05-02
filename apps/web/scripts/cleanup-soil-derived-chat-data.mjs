@@ -2,7 +2,6 @@ import { withMysqlTransaction } from '../lib/server/mysql.mjs';
 import {
   cleanupStoredQueryLogValue,
   cleanupStoredSnapshotPayloadValue,
-  cleanupStoredTurnBlocksValue,
 } from '../lib/server/soilDerivedCleanup.mjs';
 
 function normalizeForComparison(value) {
@@ -41,22 +40,6 @@ function parseFlags(argv) {
   return {
     apply: argv.includes('--apply'),
   };
-}
-
-async function collectTurnUpdates(connection) {
-  const [rows] = await connection.query(
-    `SELECT id, blocks_json
-     FROM agent_chat_turn
-     WHERE blocks_json IS NOT NULL`,
-  );
-  const updates = [];
-  for (const row of rows) {
-    const cleaned = cleanupStoredTurnBlocksValue(row.blocks_json);
-    if (stableJson(cleaned) !== stableJson(parseJsonValue(row.blocks_json))) {
-      updates.push({ id: Number(row.id), blocks_json: cleaned });
-    }
-  }
-  return updates;
 }
 
 async function collectSnapshotUpdates(connection) {
@@ -111,16 +94,7 @@ async function collectQueryLogUpdates(connection) {
   return updates;
 }
 
-async function applyUpdates(connection, turnUpdates, snapshotUpdates, queryLogUpdates) {
-  for (const row of turnUpdates) {
-    await connection.execute(
-      `UPDATE agent_chat_turn
-       SET blocks_json = ?
-       WHERE id = ?`,
-      [stableJson(row.blocks_json), row.id],
-    );
-  }
-
+async function applyUpdates(connection, snapshotUpdates, queryLogUpdates) {
   for (const row of snapshotUpdates) {
     await connection.execute(
       `UPDATE agent_result_snapshot_item
@@ -148,17 +122,15 @@ async function applyUpdates(connection, turnUpdates, snapshotUpdates, queryLogUp
 async function main() {
   const { apply } = parseFlags(process.argv.slice(2));
   const summary = await withMysqlTransaction(async (connection) => {
-    const turnUpdates = await collectTurnUpdates(connection);
     const snapshotUpdates = await collectSnapshotUpdates(connection);
     const queryLogUpdates = await collectQueryLogUpdates(connection);
 
     if (apply) {
-      await applyUpdates(connection, turnUpdates, snapshotUpdates, queryLogUpdates);
+      await applyUpdates(connection, snapshotUpdates, queryLogUpdates);
     }
 
     return {
       mode: apply ? 'apply' : 'dry-run',
-      agent_chat_turn: turnUpdates.length,
       agent_result_snapshot_item: snapshotUpdates.length,
       agent_query_log: queryLogUpdates.length,
     };

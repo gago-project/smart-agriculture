@@ -28,8 +28,6 @@ test('mysql core tables strictly follow current soil domain contract', () => {
     'admin_change_log',
     'warning_template',
     'region_alias',
-    'agent_chat_session',
-    'agent_chat_turn',
     'agent_result_snapshot',
     'agent_result_snapshot_item',
     'agent_query_log',
@@ -38,6 +36,10 @@ test('mysql core tables strictly follow current soil domain contract', () => {
   ]) {
     assert.match(sql, new RegExp(`CREATE TABLE IF NOT EXISTS ${table}\\b`));
   }
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS agent_chat_session\b/i);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS agent_chat_turn\b/i);
+  assert.match(sql, /DROP TABLE IF EXISTS agent_chat_turn;/i);
+  assert.match(sql, /DROP TABLE IF EXISTS agent_chat_session;/i);
 });
 
 test('fact_soil_moisture columns exactly match raw excel contract', () => {
@@ -121,31 +123,7 @@ test('region_alias only keeps city and county disambiguation fields', () => {
   assert.match(sql, /KEY idx_region_alias_lookup/i);
 });
 
-test('chat session and snapshot tables keep the server-backed conversation contract', () => {
-  assert.deepEqual(extractColumns('agent_chat_session'), [
-    'session_id',
-    'owner_user_id',
-    'title',
-    'last_turn_id',
-    'current_context_json',
-    'created_at',
-    'updated_at',
-    'archived_at',
-  ]);
-  assert.deepEqual(extractColumns('agent_chat_turn'), [
-    'id',
-    'session_id',
-    'turn_id',
-    'client_message_id',
-    'user_text',
-    'answer_kind',
-    'capability',
-    'final_text',
-    'blocks_json',
-    'primary_block_id',
-    'query_ref_json',
-    'created_at',
-  ]);
+test('snapshot and query-log tables remain after removing server chat session tables', () => {
   assert.deepEqual(extractColumns('agent_result_snapshot'), [
     'snapshot_id',
     'session_id',
@@ -164,6 +142,8 @@ test('chat session and snapshot tables keep the server-backed conversation contr
     'row_index',
     'payload_json',
   ]);
+  assert.doesNotMatch(sql, /fk_agent_chat_session_owner/i);
+  assert.doesNotMatch(sql, /fk_agent_chat_turn_session/i);
 });
 
 test('warning_template and agent_query_log retain current runtime fields plus new answer audit fields', () => {

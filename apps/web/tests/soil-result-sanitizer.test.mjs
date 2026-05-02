@@ -102,6 +102,7 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
     {
       city: '淮安市',
       county: '金湖县',
+      alert_device_count: 3,
     },
   ]);
   assert.equal('alert_records_snapshot_id' in cleaned[0], false);
@@ -114,7 +115,13 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
     create_time: '2026-04-13 23:59:17',
     water20cm: '80.96',
   });
-  assert.deepEqual(cleaned[2].rows, []);
+  assert.deepEqual(cleaned[2].rows, [
+    {
+      entity: '南通市',
+      record_count: 30,
+      avg_water20cm: 88.2,
+    },
+  ]);
   assert.deepEqual(cleaned[3].rows, [
     {
       city: '南京市',
@@ -134,7 +141,7 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
   ]);
   assert.doesNotMatch(
     JSON.stringify(cleaned),
-    /max_risk_score|alert_record_count|alert_device_count|warning_level|entity_key|latest_create_time|risk_score|record_count|avg_water20cm|source_file|source_sheet|source_row/,
+    /max_risk_score|alert_record_count|warning_level|entity_key|latest_create_time|risk_score|source_file|source_sheet|source_row/,
   );
 });
 
@@ -178,10 +185,11 @@ test('sanitizeExecutedResult keeps only raw soil rows in stored query evidence',
 
   assert.deepEqual(cleaned, {
     top_regions: [
-      {
-        city: '淮安市',
-        county: '金湖县',
-      },
+    {
+      city: '淮安市',
+      county: '金湖县',
+      alert_device_count: 3,
+    },
     ],
     rows: [
       {
@@ -199,7 +207,7 @@ test('sanitizeExecutedResult keeps only raw soil rows in stored query evidence',
   });
   assert.doesNotMatch(
     JSON.stringify(cleaned),
-    /max_risk_score|alert_record_count|alert_device_count|latest_create_time|risk_score|record_count|avg_water20cm|source_file|source_sheet|source_row/,
+    /max_risk_score|alert_record_count|latest_create_time|risk_score|record_count|avg_water20cm|source_file|source_sheet|source_row/,
   );
 });
 

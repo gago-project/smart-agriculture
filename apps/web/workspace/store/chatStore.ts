@@ -1,13 +1,20 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import type { ChatMessageData, Message, MessageMeta, Session } from '../types/chat';
+import type {
+  ChatMessageData,
+  ChatTurnContext,
+  ChatTurnView,
+  Message,
+  MessageMeta,
+  Session,
+} from '../types/chat';
 
 interface SessionPatch {
   title?: string;
   createdAt?: number;
   updatedAt?: number;
-  hydrated?: boolean;
   lastTurnId?: number;
+  currentContext?: ChatTurnContext;
   messages?: Message[];
 }
 
@@ -28,7 +35,6 @@ interface ChatState {
   sessions: Session[];
   activeSessionId: string | null;
   selectedAssistantMessageIds: Record<string, string>;
-  replaceSessions: (sessions: Session[]) => void;
   upsertSession: (session: Session) => void;
   patchSession: (sessionId: string, patch: SessionPatch) => void;
   switchSession: (sessionId: string | null) => void;
@@ -38,8 +44,8 @@ interface ChatState {
   selectAssistantMessage: (sessionId: string, messageId: string | null) => void;
 }
 
-const STORAGE_KEY = 'doc-frontend-chat-v3';
-const STORAGE_VERSION = 2;
+const STORAGE_KEY = 'doc-frontend-chat-v4';
+const STORAGE_VERSION = 3;
 
 function id() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
@@ -82,6 +88,33 @@ function compactMessageData(data?: ChatMessageData | null): ChatMessageData | nu
   return Object.keys(next).length > 0 ? next : null;
 }
 
+function compactTurnView(turn?: ChatTurnView | null): ChatTurnView | null {
+  if (!turn || typeof turn !== 'object') {
+    return null;
+  }
+  return {
+    session_id: String(turn.session_id || ''),
+    turn_id: Number(turn.turn_id || 0),
+    answer_kind: String(turn.answer_kind || 'unknown'),
+    capability: String(turn.capability || 'none'),
+    final_text: String(turn.final_text || ''),
+    user_text: String(turn.user_text || ''),
+    blocks: Array.isArray(turn.blocks)
+      ? turn.blocks
+          .filter((block) => block && block.display_mode !== 'evidence_only')
+          .map((block) => ({ ...block }))
+      : [],
+    primary_block_id: typeof turn.primary_block_id === 'string' ? turn.primary_block_id : null,
+    query_ref: {
+      has_query: Boolean(turn.query_ref?.has_query),
+      snapshot_ids: Array.isArray(turn.query_ref?.snapshot_ids)
+        ? turn.query_ref.snapshot_ids.filter((value) => typeof value === 'string' && value.trim())
+        : [],
+    },
+    created_at: typeof turn.created_at === 'string' ? turn.created_at : undefined,
+  };
+}
+
 function compactMessageMeta(meta?: MessageMeta): MessageMeta | undefined {
   if (!meta || typeof meta !== 'object') {
     return undefined;
@@ -95,6 +128,11 @@ function compactMessageMeta(meta?: MessageMeta): MessageMeta | undefined {
   const compactData = compactMessageData(meta.data ?? null);
   if (compactData) {
     next.data = compactData;
+  }
+
+  const compactTurn = compactTurnView(meta.turn ?? null);
+  if (compactTurn) {
+    next.turn = compactTurn;
   }
 
   return Object.keys(next).length > 0 ? next : undefined;
@@ -112,20 +150,22 @@ function compactSelectedAssistantMessageIds(value: unknown): Record<string, stri
   );
 }
 
-function compactPersistedSessions(sessions: Session[]): Session[] {
-  return Array.isArray(sessions)
-    ? sessions.map((session) => ({
-        ...ensureSessionShape(session),
-        messages: (session.messages || []).map((message) => ({
-          ...message,
-          meta: compactMessageMeta(message.meta),
-        })),
-      }))
-    : [];
+function normalizeCurrentContext(value: unknown): ChatTurnContext {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
-function sortSessions(sessions: Session[]): Session[] {
-  return [...sessions].sort((left, right) => right.updatedAt - left.updatedAt);
+function ensureMessageShape(message: Message): Message {
+  return {
+    id: String(message.id || id()),
+    role: message.role === 'assistant' ? 'assistant' : 'user',
+    content: String(message.content || ''),
+    status:
+      message.status === 'pending' || message.status === 'streaming' || message.status === 'error'
+        ? message.status
+        : 'done',
+    createdAt: Number(message.createdAt || Date.now()),
+    meta: compactMessageMeta(message.meta),
+  };
 }
 
 function ensureSessionShape(session: Session): Session {
@@ -134,10 +174,18 @@ function ensureSessionShape(session: Session): Session {
     title: String(session.title || '新会话'),
     createdAt: Number(session.createdAt || Date.now()),
     updatedAt: Number(session.updatedAt || Date.now()),
-    messages: Array.isArray(session.messages) ? session.messages : [],
-    hydrated: Boolean(session.hydrated),
+    messages: Array.isArray(session.messages) ? session.messages.map(ensureMessageShape) : [],
     lastTurnId: Number(session.lastTurnId || 0),
+    currentContext: normalizeCurrentContext(session.currentContext),
   };
+}
+
+function compactPersistedSessions(sessions: Session[]): Session[] {
+  return Array.isArray(sessions) ? sessions.map(ensureSessionShape) : [];
+}
+
+function sortSessions(sessions: Session[]): Session[] {
+  return [...sessions].sort((left, right) => right.updatedAt - left.updatedAt);
 }
 
 function withSessionUpdate(sessions: Session[], sessionId: string, updater: (session: Session) => Session): Session[] {
@@ -162,30 +210,6 @@ export const useChatStore = create<ChatState>()(
   persist(
     (set) => ({
       ...initialState,
-      replaceSessions: (sessions) => {
-        set((state) => {
-          const existingById = new Map(state.sessions.map((session) => [session.id, session]));
-          const nextSessions = sessions.map((session) => {
-            const normalized = ensureSessionShape(session);
-            const existing = existingById.get(normalized.id);
-            return existing
-              ? {
-                  ...normalized,
-                  messages: normalized.messages.length > 0 ? normalized.messages : existing.messages,
-                  hydrated: normalized.hydrated || existing.hydrated,
-                  lastTurnId: Math.max(normalized.lastTurnId, existing.lastTurnId),
-                }
-              : normalized;
-          });
-          return {
-            sessions: sortSessions(nextSessions),
-            activeSessionId:
-              state.activeSessionId && nextSessions.some((session) => session.id === state.activeSessionId)
-                ? state.activeSessionId
-                : nextSessions[0]?.id ?? null,
-          };
-        });
-      },
       upsertSession: (session) => {
         const normalized = ensureSessionShape(session);
         set((state) => {
@@ -194,8 +218,8 @@ export const useChatStore = create<ChatState>()(
             ? withSessionUpdate(state.sessions, normalized.id, () => ({
                 ...normalized,
                 messages: normalized.messages.length > 0 ? normalized.messages : existing.messages,
-                hydrated: normalized.hydrated || existing.hydrated,
                 lastTurnId: Math.max(normalized.lastTurnId, existing.lastTurnId),
+                currentContext: normalized.currentContext ?? existing.currentContext,
               }))
             : [...state.sessions, normalized];
           return {
@@ -212,8 +236,9 @@ export const useChatStore = create<ChatState>()(
               ...patch,
               updatedAt: patch.updatedAt ?? session.updatedAt,
               messages: patch.messages ?? session.messages,
-              hydrated: patch.hydrated ?? session.hydrated,
               lastTurnId: patch.lastTurnId ?? session.lastTurnId,
+              currentContext:
+                patch.currentContext === undefined ? session.currentContext : normalizeCurrentContext(patch.currentContext),
             })),
           ),
         }));
@@ -242,7 +267,7 @@ export const useChatStore = create<ChatState>()(
           content: input.content,
           status: input.status,
           createdAt: Date.now(),
-          meta: input.meta,
+          meta: compactMessageMeta(input.meta),
         };
 
         set((state) => ({
@@ -264,12 +289,14 @@ export const useChatStore = create<ChatState>()(
               ...session,
               updatedAt: Date.now(),
               messages: session.messages.map((message) => {
-                if (message.id !== messageId) return message;
+                if (message.id !== messageId) {
+                  return message;
+                }
                 return {
                   ...message,
                   content: patch.content ?? message.content,
                   status: patch.status ?? message.status,
-                  meta: patch.meta ?? message.meta,
+                  meta: patch.meta ? compactMessageMeta(patch.meta) : message.meta,
                 };
               }),
             })),
@@ -296,11 +323,13 @@ export const useChatStore = create<ChatState>()(
         const state = persistedState as Partial<ChatState> | undefined;
         return {
           ...initialState,
+          sessions: compactPersistedSessions(Array.isArray(state?.sessions) ? state.sessions : []),
           activeSessionId: typeof state?.activeSessionId === 'string' ? state.activeSessionId : null,
           selectedAssistantMessageIds: compactSelectedAssistantMessageIds(state?.selectedAssistantMessageIds),
         };
       },
       partialize: (state) => ({
+        sessions: compactPersistedSessions(state.sessions),
         activeSessionId: state.activeSessionId,
         selectedAssistantMessageIds: compactSelectedAssistantMessageIds(state.selectedAssistantMessageIds),
       }),

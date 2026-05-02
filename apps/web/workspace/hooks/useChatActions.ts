@@ -1,38 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import {
-  archiveChatSession,
-  createChatSession,
-  fetchChatSession,
-  fetchChatSessions,
-  renameChatSession,
-  sendChat,
-} from '../services/chatApi';
+import { sendChat } from '../services/chatApi';
 import { useChatStore } from '../store/chatStore';
-import { useAuthStore } from '../store/authStore';
-import type { ChatResponse, ChatSessionDetailResponse, ChatSessionSummary, Message, Session } from '../types/chat';
+import type { ChatResponse, Message, Session } from '../types/chat';
 
 const SESSION_TITLE_MAX_LENGTH = 20;
 
 function buildSessionTitle(question: string): string {
   return question.trim().slice(0, SESSION_TITLE_MAX_LENGTH) || '新会话';
-}
-
-function parseCreatedAt(value?: string, fallback = Date.now()): number {
-  if (!value) return fallback;
-  const timestamp = Date.parse(value.replace(' ', 'T'));
-  return Number.isFinite(timestamp) ? timestamp : fallback;
-}
-
-function summaryToSession(summary: ChatSessionSummary): Session {
-  return {
-    id: summary.session_id,
-    title: summary.title || '新会话',
-    createdAt: parseCreatedAt(summary.created_at),
-    updatedAt: parseCreatedAt(summary.updated_at),
-    messages: [],
-    hydrated: false,
-    lastTurnId: Number(summary.last_turn_id || 0),
-  };
 }
 
 function responseToAssistantMeta(response: ChatResponse, question: string) {
@@ -60,69 +34,35 @@ function responseToAssistantMeta(response: ChatResponse, question: string) {
   } as const;
 }
 
-function turnsToMessages(detail: ChatSessionDetailResponse): Message[] {
-  const messages: Message[] = [];
-  for (const turn of detail.turns || []) {
-    const createdAt = parseCreatedAt(turn.created_at);
-    messages.push({
-      id: `user:${turn.turn_id}`,
-      role: 'user',
-      content: turn.user_text || '',
-      status: 'done',
-      createdAt,
-    });
-    messages.push({
-      id: `assistant:${turn.turn_id}`,
-      role: 'assistant',
-      content: turn.final_text || '',
-      status: 'done',
-      createdAt,
-      meta: {
-        mode: (turn.answer_kind || 'unknown') as string,
-        data: {
-          session_id: detail.session_id,
-          turn_id: turn.turn_id,
-          should_query: Boolean(turn.query_ref?.has_query),
-          answer_kind: turn.answer_kind,
-          capability: turn.capability,
-        },
-        turn,
-      },
-    });
-  }
-  return messages;
-}
-
-function detailToSession(detail: ChatSessionDetailResponse): Session {
-  return {
-    id: detail.session_id,
-    title: detail.title || '新会话',
-    createdAt: parseCreatedAt(detail.created_at),
-    updatedAt: parseCreatedAt(detail.updated_at),
-    messages: turnsToMessages(detail),
-    hydrated: true,
-    lastTurnId: Number(detail.last_turn_id || 0),
-  };
-}
-
 function isAssistantMessageSelectable(message: Message): boolean {
   return message.role === 'assistant' && message.status === 'done' && Boolean(message.meta?.data?.turn_id);
 }
 
-function generateClientMessageId() {
+function generateUuid() {
   if (typeof globalThis.crypto?.randomUUID === 'function') {
     return globalThis.crypto.randomUUID();
   }
   return `client-${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
+function buildLocalSession(title = '新会话'): Session {
+  const now = Date.now();
+  return {
+    id: generateUuid(),
+    title,
+    createdAt: now,
+    updatedAt: now,
+    messages: [],
+    lastTurnId: 0,
+    currentContext: null,
+  };
+}
+
 export function useChatActions() {
-  const authStatus = useAuthStore((state) => state.status);
   const {
     sessions,
     activeSessionId,
     selectedAssistantMessageIds,
-    replaceSessions,
     upsertSession,
     patchSession,
     switchSession,
@@ -133,60 +73,11 @@ export function useChatActions() {
   } = useChatStore();
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [isLoadingSessions, setIsLoadingSessions] = useState(false);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeSessionId, sessions],
   );
-
-  useEffect(() => {
-    if (authStatus !== 'authenticated') {
-      return;
-    }
-    let cancelled = false;
-    setIsLoadingSessions(true);
-    void fetchChatSessions()
-      .then((payload) => {
-        if (cancelled) return;
-        replaceSessions((payload.sessions || []).map(summaryToSession));
-      })
-      .catch((caughtError) => {
-        if (cancelled) return;
-        setError(caughtError instanceof Error ? caughtError.message : '会话列表加载失败');
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setIsLoadingSessions(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authStatus, replaceSessions]);
-
-  useEffect(() => {
-    if (authStatus !== 'authenticated' || !activeSessionId) {
-      return;
-    }
-    const current = sessions.find((session) => session.id === activeSessionId);
-    if (current?.hydrated) {
-      return;
-    }
-    let cancelled = false;
-    void fetchChatSession(activeSessionId)
-      .then((detail) => {
-        if (cancelled) return;
-        upsertSession(detailToSession(detail));
-      })
-      .catch((caughtError) => {
-        if (cancelled) return;
-        setError(caughtError instanceof Error ? caughtError.message : '会话详情加载失败');
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeSessionId, authStatus, sessions, upsertSession]);
 
   const selectedAssistantMessageId = activeSessionId ? (selectedAssistantMessageIds[activeSessionId] ?? null) : null;
   const latestAssistantMessage = useMemo(() => {
@@ -222,36 +113,26 @@ export function useChatActions() {
   ]);
 
   const createSession = useCallback(async (title?: string) => {
-    const created = await createChatSession(title || '新会话');
-    const session = summaryToSession({
-      session_id: created.session_id,
-      title: created.title,
-      last_turn_id: 0,
-    });
+    const session = buildLocalSession(title || '新会话');
     upsertSession(session);
-    switchSession(created.session_id);
-    return created.session_id;
+    switchSession(session.id);
+    return session.id;
   }, [switchSession, upsertSession]);
 
   const deleteSession = useCallback(async (sessionId: string) => {
-    await archiveChatSession(sessionId);
     deleteSessionFromStore(sessionId);
   }, [deleteSessionFromStore]);
 
   const renameSession = useCallback(async (sessionId: string, title: string) => {
-    setError(null);
-    try {
-      const result = await renameChatSession(sessionId, title);
-      patchSession(sessionId, {
-        title: result.title,
-        updatedAt: Date.now(),
-      });
-      return result;
-    } catch (caughtError) {
-      const message = caughtError instanceof Error ? caughtError.message : '会话名称更新失败';
-      setError(message);
-      throw caughtError instanceof Error ? caughtError : new Error(message);
-    }
+    const nextTitle = buildSessionTitle(title);
+    patchSession(sessionId, {
+      title: nextTitle,
+      updatedAt: Date.now(),
+    });
+    return {
+      session_id: sessionId,
+      title: nextTitle,
+    };
   }, [patchSession]);
 
   const selectAssistantMessage = useCallback((message: Message) => {
@@ -264,7 +145,9 @@ export function useChatActions() {
   const sendQuestion = useCallback(
     async (rawQuestion: string, targetSessionId?: string) => {
       const question = rawQuestion.trim();
-      if (!question || isSending) return;
+      if (!question || isSending) {
+        return;
+      }
 
       setIsSending(true);
       setError(null);
@@ -276,8 +159,15 @@ export function useChatActions() {
         switchSession(targetSessionId);
       }
 
-      const clientMessageId = generateClientMessageId();
-      const userMessageId = addMessage(sessionId, { role: 'user', content: question, status: 'done' });
+      const session = useChatStore.getState().sessions.find((item) => item.id === sessionId) ?? null;
+      const turnId = session ? session.lastTurnId + 1 : 1;
+      const currentContext = session?.currentContext ?? null;
+      const clientMessageId = generateUuid();
+      const userMessageId = addMessage(sessionId, {
+        role: 'user',
+        content: question,
+        status: 'done',
+      });
       const assistantMessageId = addMessage(sessionId, {
         role: 'assistant',
         content: '正在查询中...',
@@ -285,17 +175,18 @@ export function useChatActions() {
       });
 
       try {
-        const result = await sendChat(sessionId, clientMessageId, question);
+        const result = await sendChat(sessionId, turnId, clientMessageId, question, currentContext);
         updateMessage(sessionId, assistantMessageId, {
           content: result.final_text,
           status: 'done',
           meta: responseToAssistantMeta(result, question),
         });
+        const latestSession = useChatStore.getState().sessions.find((item) => item.id === sessionId) ?? session;
         patchSession(sessionId, {
-          title: activeSession?.lastTurnId ? activeSession.title : buildSessionTitle(question),
+          title: latestSession && latestSession.lastTurnId > 0 ? latestSession.title : buildSessionTitle(question),
           updatedAt: Date.now(),
-          hydrated: true,
           lastTurnId: result.turn_id,
+          currentContext: result.turn_context ?? currentContext,
         });
         selectAssistantMessageInStore(sessionId, assistantMessageId);
       } catch (caughtError) {
@@ -312,12 +203,23 @@ export function useChatActions() {
         setIsSending(false);
       }
     },
-    [activeSession, activeSessionId, addMessage, createSession, isSending, patchSession, selectAssistantMessageInStore, switchSession, updateMessage],
+    [
+      activeSessionId,
+      addMessage,
+      createSession,
+      isSending,
+      patchSession,
+      selectAssistantMessageInStore,
+      switchSession,
+      updateMessage,
+    ],
   );
 
   const retryForMessage = useCallback(
     async (sessionId: string, message: Message) => {
-      if (message.role !== 'user') return;
+      if (message.role !== 'user') {
+        return;
+      }
       await sendQuestion(message.content, sessionId);
     },
     [sendQuestion],
@@ -330,7 +232,6 @@ export function useChatActions() {
     selectedAssistantMessage,
     selectedAssistantMessageId,
     isSending,
-    isLoadingSessions,
     error,
     createSession,
     switchSession,

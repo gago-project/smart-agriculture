@@ -124,7 +124,7 @@ export function SessionSidebar({
         <div className="sidebar-brand-copy">
           <span className="sidebar-brand-eyebrow">Smart Agriculture</span>
           <strong>AI 农情工作台</strong>
-          <p>服务端会话</p>
+          <p>本地会话</p>
         </div>
       </div>
       <button className="new-chat" onClick={() => void onCreateSession()}>
@@ -216,7 +216,7 @@ export function SessionSidebar({
                           void onDeleteSession(session.id);
                         }}
                       >
-                        归档
+                        删除
                       </button>
                     </div>
                   ) : null}

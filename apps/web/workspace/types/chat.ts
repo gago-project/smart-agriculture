@@ -2,6 +2,7 @@ export type ChatMode = 'business' | 'guidance' | 'fallback' | 'unknown';
 export type MessageRole = 'user' | 'assistant';
 export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
 export type ChatCapability = 'summary' | 'list' | 'group' | 'detail' | 'compare' | 'count' | 'field' | 'rule' | 'template' | 'none';
+export type ChatTurnContext = Record<string, unknown> | null;
 
 export interface ChatTopic {
   topic_family?: 'data' | 'rule' | 'template' | string | null;
@@ -94,33 +95,8 @@ export interface Session {
   createdAt: number;
   updatedAt: number;
   messages: Message[];
-  hydrated: boolean;
   lastTurnId: number;
-}
-
-export interface ChatSessionSummary {
-  session_id: string;
-  title: string;
-  last_turn_id: number;
-  created_at?: string;
-  updated_at?: string;
-  latest_user_text?: string;
-  latest_answer_text?: string;
-}
-
-export interface ChatSessionListResponse {
-  sessions: ChatSessionSummary[];
-}
-
-export interface ChatSessionDetailResponse {
-  session_id: string;
-  title: string;
-  last_turn_id: number;
-  created_at?: string;
-  updated_at?: string;
-  archived_at?: string | null;
-  topic?: ChatTopic;
-  turns: ChatTurnView[];
+  currentContext: ChatTurnContext;
 }
 
 export interface ChatResponse {
@@ -132,11 +108,16 @@ export interface ChatResponse {
   blocks: ChatBlock[];
   topic: ChatTopic;
   query_ref: ChatQueryRef;
+  turn_context?: ChatTurnContext;
   conversation_closed: boolean;
   session_reset: boolean;
 }
 
-export interface ChatBlockResponse extends ChatBlock {}
+export interface ChatBlockResponse {
+  block_type?: ChatBlock['block_type'];
+  rows?: Array<Record<string, unknown>>;
+  pagination?: ChatPagination;
+}
 
 export interface ChatApiErrorPayload {
   error?: string;
