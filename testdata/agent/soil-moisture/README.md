@@ -9,6 +9,8 @@
 ## 真实问答资产
 
 - `testdata/agent/soil-moisture/real-conversations/README.md`
+- `testdata/agent/soil-moisture/real-conversations/cases/real-60-case-library.md`
+- `testdata/agent/soil-moisture/real-conversations/analysis-60.md`
 
 ## 快速回归入口
 
@@ -42,6 +44,7 @@
 - 正式 Case 的新增、删减、修订只改 `case-library.md`
 - 真实问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，而不是直接扩正式 56 条
 - 真实用户问法和失败回归单独沉淀到 `real-conversations/`，不要挤进正式 56 条
+- 60 条真实问答已单独落到 `real-conversations/cases/real-60-case-library.md`
 
 ## 推荐的三层 QA 模型
 

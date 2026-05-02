@@ -128,6 +128,11 @@ function PaginatedTableBlock({ block }: { block: ChatBlock }) {
 
 function SummaryBlock({ block }: { block: ChatBlock }) {
   const topRegions = Array.isArray(block.top_regions) ? (block.top_regions as Array<Record<string, unknown>>) : [];
+  const regionColumns = topRegions.some(
+    (row) => row && typeof row === 'object' && ('alert_device_count' in row || 'alert_record_count' in row || 'latest_alert_time' in row),
+  )
+    ? ['city', 'county', 'alert_device_count', 'alert_record_count', 'latest_alert_time']
+    : ['city', 'county'];
   return (
     <section className="turn-block">
       <header className="turn-block-header">
@@ -135,7 +140,7 @@ function SummaryBlock({ block }: { block: ChatBlock }) {
         <span>{timeWindowLabel(block.time_window)}</span>
       </header>
       {topRegions.length > 0 ? (
-        <BlockTable columns={['city', 'county']} rows={topRegions} />
+        <BlockTable columns={regionColumns} rows={topRegions} />
       ) : (
         <div className="turn-block-empty">当前没有可展示的原始字段。</div>
       )}

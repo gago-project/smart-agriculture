@@ -21,8 +21,10 @@ real-conversations/
   README.md
   schema.md
   template.md
+  analysis-60.md
   cases/
     README.md
+    real-60-case-library.md
   regressions/
     README.md
 ```
@@ -38,3 +40,9 @@ real-conversations/
 
 - 真实问答：`RC-001-<short-slug>.md`
 - 回归样本：`RR-001-<short-slug>.md`
+
+## 现有资产
+
+- [60 条真实问答库](./cases/real-60-case-library.md)
+- [60 条实跑分析](./analysis-60.md)
+- 旧的 `soil-case-input-output-summary.xlsx` 已退役，后续以本目录和 `live-real-60-*` 实跑产物为准

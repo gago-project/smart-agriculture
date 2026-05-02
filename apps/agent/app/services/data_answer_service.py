@@ -1831,42 +1831,33 @@ class DataAnswerService:
         return rows
 
     @staticmethod
-    def _top_regions_from_focus_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _top_regions_from_focus_rows(rows: list[dict[str, Any]], *, warning_only: bool = False) -> list[dict[str, Any]]:
+        if warning_only:
+            return DataAnswerService._group_metric_rows(
+                rows,
+                group_by="county",
+                data_focus="warning_only",
+                top_n=5,
+            )
         grouped: dict[tuple[str | None, str | None], dict[str, Any]] = {}
         for row in rows:
             key = (row.get("city"), row.get("county"))
+            if not any(key):
+                continue
             bucket = grouped.setdefault(
                 key,
                 {
                     "city": row.get("city"),
                     "county": row.get("county"),
-                    "device_keys": set(),
-                    "record_count": 0,
-                    "create_time": row.get("create_time"),
-                    "water_values": [],
                 },
             )
-            sn = str(row.get("sn") or "").strip()
-            if sn:
-                bucket["device_keys"].add(sn)
-            bucket["record_count"] += 1
-            bucket["create_time"] = max(
-                str(bucket.get("create_time") or ""),
-                str(row.get("create_time") or ""),
-            )
-            water20 = _safe_float(row.get("water20cm"))
-            if water20 is not None:
-                bucket["water_values"].append(water20)
-        result = []
-        for bucket in grouped.values():
-            bucket.pop("device_keys")
-            bucket.pop("water_values")
-            result.append(
-                {
-                    "city": bucket.get("city"),
-                    "county": bucket.get("county"),
-                }
-            )
+        result = [
+            {
+                "city": bucket.get("city"),
+                "county": bucket.get("county"),
+            }
+            for bucket in grouped.values()
+        ]
         result.sort(
             key=lambda item: (
                 str(item.get("county") or ""),
@@ -1874,6 +1865,68 @@ class DataAnswerService:
             )
         )
         return result[:5]
+
+    @staticmethod
+    def _warning_rule_brief(rule_row: dict[str, Any] | None) -> str:
+        if not rule_row:
+            return "当前预警规则不可用"
+        rule_code = str(rule_row.get("rule_code") or "soil_warning_v1")
+        rule_name = str(rule_row.get("rule_name") or rule_code)
+        rule_definition = rule_row.get("rule_definition_json") or {}
+        if isinstance(rule_definition, str):
+            try:
+                rule_definition = json.loads(rule_definition)
+            except json.JSONDecodeError:
+                rule_definition = {}
+        fragments: list[str] = []
+        for item in (rule_definition or {}).get("rules", []):
+            level = str(item.get("warning_level") or "")
+            condition = str(item.get("condition") or "").strip()
+            if not condition:
+                continue
+            label = {
+                "heavy_drought": "重旱",
+                "waterlogging": "涝渍",
+                "device_fault": "设备故障",
+            }.get(level, level or "规则")
+            fragments.append(f"{label}：{condition}")
+        if not fragments:
+            return f"{rule_name}（{rule_code}）"
+        return f"{rule_name}（{rule_code}）：{'；'.join(fragments)}"
+
+    @staticmethod
+    def _warning_region_preview(rows: list[dict[str, Any]], limit: int = 3) -> str:
+        preview: list[str] = []
+        for row in rows[:limit]:
+            city = str(row.get("city") or "").strip()
+            county = str(row.get("county") or "").strip()
+            label = f"{city}{county}".strip()
+            if not label:
+                continue
+            device_count = row.get("alert_device_count")
+            record_count = row.get("alert_record_count")
+            latest_time = str(row.get("latest_alert_time") or "").strip()
+            details: list[str] = []
+            if device_count is not None:
+                details.append(f"{int(device_count)}个点位")
+            if record_count is not None:
+                details.append(f"{int(record_count)}条记录")
+            if latest_time:
+                details.append(f"最新{latest_time}")
+            preview.append(f"{label}（{'，'.join(details)}）" if details else label)
+        return "、".join(preview)
+
+    def _warning_query_audit_sql(self, base_sql: str, rule_row: dict[str, Any] | None) -> str:
+        rule_brief = self._warning_rule_brief(rule_row)
+        rule_code = str((rule_row or {}).get("rule_code") or "soil_warning_v1")
+        rule_updated_at = str((rule_row or {}).get("updated_at") or "")
+        return (
+            f"{base_sql}\n"
+            f"/* warning_rule_code: {rule_code} */\n"
+            f"/* warning_rule_updated_at: {rule_updated_at} */\n"
+            f"/* warning_rule_summary: {rule_brief} */\n"
+            "/* warning_filter_applied_in: application-layer shared predicate */"
+        )
 
     @staticmethod
     def _summary_metrics(records: list[dict[str, Any]], focus_rows: list[dict[str, Any]]) -> dict[str, Any]:
@@ -2182,7 +2235,7 @@ class DataAnswerService:
                 capability="summary",
                 grain="aggregate",
                 clarify_text=str(exc),
-            )
+        )
         query_profile = self._resolve_query_profile(
             message=message,
             route="summary",
@@ -2193,8 +2246,10 @@ class DataAnswerService:
         )
         base_records = await self._query_records(resolved_args)
         records = list(base_records)
-        if query_profile.get("data_focus") == "warning_only":
-            records, _rule_row = await self._warning_filtered_records(records)
+        warning_only = query_profile.get("data_focus") == "warning_only"
+        rule_row = None
+        if warning_only:
+            records, rule_row = await self._warning_filtered_records(records)
         if not base_records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -2215,6 +2270,8 @@ class DataAnswerService:
             source_turn_id=turn_id,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
+        if warning_only:
+            query_spec["filters"]["alert_only"] = True
         device_snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
@@ -2232,7 +2289,8 @@ class DataAnswerService:
             rows=record_rows,
             snapshot_kind=LIST_TARGET_ALERT_RECORDS,
         )
-        top_regions = self._top_regions_from_focus_rows(record_rows)
+        top_regions = self._top_regions_from_focus_rows(record_rows, warning_only=warning_only)
+        warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
         label = self._entity_label(resolved_entities) or "当前整体墒情"
         summary_text = self._render_summary_text(
             label=label,
@@ -2240,7 +2298,9 @@ class DataAnswerService:
             metrics=metrics,
             entity_confidence=resolution_meta["entity_confidence"],
             resolved_entities=resolved_entities,
-            warning_only=query_profile.get("data_focus") == "warning_only",
+            warning_only=warning_only,
+            top_regions=top_regions,
+            warning_rule_brief=warning_rule_brief,
         )
         block = {
             "block_id": block_id,
@@ -2252,6 +2312,7 @@ class DataAnswerService:
             "top_regions": top_regions,
             "device_snapshot_id": device_snapshot["snapshot_id"],
             "record_snapshot_id": record_snapshot["snapshot_id"],
+            **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
         }
         base_context = {
             "topic_family": "data",
@@ -2294,7 +2355,11 @@ class DataAnswerService:
             "top_regions": top_regions,
             "device_snapshot_id": device_snapshot["snapshot_id"],
             "record_snapshot_id": record_snapshot["snapshot_id"],
+            **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
         }
+        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        if warning_only:
+            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -2313,13 +2378,13 @@ class DataAnswerService:
                     query_index=1,
                     query_type="summary",
                     query_spec=query_spec,
-                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    executed_sql_text=audit_sql,
                     row_count=len(records),
                     snapshot_id=device_snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
                     executed_result=executed_result,
-                    result_digest={"metrics": metrics},
+                    result_digest={"metrics": metrics, **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {})},
                 )
             ],
         }
@@ -2359,8 +2424,10 @@ class DataAnswerService:
         )
         base_records = await self._query_records(resolved_args)
         records = list(base_records)
-        if query_profile["data_focus"] == "warning_only":
-            records, _rule_row = await self._warning_filtered_records(records)
+        warning_only = query_profile["data_focus"] == "warning_only"
+        rule_row = None
+        if warning_only:
+            records, rule_row = await self._warning_filtered_records(records)
         if not base_records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -2382,6 +2449,8 @@ class DataAnswerService:
             source_turn_id=turn_id,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
+        if warning_only:
+            query_spec["filters"]["alert_only"] = True
         device_snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
@@ -2409,6 +2478,7 @@ class DataAnswerService:
             "data_focus": query_profile.get("data_focus"),
             "device_snapshot_id": device_snapshot["snapshot_id"],
             "record_snapshot_id": record_snapshot["snapshot_id"],
+            **({"warning_rule_brief": self._warning_rule_brief(rule_row)} if warning_only else {}),
         }
         base_context = {
             "topic_family": "data",
@@ -2460,10 +2530,26 @@ class DataAnswerService:
             "region_count": "地区",
             "alert_region_count": "预警地区",
         }.get(str(query_profile.get("measure") or ""), "结果")
-        final_text = (
-            f"{(self._entity_label(resolved_entities) or '当前查询范围')}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
-            f"共有 {count_value}{'个' if '点位' in measure_label or '地区' in measure_label else '条'}{measure_label}。"
-        )
+        warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
+        scope_label = self._entity_label(resolved_entities) or "当前查询范围"
+        unit = "个" if "点位" in measure_label or "地区" in measure_label else "条"
+        if warning_only:
+            final_text = (
+                f"{scope_label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+                f"按当前预警规则筛选后，共有 {count_value}{unit}{measure_label}。"
+            )
+            if count_value == 0:
+                final_text += " 当前没有命中预警规则。"
+            if warning_rule_brief:
+                final_text += f" 当前预警规则：{warning_rule_brief}。"
+        else:
+            final_text = (
+                f"{scope_label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+                f"共有 {count_value}{unit}{measure_label}。"
+            )
+        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        if warning_only:
+            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -2482,13 +2568,17 @@ class DataAnswerService:
                     query_index=1,
                     query_type="count",
                     query_spec=query_spec,
-                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    executed_sql_text=audit_sql,
                     row_count=len(records),
                     snapshot_id=device_snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"count": count_value, "measure": query_profile.get("measure")},
-                    result_digest={"count": count_value},
+                    executed_result={
+                        "count": count_value,
+                        "measure": query_profile.get("measure"),
+                        **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
+                    },
+                    result_digest={"count": count_value, **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {})},
                 )
             ],
         }
@@ -3005,6 +3095,9 @@ class DataAnswerService:
             follow_up_mode=follow_up_mode,
             list_target=list_target,
         )
+        warning_only = query_profile.get("data_focus") == "warning_only"
+        if warning_only:
+            query_spec["filters"]["alert_only"] = True
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="list",
@@ -3031,11 +3124,18 @@ class DataAnswerService:
                 device_count=len(device_rows) if device_rows else None,
             ),
         )
-        final_text = (
-            f"已列出当前条件下的 {len(rows)} 条记录。"
-            if list_target == LIST_TARGET_ALERT_RECORDS
-            else f"已列出当前条件下的 {len(rows)} 个点位。"
-        )
+        if warning_only:
+            final_text = (
+                f"已列出上一轮按预警规则筛出的 {len(rows)} 条预警记录。"
+                if list_target == LIST_TARGET_ALERT_RECORDS
+                else f"已列出上一轮按预警规则筛出的 {len(rows)} 个预警点位。"
+            )
+        else:
+            final_text = (
+                f"已列出当前条件下的 {len(rows)} 条记录。"
+                if list_target == LIST_TARGET_ALERT_RECORDS
+                else f"已列出当前条件下的 {len(rows)} 个点位。"
+            )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -3107,9 +3207,11 @@ class DataAnswerService:
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
             list_target=list_target,
         )
+        warning_only = query_profile.get("data_focus") == "warning_only"
+        rule_row = None
         records = await self._query_records(resolved_args)
-        if query_profile.get("data_focus") == "warning_only":
-            records, _rule_row = await self._warning_filtered_records(records)
+        if warning_only:
+            records, rule_row = await self._warning_filtered_records(records)
         if not records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -3128,6 +3230,8 @@ class DataAnswerService:
             source_turn_id=turn_id,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
+        if warning_only:
+            query_spec["filters"]["alert_only"] = True
         snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
@@ -3157,6 +3261,9 @@ class DataAnswerService:
             rows=rows,
             snapshot_id=snapshot["snapshot_id"],
         )
+        warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
+        if warning_rule_brief:
+            block["warning_rule_brief"] = warning_rule_brief
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -3198,11 +3305,23 @@ class DataAnswerService:
             ),
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
-        final_text = (
-            f"已列出当前条件下的 {len(rows)} 条记录。"
-            if list_target == LIST_TARGET_ALERT_RECORDS
-            else f"已列出当前条件下的 {len(rows)} 个点位。"
-        )
+        if warning_only:
+            final_text = (
+                f"按当前预警规则筛选后，已列出当前条件下的 {len(rows)} 条预警记录。"
+                if list_target == LIST_TARGET_ALERT_RECORDS
+                else f"按当前预警规则筛选后，已列出当前条件下的 {len(rows)} 个预警点位。"
+            )
+            if warning_rule_brief:
+                final_text += f" 当前预警规则：{warning_rule_brief}。"
+        else:
+            final_text = (
+                f"已列出当前条件下的 {len(rows)} 条记录。"
+                if list_target == LIST_TARGET_ALERT_RECORDS
+                else f"已列出当前条件下的 {len(rows)} 个点位。"
+            )
+        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        if warning_only:
+            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -3228,13 +3347,17 @@ class DataAnswerService:
                     query_index=1,
                     query_type="list",
                     query_spec=query_spec,
-                    executed_sql_text=self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args)),
+                    executed_sql_text=audit_sql,
                     row_count=len(rows),
                     snapshot_id=snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": block["rows"], "total_count": len(rows)},
-                    result_digest={"total_count": len(rows)},
+                    executed_result={
+                        "rows": block["rows"],
+                        "total_count": len(rows),
+                        **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
+                    },
+                    result_digest={"total_count": len(rows), **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {})},
                 )
             ],
         }
@@ -3449,8 +3572,10 @@ class DataAnswerService:
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
             group_by=group_by,
         )
-        if query_profile.get("data_focus") == "warning_only":
-            records, _rule_row = await self._warning_filtered_records(records)
+        warning_only = query_profile.get("data_focus") == "warning_only"
+        rule_row = None
+        if warning_only:
+            records, rule_row = await self._warning_filtered_records(records)
             if not records:
                 return self._build_fallback_response(
                     turn_id=turn_id,
@@ -3478,6 +3603,8 @@ class DataAnswerService:
             source_turn_id=turn_id,
             follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
         )
+        if warning_only:
+            query_spec["filters"]["alert_only"] = True
         device_snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
@@ -3520,6 +3647,9 @@ class DataAnswerService:
             snapshot_id=group_snapshot["snapshot_id"],
             extra_fields={"group_by": group_by},
         )
+        warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
+        if warning_rule_brief:
+            block["warning_rule_brief"] = warning_rule_brief
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -3557,15 +3687,38 @@ class DataAnswerService:
         )
         label = self._entity_label(resolved_entities) or "当前查询范围"
         preview = self._group_preview_text(rows, group_by=group_by)
+        top_preview = self._warning_region_preview(rows, limit=min(5, len(rows))) if warning_only else preview
+        audit_sql = self.repository.build_filter_records_audit_sql(
+            **self._query_filters_from_args(resolved_args)
+        )
+        if warning_only:
+            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
+        if warning_only:
+            final_text = (
+                f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}按当前预警规则筛选后，再按{self._group_label(group_by)}汇总，共 {len(rows)} 组命中预警规则。"
+            )
+            if rows:
+                lead = rows[0]
+                lead_label = f"{lead.get('city') or ''}{lead.get('county') or ''}".strip() or "当前首位地区"
+                final_text += (
+                    f" 最需要关注的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                    f"{int(lead.get('alert_record_count') or 0)} 条预警记录。"
+                )
+            if top_preview:
+                final_text += f" 当前重点地区：{top_preview}。"
+            if warning_rule_brief:
+                final_text += f" 当前预警规则：{warning_rule_brief}。"
+        else:
+            final_text = (
+                f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+                f"已按{self._group_label(group_by)}汇总，共 {len(rows)} 组。"
+                f"{f' 当前可见：{preview}。' if preview else ''}"
+            )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "group",
-            "final_text": (
-                f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
-                f"已按{self._group_label(group_by)}汇总，共 {len(rows)} 组。"
-                f"{f' 当前可见：{preview}。' if preview else ''}"
-            ),
+            "final_text": final_text,
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
@@ -3582,15 +3735,17 @@ class DataAnswerService:
                     query_index=1,
                     query_type="group",
                     query_spec=query_spec,
-                    executed_sql_text=self.repository.build_filter_records_audit_sql(
-                        **self._query_filters_from_args(resolved_args)
-                    ),
+                    executed_sql_text=audit_sql,
                     row_count=len(records),
                     snapshot_id=device_snapshot["snapshot_id"],
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": rows, "group_by": group_by},
-                    result_digest={"group_count": len(rows)},
+                    executed_result={
+                        "rows": rows,
+                        "group_by": group_by,
+                        **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
+                    },
+                    result_digest={"group_count": len(rows), **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {})},
                 )
             ],
         }
@@ -4784,22 +4939,29 @@ class DataAnswerService:
         entity_confidence: str,
         resolved_entities: list[dict[str, Any]],
         warning_only: bool = False,
+        top_regions: list[dict[str, Any]] | None = None,
+        warning_rule_brief: str = "",
     ) -> str:
         scope = label or "当前整体墒情"
         avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
         latest_time = str(metrics.get("latest_create_time") or "暂无")
         if warning_only:
+            preview = DataAnswerService._warning_region_preview(top_regions or [])
             if int(metrics.get("record_count") or 0) > 0:
                 text = (
-                    f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}命中预警记录 "
+                    f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}按当前预警规则筛选后，命中预警记录 "
                     f"{metrics['record_count']} 条，涉及 {metrics['device_count']} 个预警点位，"
                     f"覆盖 {metrics['region_count']} 个预警地区，最新预警时间为 {latest_time}。"
                 )
+                if preview:
+                    text += f" 重点关注地区包括：{preview}。"
             else:
                 text = (
                     f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
-                    "没有命中预警规则的点位或记录。"
+                    "按当前预警规则筛选后，没有命中预警规则的点位或记录。"
                 )
+            if warning_rule_brief:
+                text += f" 当前预警规则：{warning_rule_brief}。"
         else:
             text = (
                 f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的墒情概况如下："

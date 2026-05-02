@@ -2,6 +2,10 @@
 
 这里存放真实用户问答样本。
 
+当前已落库的主文件：
+
+- [`real-60-case-library.md`](./real-60-case-library.md)
+
 ## 单条样本建议字段
 
 - `CaseID`

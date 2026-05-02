@@ -236,6 +236,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["count"], 12)
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["measure"], "alert_device_count")
+        self.assertIn("按当前预警规则筛选后", reply["final_text"])
         self.assertIn("12个点位", reply["final_text"])
 
     async def test_warning_record_count_zero_still_returns_zero_count_card(self) -> None:
@@ -253,6 +254,8 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["count"], 0)
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["measure"], "alert_record_count")
+        self.assertIn("按当前预警规则筛选后", reply["final_text"])
+        self.assertIn("没有命中预警规则", reply["final_text"])
         self.assertIn("0条预警记录", reply["final_text"])
 
     async def test_warning_summary_query_uses_warning_focused_text(self) -> None:
@@ -267,7 +270,10 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["answer_kind"], "business")
         self.assertEqual(reply["capability"], "summary")
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
-        self.assertIn("预警", reply["final_text"])
+        self.assertIn("按当前预警规则筛选后", reply["final_text"])
+        self.assertIn("重点关注地区", reply["final_text"])
+        self.assertIn("徐州市睢宁县", reply["final_text"])
+        self.assertIn("warning_rule_summary", reply["query_log_entries"][0]["executed_sql_text"])
         self.assertNotIn("墒情概况", reply["final_text"])
 
     async def test_warning_top_counties_question_returns_ranked_group_rows(self) -> None:
@@ -287,6 +293,10 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["rows"][0]["county"], "睢宁县")
         self.assertEqual(reply["blocks"][0]["rows"][0]["alert_device_count"], 3)
         self.assertLessEqual(len(reply["blocks"][0]["rows"]), 5)
+        self.assertIn("按当前预警规则筛选后", reply["final_text"])
+        self.assertIn("徐州市睢宁县", reply["final_text"])
+        self.assertIn("预警点位", reply["final_text"])
+        self.assertIn("warning_rule_summary", reply["query_log_entries"][0]["executed_sql_text"])
 
     async def test_warning_count_follow_up_device_details_inherits_warning_only_profile(self) -> None:
         counted = await self.service.reply(
