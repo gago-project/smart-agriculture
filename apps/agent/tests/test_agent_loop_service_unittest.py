@@ -429,3 +429,29 @@ class AgentLoopServiceTest(unittest.TestCase):
         self.assertEqual(result.tool_calls_made[0]["tool_args"]["city"], "南通市")
         self.assertEqual(result.tool_calls_made[0]["tool_args"]["start_time"], "2026-04-07 00:00:00")
         self.assertEqual(result.tool_calls_made[0]["tool_args"]["end_time"], "2026-04-13 23:59:59")
+
+    def test_answer_evidence_profile_auto_upgrades_detail_focus_when_warning_is_obvious(self):
+        svc = self._make_service([
+            {
+                "type": "tool_call",
+                "tool_name": "query_soil_detail",
+                "tool_args": {
+                    "sn": "SNS00213276",
+                    "start_time": "2026-03-15 00:00:00",
+                    "end_time": "2026-04-13 23:59:59",
+                },
+                "call_id": "call_anomaly_upgrade",
+            },
+            {"type": "text", "content": "这台设备最近30天详情如下。"},
+        ])
+
+        result: AgentLoopResult = asyncio.run(svc.run(
+            user_input="SNS00213276 这台设备最近30天详情",
+            session_id="anomaly-upgrade",
+            turn_id=1,
+            latest_business_time="2026-04-13 23:59:17",
+        ))
+
+        self.assertEqual(result.answer_evidence_profile["display_focus"], "anomaly_focus")
+        self.assertEqual(result.effective_output_mode, "anomaly_focus")
+        self.assertIn("涝渍", result.final_answer)

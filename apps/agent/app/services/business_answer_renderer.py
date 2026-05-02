@@ -13,178 +13,198 @@ class BusinessAnswerRenderer:
         self,
         *,
         tool_name: str,
-        result: dict[str, Any],
-        resolved_args: dict[str, Any],
-        entity_confidence: str,
-        time_source: str | None,
-        used_context: bool,
-        context_correction: bool,
+        answer_evidence_profile: dict[str, Any],
     ) -> str:
-        if self._is_empty_result(result):
-            return self._render_empty(tool_name=tool_name, result=result, resolved_args=resolved_args)
+        if answer_evidence_profile.get("empty_result_path"):
+            return self._render_empty(answer_evidence_profile=answer_evidence_profile)
 
         if tool_name == "query_soil_summary":
-            return self._render_summary(
-                result=result,
-                resolved_args=resolved_args,
-                entity_confidence=entity_confidence,
-                time_source=time_source,
-                used_context=used_context,
-                context_correction=context_correction,
-            )
+            return self._render_summary(answer_evidence_profile=answer_evidence_profile)
         if tool_name == "query_soil_ranking":
-            return self._render_ranking(
-                result=result,
-                resolved_args=resolved_args,
-                entity_confidence=entity_confidence,
-                time_source=time_source,
-                used_context=used_context,
-                context_correction=context_correction,
-            )
+            return self._render_ranking(answer_evidence_profile=answer_evidence_profile)
         if tool_name == "query_soil_comparison":
-            return self._render_comparison(
-                result=result,
-                resolved_args=resolved_args,
-                entity_confidence=entity_confidence,
-                time_source=time_source,
-                used_context=used_context,
-                context_correction=context_correction,
-            )
+            return self._render_comparison(answer_evidence_profile=answer_evidence_profile)
         if tool_name == "query_soil_detail":
-            return self._render_detail(
-                result=result,
-                resolved_args=resolved_args,
-                entity_confidence=entity_confidence,
-                time_source=time_source,
-                used_context=used_context,
-                context_correction=context_correction,
-            )
+            return self._render_detail(answer_evidence_profile=answer_evidence_profile)
         return "当前已完成查询，但暂时无法整理为稳定结论，请换一种问法重试。"
 
     def _render_summary(
         self,
         *,
-        result: dict[str, Any],
-        resolved_args: dict[str, Any],
-        entity_confidence: str,
-        time_source: str | None,
-        used_context: bool,
-        context_correction: bool,
+        answer_evidence_profile: dict[str, Any],
     ) -> str:
-        entity_name = self._entity_name(result, resolved_args)
-        total_records = int(result.get("total_records") or 0)
-        device_count = int(result.get("device_count") or 0)
-        region_count = int(result.get("region_count") or 0)
-        avg_water = self._fmt_float(result.get("avg_water20cm"))
-        latest_time = str(result.get("latest_create_time") or "暂无")
+        entity_name = str(answer_evidence_profile.get("entity_name") or "全局")
+        summary = dict(answer_evidence_profile.get("derived_summary") or {})
+        trace = dict(answer_evidence_profile.get("entity_resolution_trace") or {})
+        total_records = int(summary.get("total_records") or 0)
+        device_count = int(summary.get("device_count") or 0)
+        region_count = int(summary.get("region_count") or 0)
+        avg_water = self._fmt_float(summary.get("avg_water20cm"))
+        latest_time = str(summary.get("latest_create_time") or "暂无")
         prefix = self._compose_prefix(
             entity_name=entity_name,
-            entity_confidence=entity_confidence,
-            used_context=used_context,
-            context_correction=context_correction,
-            time_window=result.get("time_window") or {},
+            trace=trace,
+            time_window=answer_evidence_profile.get("time_window") or {},
         )
         window_phrase = self._window_phrase(
-            time_window=result.get("time_window") or {},
-            time_source=time_source,
-            used_context=used_context,
+            time_window=answer_evidence_profile.get("time_window") or {},
+            used_context=bool(trace.get("used_context")),
         )
-        top_regions = list(result.get("top_regions") or [])
-        region_text = "、".join(str(item.get("region") or "") for item in top_regions[:3] if item.get("region"))
-
         text = (
             f"{prefix}{entity_name}{window_phrase}共汇总 {total_records} 条记录，"
             f"涉及 {device_count} 个点位、{region_count} 个地区，"
             f"20 厘米平均含水量约 {avg_water}%，最新记录时间为 {latest_time}。"
         )
-        if region_text:
-            text += f" 记录较多的地区包括 {region_text}。"
+        stability = str(summary.get("stability_conclusion") or "").strip()
+        if stability:
+            text += f" {stability}。"
+        alert_count = int(summary.get("alert_count") or 0)
+        attention_regions = list(summary.get("attention_regions") or [])
+        if alert_count > 0:
+            text += f" 当前有 {alert_count} 条预警相关记录。"
+            if attention_regions:
+                top_regions = "、".join(str(item.get("region") or "") for item in attention_regions[:3] if item.get("region"))
+                if top_regions:
+                    text += f" 重点关注区域主要是 {top_regions}。"
+            if answer_evidence_profile.get("display_focus") in {"warning_mode", "anomaly_focus"}:
+                warning_label = str(summary.get("dominant_warning_type") or "").strip()
+                if warning_label:
+                    text += f" 主要异常类型集中在 {warning_label}。"
+        if answer_evidence_profile.get("display_focus") == "advice_mode":
+            if alert_count <= 0:
+                text += " 建议维持日常巡检和例行监测，持续关注后续最新一期数据。"
+            else:
+                warning_label = str(summary.get("dominant_warning_type") or "").strip()
+                if attention_regions:
+                    top_regions = "、".join(str(item.get("region") or "") for item in attention_regions[:2] if item.get("region"))
+                    if top_regions:
+                        text += f" 建议优先巡检 {top_regions}。"
+                if warning_label:
+                    text += f" 同时重点留意{warning_label}相关点位的后续变化。"
+        if answer_evidence_profile.get("display_focus") == "warning_mode":
+            latest_warning = (answer_evidence_profile.get("representative_records") or {}).get("latest_warning_record") or {}
+            if latest_warning:
+                text += (
+                    f" 代表性预警样例为 {latest_warning.get('create_time') or '未知时间'} "
+                    f"{latest_warning.get('city') or ''}{latest_warning.get('county') or ''}"
+                    f"设备 {latest_warning.get('sn') or '未知设备'} 的 "
+                    f"{self._fmt_float(latest_warning.get('water20cm'))}% "
+                    f"{latest_warning.get('warning_level_label') or latest_warning.get('warning_level') or ''}记录。"
+                )
         return text
 
     def _render_ranking(
         self,
         *,
-        result: dict[str, Any],
-        resolved_args: dict[str, Any],
-        entity_confidence: str,
-        time_source: str | None,
-        used_context: bool,
-        context_correction: bool,
+        answer_evidence_profile: dict[str, Any],
     ) -> str:
-        del entity_confidence, used_context, context_correction
-        items = list(result.get("items") or [])
+        summary = dict(answer_evidence_profile.get("derived_summary") or {})
+        items = list(summary.get("severity_items") or [])
         if not items:
-            return self._render_empty(tool_name="query_soil_ranking", result=result, resolved_args=resolved_args)
-        aggregation = str(result.get("aggregation") or resolved_args.get("aggregation") or "county")
+            return self._render_empty(answer_evidence_profile=answer_evidence_profile)
+        aggregation = str(summary.get("aggregation") or "county")
         window_phrase = self._window_phrase(
-            time_window=result.get("time_window") or resolved_args,
-            time_source=time_source,
+            time_window=answer_evidence_profile.get("time_window") or {},
             used_context=False,
         )
-        metric_text = "、".join(self._ranking_item_text(item, aggregation=aggregation) for item in items[:3] if item.get("name"))
+        metric_text = "、".join(
+            self._ranking_item_text(item, aggregation=aggregation, count_key="alert_record_count")
+            for item in items[: min(len(items), int(summary.get("top_n") or 5))]
+            if item.get("name")
+        )
         unit = "设备" if aggregation == "device" else "地区"
-        return f"{window_phrase}按原始记录数排序的前列{unit}依次为 {metric_text}。"
+        return f"{window_phrase}按预警记录数排序的前列{unit}依次为 {metric_text}。"
 
     def _render_comparison(
         self,
         *,
-        result: dict[str, Any],
-        resolved_args: dict[str, Any],
-        entity_confidence: str,
-        time_source: str | None,
-        used_context: bool,
-        context_correction: bool,
+        answer_evidence_profile: dict[str, Any],
     ) -> str:
-        del entity_confidence, used_context, context_correction
-        items = list(result.get("items") or [])
+        summary = dict(answer_evidence_profile.get("derived_summary") or {})
+        items = list(summary.get("comparison_items") or [])
         if len(items) < 2:
-            return self._render_empty(tool_name="query_soil_comparison", result=result, resolved_args=resolved_args)
+            return self._render_empty(answer_evidence_profile=answer_evidence_profile)
         window_phrase = self._window_phrase(
-            time_window=result.get("time_window") or resolved_args,
-            time_source=time_source,
+            time_window=answer_evidence_profile.get("time_window") or {},
             used_context=False,
         )
-        fragments = []
-        for item in items[:2]:
-            fragments.append(
-                f"{item.get('name')} {int(item.get('record_count') or 0)} 条记录，"
-                f"{int(item.get('device_count') or 0)} 个点位，"
-                f"平均 20 厘米含水量 {self._fmt_float(item.get('avg_water20cm'))}%"
+        winner = str(summary.get("winner") or "").strip()
+        left = items[0]
+        right = items[1]
+        if winner:
+            return (
+                f"{window_phrase}按预警记录数对比，{winner}更严重："
+                f"{left.get('name')} {int(left.get('alert_record_count') or 0)} 条，"
+                f"{right.get('name')} {int(right.get('alert_record_count') or 0)} 条。"
             )
-        return f"{window_phrase}原始统计对比如下：{'；'.join(fragments)}。"
+        return (
+            f"{window_phrase}按预警记录数对比如下："
+            f"{left.get('name')} {int(left.get('alert_record_count') or 0)} 条，"
+            f"{right.get('name')} {int(right.get('alert_record_count') or 0)} 条。"
+        )
 
     def _render_detail(
         self,
         *,
-        result: dict[str, Any],
-        resolved_args: dict[str, Any],
-        entity_confidence: str,
-        time_source: str | None,
-        used_context: bool,
-        context_correction: bool,
+        answer_evidence_profile: dict[str, Any],
     ) -> str:
-        entity_name = self._entity_name(result, resolved_args)
-        record_count = int(result.get("record_count") or 0)
-        latest = result.get("latest_record") or {}
+        entity_name = str(answer_evidence_profile.get("entity_name") or "当前对象")
+        summary = dict(answer_evidence_profile.get("derived_summary") or {})
+        representative_records = dict(answer_evidence_profile.get("representative_records") or {})
+        trace = dict(answer_evidence_profile.get("entity_resolution_trace") or {})
+        record_count = int(summary.get("record_count") or 0)
+        latest = representative_records.get("latest_record") or {}
         prefix = self._compose_prefix(
             entity_name=entity_name,
-            entity_confidence=entity_confidence,
-            used_context=used_context,
-            context_correction=context_correction,
-            time_window=result.get("time_window") or {},
+            trace=trace,
+            time_window=answer_evidence_profile.get("time_window") or {},
         )
         window_phrase = self._window_phrase(
-            time_window=result.get("time_window") or {},
-            time_source=time_source,
-            used_context=used_context,
+            time_window=answer_evidence_profile.get("time_window") or {},
+            used_context=bool(trace.get("used_context")),
         )
-        location = self._full_region_context(latest)
+        latest_digest = dict(summary.get("latest_record_digest") or {})
+        location = str(latest_digest.get("location") or self._full_region_context(latest))
         latest_sn = latest.get("sn")
-        latest_time = latest.get("create_time") or result.get("latest_create_time") or "未知"
-        latest_water = self._fmt_float(latest.get("water20cm"))
-        avg_water = self._fmt_float(result.get("avg_water20cm"))
+        latest_time = latest_digest.get("latest_time") or latest.get("create_time") or summary.get("latest_create_time") or "未知"
+        latest_water = self._fmt_float(latest_digest.get("water20cm") or latest.get("water20cm"))
+        avg_water = self._fmt_float(summary.get("avg_water20cm"))
+        display_focus = str(answer_evidence_profile.get("display_focus") or "normal")
 
-        if result.get("entity_type") == "device":
+        if display_focus == "warning_mode":
+            latest_warning = representative_records.get("latest_warning_record") or {}
+            return (
+                f"{prefix}{entity_name}{window_phrase}共有 {record_count} 条记录。"
+                f" 最新代表性预警样例是 {latest_warning.get('create_time') or '未知时间'} "
+                f"{latest_warning.get('city') or ''}{latest_warning.get('county') or ''}"
+                f"设备 {latest_warning.get('sn') or '未知设备'} 的 "
+                f"{self._fmt_float(latest_warning.get('water20cm'))}% "
+                f"{latest_warning.get('warning_level_label') or latest_warning.get('warning_level') or ''}记录。"
+            )
+        if display_focus == "advice_mode":
+            abnormal_period = summary.get("abnormal_period") or {}
+            warning_label = str(summary.get("dominant_warning_type") or "").strip()
+            historical_recovery_hint = str(summary.get("historical_recovery_hint") or "").strip()
+            return (
+                f"{prefix}{entity_name}{window_phrase}共有 {record_count} 条记录，"
+                f"最新记录时间 {latest_time}，{f'位于 {location}，' if location else ''}"
+                f"20 厘米含水量 {latest_water}%，该时间窗平均值约 {avg_water}%。"
+                f" {historical_recovery_hint}，但在 {str(abnormal_period.get('start_time') or '')[:10]} 到 "
+                f"{str(abnormal_period.get('end_time') or '')[:10]} 期间曾连续出现{warning_label}记录。"
+            )
+        if display_focus == "anomaly_focus":
+            representative = representative_records.get("representative_alert_record") or {}
+            warning_label = str(summary.get("dominant_warning_type") or "").strip()
+            return (
+                f"{prefix}{entity_name}{window_phrase}共有 {record_count} 条记录，其中 "
+                f"{int(summary.get('alert_count') or 0)} 条为预警相关记录，主要异常类型是 {warning_label}。"
+                f" 代表性异常点位为 {representative.get('sn') or latest_sn or entity_name}，"
+                f"最近异常时间 {representative.get('create_time') or latest_time}，"
+                f"{f'位于 {location}，' if location else ''}"
+                f"20 厘米含水量 {self._fmt_float(representative.get('water20cm') or latest_water)}%。"
+            )
+
+        if answer_evidence_profile.get("entity_type") == "device":
             return (
                 f"{prefix}设备 {entity_name}{window_phrase}共有 {record_count} 条记录，"
                 f"最新记录时间 {latest_time}，位于 {location or entity_name}，"
@@ -199,65 +219,39 @@ class BusinessAnswerRenderer:
             f"20 厘米含水量 {latest_water}%，该时间窗平均值约 {avg_water}%。"
         )
 
-    def _render_empty(self, *, tool_name: str, result: dict[str, Any], resolved_args: dict[str, Any]) -> str:
-        entity_name = self._entity_name(result, resolved_args)
-        time_window = result.get("time_window") or resolved_args
+    def _render_empty(self, *, answer_evidence_profile: dict[str, Any]) -> str:
+        entity_name = str(answer_evidence_profile.get("entity_name") or "当前对象")
+        time_window = answer_evidence_profile.get("time_window") or {}
         window_range = self._absolute_range_text(time_window)
-        empty_path = str(result.get("empty_result_path") or "")
+        empty_path = str(answer_evidence_profile.get("empty_result_path") or "")
         if empty_path == "entity_not_found":
-            if resolved_args.get("sn"):
+            if answer_evidence_profile.get("entity_type") == "device":
                 return f"设备 {entity_name} 在系统中未找到匹配记录，请核对设备编号后重试。"
             return f"地区 {entity_name} 在系统中未找到匹配记录，请核对地区名称后重试。"
         if empty_path == "no_data_in_window":
             return f"{entity_name}在 {window_range} 内未查询到土壤墒情数据，建议扩大时间范围后再查。"
-        if tool_name == "query_soil_comparison":
-            return "当前对比对象中没有足够的有效数据，请补充更明确的地区、设备或时间范围后重试。"
         return f"{entity_name}当前没有可用于回答的问题数据，请补充更明确的时间范围后重试。"
-
-    @staticmethod
-    def _is_empty_result(result: dict[str, Any]) -> bool:
-        if result.get("empty_result_path"):
-            return True
-        if "total_records" in result:
-            return int(result.get("total_records") or 0) == 0
-        if "record_count" in result:
-            return int(result.get("record_count") or 0) == 0
-        if "items" in result:
-            return len(result.get("items") or []) == 0
-        return False
-
-    @staticmethod
-    def _entity_name(result: dict[str, Any], resolved_args: dict[str, Any]) -> str:
-        return str(
-            result.get("entity_name")
-            or resolved_args.get("sn")
-            or resolved_args.get("county")
-            or resolved_args.get("city")
-            or "全省"
-        )
 
     def _compose_prefix(
         self,
         *,
         entity_name: str,
-        entity_confidence: str,
-        used_context: bool,
-        context_correction: bool,
+        trace: dict[str, Any],
         time_window: dict[str, Any],
     ) -> str:
         parts: list[str] = []
-        if context_correction:
+        if trace.get("context_correction"):
             parts.append(f"好的，已切换到{entity_name}。")
-        if entity_confidence == "medium":
-            parts.append(f"按近似匹配识别为 {entity_name}，置信度中。")
-        if used_context:
+        confidence_notice = str(trace.get("confidence_notice") or "")
+        if confidence_notice:
+            parts.append(confidence_notice)
+        if trace.get("used_context"):
             label = self._relative_window_label(time_window)
             if label:
                 parts.append(f"沿用{label}的时间窗。")
         return "".join(parts)
 
-    def _window_phrase(self, *, time_window: dict[str, Any], time_source: str | None, used_context: bool) -> str:
-        del time_source
+    def _window_phrase(self, *, time_window: dict[str, Any], used_context: bool) -> str:
         start = self._parse_datetime(time_window.get("start_time"))
         end = self._parse_datetime(time_window.get("end_time"))
         if start is None or end is None:
@@ -320,12 +314,14 @@ class BusinessAnswerRenderer:
             return "暂无"
 
     @staticmethod
-    def _ranking_item_text(item: dict[str, Any], *, aggregation: str) -> str:
-        count = int(item.get("record_count") or 0)
+    def _ranking_item_text(item: dict[str, Any], *, aggregation: str, count_key: str) -> str:
+        count = int(item.get(count_key) or 0)
+        location = f"{item.get('city') or ''}{item.get('county') or ''}".strip()
         if aggregation == "device":
-            location = f"{item.get('city') or ''}{item.get('county') or ''}".strip()
             if location:
                 return f"{item.get('name')}（{location}，{count} 条）"
+        if aggregation == "county" and location:
+            return f"{location}（{count} 条）"
         return f"{item.get('name')}（{count} 条）"
 
 

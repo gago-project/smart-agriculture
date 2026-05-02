@@ -11,201 +11,262 @@ class BusinessAnswerRendererTest(unittest.TestCase):
     def setUp(self) -> None:
         self.renderer = BusinessAnswerRenderer()
 
-    def test_summary_renderer_mentions_absolute_window_and_raw_counts(self) -> None:
+    def test_summary_renderer_uses_derived_attention_regions_and_stability_conclusion(self) -> None:
         text = self.renderer.render(
             tool_name="query_soil_summary",
-            result={
-                "entity_name": "南通市",
-                "total_records": 37,
-                "avg_water20cm": 96.21,
-                "device_count": 12,
-                "region_count": 4,
-                "latest_create_time": "2026-04-13 23:59:59",
-                "top_regions": [{"region": "如东县"}, {"region": "海安市"}],
+            answer_evidence_profile={
+                "entity_name": "全局",
+                "display_focus": "normal",
                 "time_window": {
-                    "start_time": "2026-04-13 00:00:00",
+                    "start_time": "2026-04-07 00:00:00",
                     "end_time": "2026-04-13 23:59:59",
                 },
-                "output_mode": "normal",
+                "entity_resolution_trace": {"confidence_notice": ""},
+                "derived_summary": {
+                    "total_records": 3689,
+                    "device_count": 527,
+                    "region_count": 80,
+                    "avg_water20cm": 93.77,
+                    "latest_create_time": "2026-04-13 23:59:17",
+                    "stability_conclusion": "整体仍以未触发预警为主",
+                    "alert_count": 44,
+                    "attention_regions": [
+                        {"region": "睢宁县", "alert_record_count": 9},
+                        {"region": "沛县", "alert_record_count": 8},
+                        {"region": "昆山市", "alert_record_count": 7},
+                    ],
+                    "dominant_warning_type": "涝渍",
+                },
+                "must_surface_facts": ["睢宁县", "沛县", "昆山市"],
             },
-            resolved_args={
-                "city": "南通市",
-                "start_time": "2026-04-13 00:00:00",
-                "end_time": "2026-04-13 23:59:59",
-            },
-            entity_confidence="high",
-            time_source="rule_relative",
-            used_context=False,
-            context_correction=False,
         )
 
-        self.assertIn("南通市", text)
-        self.assertIn("2026-04-13", text)
-        self.assertIn("37 条记录", text)
-        self.assertIn("12 个点位", text)
-        self.assertIn("如东县", text)
+        self.assertIn("整体仍以未触发预警为主", text)
+        self.assertIn("44 条预警相关记录", text)
+        self.assertIn("睢宁县", text)
+        self.assertIn("沛县", text)
+        self.assertIn("昆山市", text)
 
-    def test_summary_renderer_appends_medium_confidence_notice(self) -> None:
+    def test_summary_renderer_includes_medium_confidence_notice(self) -> None:
         text = self.renderer.render(
             tool_name="query_soil_summary",
-            result={
-                "entity_name": "海安市",
-                "total_records": 65,
-                "avg_water20cm": 109.56,
-                "device_count": 8,
-                "region_count": 1,
-                "latest_create_time": "2026-04-13 23:59:59",
-                "top_regions": [],
+            answer_evidence_profile={
+                "entity_name": "南通市",
+                "display_focus": "normal",
                 "time_window": {
                     "start_time": "2026-04-01 00:00:00",
                     "end_time": "2026-04-13 23:59:59",
                 },
-                "output_mode": "normal",
+                "entity_resolution_trace": {"confidence_notice": "按近似匹配识别为 南通市，置信度中。"},
+                "derived_summary": {
+                    "total_records": 259,
+                    "device_count": 37,
+                    "region_count": 6,
+                    "avg_water20cm": 95.39,
+                    "latest_create_time": "2026-04-13 23:59:17",
+                    "stability_conclusion": "总体平稳",
+                    "alert_count": 0,
+                    "attention_regions": [],
+                },
+                "must_surface_facts": ["南通市", "置信度"],
             },
-            resolved_args={
-                "county": "海安市",
-                "start_time": "2026-04-01 00:00:00",
-                "end_time": "2026-04-13 23:59:59",
-            },
-            entity_confidence="medium",
-            time_source="rule_relative",
-            used_context=False,
-            context_correction=False,
         )
 
-        self.assertIn("海安市", text)
+        self.assertIn("南通市", text)
         self.assertIn("置信度中", text)
 
-    def test_detail_renderer_mentions_inherited_time_and_full_region_context(self) -> None:
+    def test_summary_renderer_in_advice_mode_mentions_recommendation(self) -> None:
         text = self.renderer.render(
-            tool_name="query_soil_detail",
-            result={
-                "entity_type": "device",
-                "entity_name": "SNS00204333",
-                "record_count": 7,
-                "avg_water20cm": 93.10,
+            tool_name="query_soil_summary",
+            answer_evidence_profile={
+                "entity_name": "南通市",
+                "display_focus": "advice_mode",
                 "time_window": {
                     "start_time": "2026-04-07 00:00:00",
                     "end_time": "2026-04-13 23:59:59",
                 },
-                "latest_record": {
-                    "sn": "SNS00204333",
-                    "city": "南通市",
-                    "county": "如东县",
-                    "create_time": "2026-04-13 23:59:17",
-                    "water20cm": "92.43",
+                "entity_resolution_trace": {"confidence_notice": ""},
+                "derived_summary": {
+                    "total_records": 259,
+                    "device_count": 37,
+                    "region_count": 6,
+                    "avg_water20cm": 95.39,
+                    "latest_create_time": "2026-04-13 23:59:17",
+                    "stability_conclusion": "总体平稳",
+                    "alert_count": 0,
+                    "attention_regions": [],
+                    "dominant_warning_type": "",
                 },
-                "output_mode": "normal",
+                "must_surface_facts": ["南通市", "总体平稳"],
             },
-            resolved_args={
-                "sn": "SNS00204333",
-                "start_time": "2026-04-07 00:00:00",
-                "end_time": "2026-04-13 23:59:59",
-            },
-            entity_confidence="high",
-            time_source="history_inherited",
-            used_context=True,
-            context_correction=False,
         )
 
-        self.assertIn("沿用最近 7 天", text)
-        self.assertIn("南通市如东县", text)
-        self.assertIn("SNS00204333", text)
+        self.assertIn("总体平稳", text)
+        self.assertIn("建议", text)
+        self.assertIn("巡检", text)
 
-    def test_detail_renderer_mentions_correction_when_switching_entity(self) -> None:
+    def test_detail_renderer_uses_representative_alert_and_abnormal_period(self) -> None:
         text = self.renderer.render(
             tool_name="query_soil_detail",
-            result={
-                "entity_type": "region",
+            answer_evidence_profile={
+                "entity_name": "SNS00204333",
+                "entity_type": "device",
+                "display_focus": "advice_mode",
+                "time_window": {
+                    "start_time": "2026-01-01 00:00:00",
+                    "end_time": "2026-04-13 23:59:59",
+                },
+                "entity_resolution_trace": {"confidence_notice": "", "used_context": True},
+                "derived_summary": {
+                    "record_count": 103,
+                    "avg_water20cm": 71.97,
+                    "latest_record_digest": {
+                        "latest_time": "2026-04-13 23:59:17",
+                        "location": "南通市如东县",
+                        "water20cm": "84.00",
+                    },
+                    "dominant_warning_type": "重旱",
+                    "abnormal_period": {
+                        "start_time": "2026-01-10 23:59:17",
+                        "end_time": "2026-01-14 23:59:17",
+                    },
+                    "historical_recovery_hint": "当前最新记录已恢复到未触发预警状态",
+                },
+                "representative_records": {
+                    "latest_warning_record": {
+                        "sn": "SNS00204334",
+                        "warning_level_label": "重旱",
+                    }
+                },
+                "must_surface_facts": ["2026-01-10", "2026-01-14"],
+            },
+        )
+
+        self.assertIn("2026-01-10", text)
+        self.assertIn("2026-01-14", text)
+        self.assertIn("当前最新记录已恢复到未触发预警状态", text)
+        self.assertIn("重旱", text)
+
+    def test_detail_renderer_mentions_context_correction_and_location(self) -> None:
+        text = self.renderer.render(
+            tool_name="query_soil_detail",
+            answer_evidence_profile={
                 "entity_name": "如皋市",
-                "record_count": 28,
-                "avg_water20cm": 128.98,
+                "entity_type": "region",
+                "display_focus": "normal",
                 "time_window": {
                     "start_time": "2026-04-07 00:00:00",
                     "end_time": "2026-04-13 23:59:59",
                 },
-                "latest_record": {
-                    "sn": "SNS00215012",
-                    "city": "南通市",
-                    "county": "如皋市",
-                    "create_time": "2026-04-13 23:59:17",
-                    "water20cm": "128.98",
+                "entity_resolution_trace": {
+                    "confidence_notice": "",
+                    "used_context": True,
+                    "context_correction": True,
                 },
-                "output_mode": "normal",
+                "derived_summary": {
+                    "record_count": 28,
+                    "avg_water20cm": 128.98,
+                    "latest_record_digest": {
+                        "latest_time": "2026-04-13 23:59:17",
+                        "location": "南通市如皋市",
+                        "water20cm": "128.98",
+                    },
+                },
+                "representative_records": {},
+                "must_surface_facts": ["如皋市"],
             },
-            resolved_args={
-                "county": "如皋市",
-                "start_time": "2026-04-07 00:00:00",
-                "end_time": "2026-04-13 23:59:59",
-            },
-            entity_confidence="high",
-            time_source="history_inherited",
-            used_context=True,
-            context_correction=True,
         )
 
         self.assertIn("已切换到如皋市", text)
         self.assertIn("沿用最近 7 天", text)
+        self.assertIn("南通市如皋市", text)
 
-    def test_comparison_renderer_mentions_both_entities_and_raw_counts(self) -> None:
+    def test_comparison_renderer_mentions_severity_winner_and_counts(self) -> None:
         text = self.renderer.render(
             tool_name="query_soil_comparison",
-            result={
-                "entity_type": "region",
+            answer_evidence_profile={
+                "entity_name": "睢宁县和沛县",
+                "display_focus": "normal",
+                "severity_basis": "alert_record_count",
                 "time_window": {
                     "start_time": "2026-03-15 00:00:00",
                     "end_time": "2026-04-13 23:59:59",
                 },
-                "items": [
-                    {"name": "睢宁县", "record_count": 210, "device_count": 11, "avg_water20cm": 132.61},
-                    {"name": "沛县", "record_count": 240, "device_count": 13, "avg_water20cm": 112.62},
-                ],
+                "entity_resolution_trace": {"confidence_notice": ""},
+                "derived_summary": {
+                    "winner": "睢宁县",
+                    "comparison_items": [
+                        {"name": "睢宁县", "alert_record_count": 39, "dominant_warning_type": "涝渍"},
+                        {"name": "沛县", "alert_record_count": 36, "dominant_warning_type": "涝渍"},
+                    ],
+                },
+                "must_surface_facts": ["睢宁县", "39", "36"],
             },
-            resolved_args={
-                "start_time": "2026-03-15 00:00:00",
-                "end_time": "2026-04-13 23:59:59",
-            },
-            entity_confidence="high",
-            time_source="rule_relative",
-            used_context=False,
-            context_correction=False,
         )
 
         self.assertIn("睢宁县", text)
         self.assertIn("沛县", text)
-        self.assertIn("210 条记录", text)
-        self.assertIn("240 条记录", text)
+        self.assertIn("39", text)
+        self.assertIn("36", text)
+        self.assertIn("更严重", text)
 
-    def test_ranking_renderer_mentions_device_region_context(self) -> None:
+    def test_ranking_renderer_mentions_severity_counts_and_device_region_context(self) -> None:
         text = self.renderer.render(
             tool_name="query_soil_ranking",
-            result={
-                "aggregation": "device",
+            answer_evidence_profile={
+                "entity_name": "设备排行",
+                "display_focus": "normal",
+                "severity_basis": "alert_record_count",
                 "time_window": {
                     "start_time": "2026-03-15 00:00:00",
                     "end_time": "2026-04-13 23:59:59",
                 },
-                "items": [
-                    {"name": "SNS00213276", "record_count": 30, "city": "徐州市", "county": "沛县"},
-                    {"name": "SNS00204885", "record_count": 28, "city": "苏州市", "county": "昆山市"},
-                    {"name": "SNS00213891", "record_count": 26, "city": "徐州市", "county": "睢宁县"},
-                ],
+                "entity_resolution_trace": {"confidence_notice": ""},
+                "derived_summary": {
+                    "aggregation": "device",
+                    "severity_items": [
+                        {"name": "SNS00213276", "city": "徐州市", "county": "沛县", "alert_record_count": 30},
+                        {"name": "SNS00204885", "city": "苏州市", "county": "昆山市", "alert_record_count": 30},
+                        {"name": "SNS00213891", "city": "徐州市", "county": "睢宁县", "alert_record_count": 26},
+                    ],
+                },
+                "must_surface_facts": ["徐州市沛县", "苏州市昆山市"],
             },
-            resolved_args={
-                "aggregation": "device",
-                "start_time": "2026-03-15 00:00:00",
-                "end_time": "2026-04-13 23:59:59",
-            },
-            entity_confidence="high",
-            time_source="rule_relative",
-            used_context=False,
-            context_correction=False,
         )
 
         self.assertIn("徐州市沛县", text)
         self.assertIn("苏州市昆山市", text)
         self.assertIn("30 条", text)
         self.assertIn("26 条", text)
+
+    def test_ranking_renderer_mentions_city_context_for_county_ranking(self) -> None:
+        text = self.renderer.render(
+            tool_name="query_soil_ranking",
+            answer_evidence_profile={
+                "entity_name": "全局",
+                "display_focus": "normal",
+                "severity_basis": "alert_record_count",
+                "time_window": {
+                    "start_time": "2026-03-15 00:00:00",
+                    "end_time": "2026-04-13 23:59:59",
+                },
+                "entity_resolution_trace": {"confidence_notice": ""},
+                "derived_summary": {
+                    "aggregation": "county",
+                    "top_n": 2,
+                    "severity_items": [
+                        {"name": "睢宁县", "city": "徐州市", "county": "睢宁县", "alert_record_count": 39},
+                        {"name": "昆山市", "city": "苏州市", "county": "昆山市", "alert_record_count": 37},
+                    ],
+                },
+                "must_surface_facts": ["徐州市睢宁县", "苏州市昆山市"],
+            },
+        )
+
+        self.assertIn("徐州市睢宁县", text)
+        self.assertIn("苏州市昆山市", text)
+        self.assertIn("39 条", text)
+        self.assertIn("37 条", text)
 
 
 if __name__ == "__main__":

@@ -24,8 +24,10 @@ from app.llm.qwen_client import QwenClient
 from app.llm.prompts.system_prompt import build_system_prompt
 from app.llm.tools import get_tool_meta, get_tools_for_llm
 from app.repositories.session_context_repository import SessionContextRepository
+from app.services.answer_contract_resolver_service import AnswerContractResolver
 from app.services.business_answer_renderer import BusinessAnswerRenderer
 from app.services.parameter_resolver_service import ParameterResolverService
+from app.services.soil_evidence_deriver_service import SoilEvidenceDeriverService
 from app.services.time_window_service import TimeWindowService
 from app.services.tool_executor_service import ToolExecutorService, ToolValidationError
 
@@ -54,6 +56,8 @@ class AgentLoopResult:
     time_confidence: str = "high"
     resolver_warnings: list[str] = field(default_factory=list)
     needs_clarify: bool = False
+    answer_evidence_profile: dict[str, Any] = field(default_factory=dict)
+    effective_output_mode: str | None = None
     # TTL awareness: True when turn_id > 1 but history was empty (session expired)
     session_reset: bool = False
 
@@ -77,6 +81,11 @@ class AgentLoopService:
         self.resolver = resolver or ParameterResolverService()
         self.time_window_service = time_window_service or TimeWindowService()
         self.answer_renderer = answer_renderer or BusinessAnswerRenderer()
+        self.answer_contract_resolver = AnswerContractResolver()
+        self.evidence_deriver = SoilEvidenceDeriverService(
+            repository=getattr(tool_executor, "repository", None),
+            contract_resolver=self.answer_contract_resolver,
+        )
 
     async def run(
         self,
@@ -126,6 +135,7 @@ class AgentLoopService:
         all_resolver_warnings: list[str] = []
         last_entity_confidence = "high"
         last_time_confidence = "high"
+        answer_evidence_profile: dict[str, Any] = {}
 
         for _ in range(MAX_TOOL_ITERATIONS):
             response = await self.qwen_client.call_with_tools(
@@ -166,13 +176,17 @@ class AgentLoopService:
                         session_reset=session_reset,
                     )
 
-                rendered_answer = self._render_final_answer(
+                rendered_answer, answer_evidence_profile = await self._render_final_answer(
                     user_input=user_input,
                     tool_calls_made=tool_calls_made,
                     tool_results=tool_results,
                 )
                 if rendered_answer:
                     final_answer = rendered_answer
+                if answer_evidence_profile and query_log_entries:
+                    query_log_entries[0]["query_plan_json"]["display_focus"] = answer_evidence_profile.get("display_focus")
+                    query_log_entries[0]["query_plan_json"]["severity_basis"] = answer_evidence_profile.get("severity_basis")
+                    query_log_entries[0]["query_plan_json"]["confidence_trace"] = answer_evidence_profile.get("entity_resolution_trace")
 
                 await self.history_store.save_message_turn(
                     session_id, turn_id,
@@ -192,6 +206,8 @@ class AgentLoopService:
                     entity_confidence=last_entity_confidence,
                     time_confidence=last_time_confidence,
                     resolver_warnings=all_resolver_warnings,
+                    answer_evidence_profile=answer_evidence_profile,
+                    effective_output_mode=str(answer_evidence_profile.get("display_focus") or "") or None,
                     session_reset=session_reset,
                 )
 
@@ -755,26 +771,33 @@ class AgentLoopService:
             return len(entities) if isinstance(entities, list) else None
         return None
 
-    def _render_final_answer(
+    async def _render_final_answer(
         self,
         *,
         user_input: str,
         tool_calls_made: list[dict[str, Any]],
         tool_results: list[dict[str, Any]],
-    ) -> str | None:
+    ) -> tuple[str | None, dict[str, Any]]:
         if not tool_calls_made or not tool_results:
-            return None
+            return None, {}
         first_call = tool_calls_made[0]
         first_result = tool_results[0]
-        return self.answer_renderer.render(
+        answer_evidence_profile = await self.evidence_deriver.derive(
             tool_name=str(first_call.get("tool_name") or ""),
-            result=first_result,
+            user_input=user_input,
+            raw_result=dict(first_result or {}),
+            raw_args=dict(first_call.get("raw_args") or {}),
             resolved_args=dict(first_call.get("tool_args") or {}),
             entity_confidence=str(first_call.get("entity_confidence") or "high"),
             time_source=first_call.get("time_source"),
             used_context=bool(first_call.get("used_context")),
             context_correction=self._is_context_correction(user_input),
+            resolver_warnings=list(first_call.get("resolver_warnings") or []),
         )
+        return self.answer_renderer.render(
+            tool_name=str(first_call.get("tool_name") or ""),
+            answer_evidence_profile=answer_evidence_profile,
+        ), answer_evidence_profile
 
     @staticmethod
     def _is_context_correction(user_input: str) -> bool:

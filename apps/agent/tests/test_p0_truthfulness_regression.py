@@ -336,3 +336,33 @@ class TestFactCheckBlocking:
         )
         assert result["failed"] is True
         assert result["need_retry"] is False
+
+    def test_missing_must_surface_fact_blocks(self):
+        result = self._SVC.verify(
+            answer_type="soil_summary_answer",
+            answer_bundle={"final_answer": "最近 7 天整体平稳，但局部存在预警。"},
+            query_result={"total_records": 3689},
+            tool_trace=[{"result": {"total_records": 3689}}],
+            answer_facts={
+                "entity_name": "全局",
+                "display_focus": "normal",
+                "must_surface_facts": ["睢宁县", "沛县", "昆山市"],
+            },
+        )
+        assert result["failed"] is True
+        assert result["need_retry"] is True
+
+    def test_warning_focus_requires_warning_fact_visibility(self):
+        result = self._SVC.verify(
+            answer_type="soil_detail_answer",
+            answer_bundle={"final_answer": "南通市今年共有 3811 条记录，整体平稳。"},
+            query_result={"record_count": 3811},
+            tool_trace=[{"result": {"record_count": 3811}}],
+            answer_facts={
+                "entity_name": "南通市",
+                "display_focus": "warning_mode",
+                "must_surface_facts": ["SNS00214096", "154.31"],
+            },
+        )
+        assert result["failed"] is True
+        assert result["need_retry"] is True

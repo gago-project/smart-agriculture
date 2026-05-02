@@ -22,6 +22,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _BUSINESS_ANSWER_TYPES = {"soil_summary_answer", "soil_ranking_answer", "soil_detail_answer"}
+_GENERIC_SCOPE_NAMES = {"全局", "全省", "当前对象"}
 
 _NO_DATA_PATTERN = re.compile(r"(无数据|找不到|没有数据|查不到|不存在|暂无记录)", re.IGNORECASE)
 _NUMBER_PATTERN = re.compile(r"\b(\d{1,3}(?:\.\d{1,2})?)\s*%?")
@@ -76,11 +77,44 @@ class FactCheckService:
 
             facts = answer_facts or {}
             entity_name = str(facts.get("entity_name") or "").strip()
-            if entity_name and entity_name not in final_answer:
+            if entity_name and entity_name not in _GENERIC_SCOPE_NAMES and entity_name not in final_answer:
                 return {
                     "failed": True,
                     "need_retry": True,
                     "fallback_answer": f"回答未提及目标对象「{entity_name}」，已安全降级，请重新提问。",
+                    "warnings": [],
+                }
+
+            must_surface_facts = [str(item).strip() for item in (facts.get("must_surface_facts") or []) if str(item).strip()]
+            missing_must_surface = [item for item in must_surface_facts if item not in final_answer]
+            if missing_must_surface:
+                return {
+                    "failed": True,
+                    "need_retry": True,
+                    "fallback_answer": f"回答缺少关键事实：{', '.join(missing_must_surface)}，已安全降级，请重新提问。",
+                    "warnings": [],
+                }
+
+            display_focus = str(facts.get("display_focus") or "").strip()
+            if display_focus == "warning_mode" and not any(token in final_answer for token in ("预警", "涝渍", "重旱", "设备故障")):
+                return {
+                    "failed": True,
+                    "need_retry": True,
+                    "fallback_answer": "回答没有按预警视角呈现关键事实，已安全降级，请重新提问。",
+                    "warnings": [],
+                }
+            if display_focus == "anomaly_focus" and not any(token in final_answer for token in ("异常", "重点关注", "涝渍", "重旱", "设备故障")):
+                return {
+                    "failed": True,
+                    "need_retry": True,
+                    "fallback_answer": "回答没有按异常视角呈现关键事实，已安全降级，请重新提问。",
+                    "warnings": [],
+                }
+            if display_focus == "advice_mode" and not any(token in final_answer for token in ("建议", "注意", "恢复", "巡检")):
+                return {
+                    "failed": True,
+                    "need_retry": True,
+                    "fallback_answer": "回答没有按建议视角呈现关键事实，已安全降级，请重新提问。",
                     "warnings": [],
                 }
 

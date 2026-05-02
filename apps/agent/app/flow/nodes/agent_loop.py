@@ -183,7 +183,7 @@ class AgentLoopNode(BaseNode):
         if result.tool_calls_made and patch.get("answer_type") != "fallback_answer":
             first_args = result.tool_calls_made[0].get("tool_args", {})
             first_result = result.tool_results[0] if result.tool_results else {}
-            output_mode = first_result.get("output_mode") or first_args.get("output_mode")
+            output_mode = result.effective_output_mode or first_result.get("output_mode") or first_args.get("output_mode")
             if output_mode:
                 patch["output_mode"] = output_mode
 
@@ -208,7 +208,9 @@ class AgentLoopNode(BaseNode):
         ]
 
         # answer_facts: structured evidence from tool results
-        if result.tool_results:
+        if result.answer_evidence_profile:
+            patch["answer_facts"] = result.answer_evidence_profile
+        elif result.tool_results:
             first_result = dict(result.tool_results[0])
             first_call = result.tool_calls_made[0] if result.tool_calls_made else {}
             if result.tool_calls_made and result.tool_calls_made[0].get("tool_name") == "query_soil_comparison":

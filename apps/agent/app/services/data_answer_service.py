@@ -3755,6 +3755,7 @@ class DataAnswerService:
         final_text = self._render_detail_text(
             label,
             time_window,
+            metrics,
             latest_record,
             resolution_meta["entity_confidence"],
             resolved_entities,
@@ -4843,19 +4844,39 @@ class DataAnswerService:
     def _render_detail_text(
         label: str,
         time_window: dict[str, Any],
+        metrics: dict[str, Any],
         latest_record: dict[str, Any],
         entity_confidence: str,
         resolved_entities: list[dict[str, Any]],
     ) -> str:
-        water20 = latest_record.get("water20cm")
-        location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
-        latest_time = str(latest_record.get("create_time") or latest_record.get("latest_create_time") or "暂无")
-        text = (
-            f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的最新详情如下："
-            f"最近一条记录时间为 {latest_time}，"
-            f"{f'位于 {location}，' if location else ''}"
-            f"20cm含水量 {water20}%。"
+        latest_time = str(
+            metrics.get("latest_create_time")
+            or latest_record.get("create_time")
+            or latest_record.get("latest_create_time")
+            or "暂无"
         )
+        avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
+        window_start = str(time_window.get("start_time") or "")[:10]
+        window_end = str(time_window.get("end_time") or "")[:10]
+        if window_start and window_end:
+            text = (
+                f"{label}{window_start}至{window_end}的详情如下："
+                f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
+                f"涉及 {int(metrics.get('device_count') or 0)} 个点位，"
+                f"20cm平均相对含水量约 {avg_text}，"
+                f"最新记录时间为 {latest_time}。"
+            )
+        else:
+            text = (
+                f"{label}的详情如下："
+                f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
+                f"涉及 {int(metrics.get('device_count') or 0)} 个点位，"
+                f"20cm平均相对含水量约 {avg_text}，"
+                f"最新记录时间为 {latest_time}。"
+            )
+        latest_brief = DataAnswerService._latest_record_brief(latest_record)
+        if latest_brief and latest_brief != "暂无更多原始字段信息":
+            text += f" 可参考监测字段：{latest_brief}。"
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
         return text

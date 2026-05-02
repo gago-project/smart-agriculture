@@ -644,6 +644,56 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["guidance_reason"], "clarification")
         self.assertIn("过期", reply["final_text"])
 
+    async def test_group_follow_up_region_detail_keeps_time_window_detail_instead_of_latest_only(self) -> None:
+        self.repository.extra_region_aliases.extend(
+            [
+                {
+                    "alias_name": "仪征",
+                    "canonical_name": "仪征市",
+                    "region_level": "county",
+                    "parent_city_name": "扬州市",
+                    "alias_source": "seed",
+                },
+                {
+                    "alias_name": "仪征市",
+                    "canonical_name": "仪征市",
+                    "region_level": "county",
+                    "parent_city_name": "扬州市",
+                    "alias_source": "canonical",
+                },
+            ]
+        )
+        summary = await self.service.reply(
+            message="江苏上周墒情情况",
+            session_id="group-region-detail-window",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        grouped = await self.service.reply(
+            message=f"{summary['blocks'][0]['metrics']['region_count']}个地区详情",
+            session_id="group-region-detail-window",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        detail = await self.service.reply(
+            message="仪征详情",
+            session_id="group-region-detail-window",
+            turn_id=3,
+            current_context=grouped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(detail["answer_kind"], "business")
+        self.assertEqual(detail["capability"], "detail")
+        self.assertEqual(detail["blocks"][0]["block_type"], "detail_card")
+        self.assertIn("仪征市2026-04-06至2026-04-12", detail["final_text"])
+        self.assertNotIn("最新详情如下", detail["final_text"])
+        self.assertNotIn("最近一条记录时间为", detail["final_text"])
+
     async def test_summary_result_ref_detail_still_beats_action_target_expand(self) -> None:
         summary = await self.service.reply(
             message="最近墒情怎么样",
