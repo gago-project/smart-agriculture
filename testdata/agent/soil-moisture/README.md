@@ -6,6 +6,10 @@
 
 - `testdata/agent/soil-moisture/case-library.md`
 
+## 真实问答资产
+
+- `testdata/agent/soil-moisture/real-conversations/README.md`
+
 ## 快速回归入口
 
 - `apps/agent/tests/test_turn_route_decision_service_unittest.py`
@@ -37,6 +41,13 @@
 - 正式 Case 编号统一使用 `SM-*` 体系
 - 正式 Case 的新增、删减、修订只改 `case-library.md`
 - 真实问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，而不是直接扩正式 56 条
+- 真实用户问法和失败回归单独沉淀到 `real-conversations/`，不要挤进正式 56 条
+
+## 推荐的三层 QA 模型
+
+- `core-gate`：56 条正式 Case，负责硬门禁
+- `real-conversations`：真实问答资产，负责覆盖自然问法和追问链
+- `failure-regressions`：失败样本回归，负责锁住已知翻车点
 
 ## Case 设计要求
 
