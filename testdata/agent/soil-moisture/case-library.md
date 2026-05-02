@@ -1,6 +1,6 @@
 # 墒情 Agent Case Library（56 条正式验收 Case）
 
-> **架构版本**：LLM + Function Calling 5 节点（`InputGuard → AgentLoop → DataFactCheck → AnswerVerify → FallbackGuard`）。
+> **架构版本**：deterministic `/chat-v2` 数据回答链路（`InputGuard → RouteDecision → QueryProfile/ParameterResolver → DataAnswerService → QueryLog`）。
 >  
 > **唯一正式入口**：本文件是当前 `soil-moisture` Agent 的唯一正式验收库。所有正式 Case 的新增、删减、修订都只改这里。
 >
@@ -16,7 +16,7 @@
 > - "今天 / 现在 / 最近 13 天 / 近 2 周 / 近 3 月 / 过去 21 天 / 两周 / 三个月 / 上周 / 本月 / 上个月 / 去年" 等所有相对时间，均以该锚点展开为绝对时间窗。
 > - 当种子数据 `apps/agent/db/migrations/002_insert_data.sql` 推进到新的最新业务时间时，必须重新生成本库所有时间窗、record_count、alert_count 等数值，并把锚点同步刷新到本节。
 >
-> **当前实现枚举对齐**（参考 `apps/agent/app/schemas/enums.py`）：
+> **当前 QA 语义枚举**（用于正式验收分类，不再要求运行时逐字段原样返回）：
 > - `InputType`：`business_direct / business_colloquial / conversation_closing / greeting / capability_question / meaningless_input / ambiguous_low_confidence / out_of_domain`
 > - `AnswerType`：`soil_summary_answer / soil_ranking_answer / soil_detail_answer / guidance_answer / fallback_answer`
 > - `OutputMode`：`normal / anomaly_focus / warning_mode / advice_mode`
@@ -26,12 +26,12 @@
 >
 > **Tool 字段填写规范**：
 > - `预期 Tool` 字段必须是纯枚举值（具体 tool 名 或 `无`），不得夹带解释文本。
-> - 解释信息（被哪一层拦截、为何不调用 Tool）放入 `预期拦截层` 字段，取值如下：
+> - 解释信息（被哪一层拦截、为何不调用 Tool）放入 `预期拦截层` 字段，作为 QA 标签使用，取值如下：
 >   - `none`：正常路径或非业务路径，不存在拦截。
->   - `resolver`：被 `ParameterResolverService` 拦截（`entity_confidence=low` / 非法字符 / time 解析失败）。
->   - `agent_loop`：被 `AgentLoopService` 的 P0 红线拦截（业务问题但 `tool_trace=[]`）。
->   - `fact_check`：被 `DataFactCheckService` / `AnswerVerifyService` 拦截（数值或语义不一致）。
->   - `fallback_guard`：被 `FallbackGuardService` 兜底（空数据 / Tool 异常 / 未分类异常）。
+>   - `resolver`：参数解析或实体识别阶段拦截（如 `entity_confidence=low` / 非法字符 / time 解析失败）。
+>   - `agent_loop`：查询前业务契约拦截，含“业务问题但没有有效查询执行”的场景；这里保留旧标签名，但不再对应具体代码类。
+>   - `fact_check`：回答与真实查询结果冲突，被一致性校验拦截；这里保留旧标签名，但不再对应具体代码类。
+>   - `fallback_guard`：统一 fallback 降级封装（空数据 / Tool 异常 / 未分类异常）；这里保留旧标签名，但不再对应具体代码类。
 > - 仅 `SM-FB-xxx` 系列必须显式填写 `预期拦截层`；其他业务 / guidance case 默认 `none`。
 
 ## Case 分布
@@ -1361,9 +1361,9 @@
 - `预期 guidance_reason`：`无`
 - `预期 fallback_reason`：`tool_missing`
 - `是否写查询日志`：否
-- `关键断言`：AgentLoop 检测到 tool_trace 为空但 input_type 为业务类时必须触发 tool_missing fallback
+- `关键断言`：查询前业务契约检测到业务问题未形成有效查询执行时，必须触发 tool_missing fallback
 - `结构化证据断言`：`tool_trace=[]`；`fallback_reason=tool_missing`
-- `数据库校验断言`：不查库；验证 AgentLoop 的 P0 检查优先于答案生成
+- `数据库校验断言`：不查库；验证查询前 P0 契约检查优先于答案生成
 - `预期诊断类别`：`tool_missing`
 - `必含事实`：`必须查询真实数据`
 - `禁止事实`：`平稳` 或 `正常` 等业务结论（无数据支持）
@@ -1415,21 +1415,21 @@
 - `是否写查询日志`：是（必须记录失败原因，便于复盘）
 - `关键断言`：Tool 调用失败时必须降级为 fallback，绝不得编造业务结论；错误说明须中性，不得回显技术堆栈或 SQL
 - `结构化证据断言`：`tool_trace[0].tool_name=query_soil_summary`；`tool_trace[0].status=blocked`；`query_result.entries[0].error_code=TOOL_BLOCKED`；`fallback_reason=tool_blocked`
-- `数据库校验断言`：模拟 `query_soil_summary` 调用失败（DB 不可用 / 限流 / 权限拒绝），验证 `FallbackGuard` 捕获并降级；`agent_query_log` 应写入 `status=blocked` 与失败原因
+- `数据库校验断言`：模拟 `query_soil_summary` 调用失败（DB 不可用 / 限流 / 权限拒绝），验证统一 fallback 降级路径会返回 `tool_blocked`；`agent_query_log` 应写入 `status=blocked` 与失败原因
 - `预期实体`：`南通市`
 - `预期时间窗`：`2026-04-07 00:00:00 ~ 2026-04-13 23:59:59`
 - `预期诊断类别`：`tool_blocked`
 - `必含事实`：`服务暂时不可用`、`稍后重试`
 - `禁止事实`：`南通市近7天平稳` 这类未拿到数据的业务结论；`MySQL connection refused`、`Timeout` 等技术细节回显
 - `是否符合事实`：`是`
-- `备注`：tool_blocked fallback 样例（FallbackGuard 兜底验证；与 SM-FB-003 / SM-FB-006 tool_missing 互补，构成 P0 红线两面）
+- `备注`：tool_blocked fallback 样例（统一 fallback 降级验证；与 SM-FB-003 / SM-FB-006 tool_missing 互补）
 
 ### SM-FB-009
 
 - `CaseID`：`SM-FB-009`
 - `用户问题`：南通市最近 7 天怎么样（模拟 LLM 输出非法 JSON / 工具返回结构异常 / 未捕获异常）
 - `当前回答`：抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试或换一种问法。系统已自动记录此次异常以便复盘。
-- `上下文`：AgentLoop / FactCheck / 工具反序列化阶段抛出未分类异常，已知 5 类 fallback_reason 都不匹配
+- `上下文`：查询规划、结果组装或工具反序列化阶段抛出未分类异常，已知 5 类 fallback_reason 都不匹配
 - `预期 input_type`：`business_direct`
 - `是否域内业务问题`：是
 - `是否必须命中 Tool`：是
@@ -1442,7 +1442,7 @@
 - `是否写查询日志`：是（应记录异常类型与 stacktrace 摘要，但不向用户回显）
 - `关键断言`：任何未分类异常必须降级为 unknown，不得直接抛错给用户；不得回显 stacktrace 或内部错误名
 - `结构化证据断言`：`fallback_reason=unknown`；`tool_trace[0].status=error` 或 `query_result.entries[0].error_code=UNKNOWN`；`agent_query_log.status=error`
-- `数据库校验断言`：模拟 AgentLoop 或 FactCheck 阶段抛出未捕获异常，验证 `FallbackGuard` 兜底捕获并返回 unknown；`agent_query_log` 应记录异常类型摘要
+- `数据库校验断言`：模拟查询规划或结果校验阶段抛出未捕获异常，验证统一 fallback 降级会返回 unknown；`agent_query_log` 应记录异常类型摘要
 - `预期实体`：`南通市`
 - `预期时间窗`：`2026-04-07 00:00:00 ~ 2026-04-13 23:59:59`
 - `预期诊断类别`：`unknown`

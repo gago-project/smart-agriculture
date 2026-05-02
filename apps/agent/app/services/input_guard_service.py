@@ -4,10 +4,10 @@
 明显越界话题、信息过少的模糊请求、无意义乱敲等直接走终止态并给出固定话术；
 只有通过守卫的输入才 `allow_business_flow=True` 进入后续节点链。
 
-分类策略（P1-7）：
+分类策略：
 - 高确定性规则（问候/越界/结束语/无意义）→ 同步，不走 LLM
 - 低确定性（business_colloquial）→ 仍放行进业务流程，
-  由 AgentLoopNode 按需调用 SemanticParserService 做指代消解
+  由后续 deterministic 解析链按需做指代消解与参数补全
 - 超时降级：不拦截合法请求
 """
 
@@ -25,7 +25,7 @@ def _contains_chinese(text: str) -> bool:
 
 @dataclass(frozen=True)
 class InputGuardResult:
-    """输入守卫的结构化输出，供 `InputGuardNode` 写入状态并决定路由。
+    """输入守卫的结构化输出，供数据回答服务决定后续路由。
 
     Attributes:
         allow_business_flow: 是否允许进入后续业务 Flow（查库、意图抽取等）。
@@ -46,11 +46,11 @@ class InputGuardResult:
 
 
 class InputGuardService:
-    """将用户原始输入分为「可进业务 Flow」与「守卫终止」两类。
+    """将用户原始输入分为「可进业务流程」与「守卫终止」两类。
 
     采用轻量规则与集合匹配，优先拦截低成本误触与越界，避免无意义请求触发
-    数据库与 LLM 链；对仍属墒情域但表述口语、过短的句子标记为 colloquial，
-    交给后续节点补全上下文。
+    数据库访问与后续解析链；对仍属墒情域但表述口语、过短的句子标记为
+    colloquial，交给后续服务补全上下文。
     """
 
     # 仅拉丁字母、空白与少量标点（如 "h d k j h"）：视为乱敲，不按墒情摘要硬答。

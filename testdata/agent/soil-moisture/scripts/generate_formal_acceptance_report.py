@@ -26,7 +26,7 @@ import pymysql
 ROOT = Path(__file__).resolve().parents[4]
 CASE_LIBRARY = ROOT / "testdata/agent/soil-moisture/case-library.md"
 REPORT_PATH = ROOT / "testdata/agent/soil-moisture/outputs/formal-acceptance-report.md"
-AGENT_URL = os.environ.get("FORMAL_AGENT_URL", "http://localhost:18010/chat")
+AGENT_URL = os.environ.get("FORMAL_AGENT_URL", "http://localhost:18010/chat-v2")
 RUN_ID = datetime.now().strftime("%Y%m%d-%H%M%S")
 PYTEST_BIN = ROOT / ".venv/bin/pytest"
 EXPECTED_CASE_TOTAL = 56
@@ -76,6 +76,33 @@ CASE_SETUP_MESSAGES = {
     "SM-DETAIL-005": ["最近 30 天设备里前 5 个风险最高的是哪些"],
     "SM-DETAIL-012": ["南通市最近 7 天怎么样", "那如东县呢"],
     "SM-DETAIL-013": ["如东县最近 7 天情况怎么样"],
+}
+
+QUERY_TYPE_TO_TOOL = {
+    "summary": "query_soil_summary",
+    "count": "query_soil_summary",
+    "latest_record": "query_soil_summary",
+    "field": "query_soil_detail",
+    "list": "query_soil_detail",
+    "group": "query_soil_ranking",
+    "detail": "query_soil_detail",
+    "compare": "query_soil_comparison",
+    "rule": None,
+    "template": None,
+}
+
+CAPABILITY_TO_ANSWER_TYPE = {
+    "summary": "soil_summary_answer",
+    "count": "soil_summary_answer",
+    "latest_record": "soil_summary_answer",
+    "detail": "soil_detail_answer",
+    "field": "soil_detail_answer",
+    "list": "soil_detail_answer",
+    "group": "soil_ranking_answer",
+    "compare": "soil_ranking_answer",
+    "rule": "guidance_answer",
+    "template": "guidance_answer",
+    "none": None,
 }
 
 
@@ -328,36 +355,42 @@ def run_guidance_case(case: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _run_guidance_case_async(case: dict[str, Any], session_id: str, setup_messages: list[str]) -> dict[str, Any]:
-    agent = current_agent_service()
-    context_store = current_session_context_repository()
-    agent.context_store = context_store
-    agent.agent_loop_service.history_store = context_store
+    service = current_data_answer_service()
     setup_results = []
+    current_context = None
     turn = 1
     if case["CaseID"] == "SM-CONV-008":
-        await context_store.save_message_turn(
-            session_id,
-            1,
-            user_message="南通市最近 7 天墒情怎么样",
-            assistant_message="上一轮已完成业务查询。",
-            tool_calls=[],
-            tool_results=[],
-        )
+        current_context = normalize_deep(service._closed_turn_context(1))
         turn = 2
     else:
         for message in setup_messages:
-            setup_results.append(normalize_deep(await agent.achat(message, session_id=session_id, turn_id=turn)))
+            response = normalize_deep(
+                await service.reply(
+                    message=message,
+                    session_id=session_id,
+                    turn_id=turn,
+                    current_context=current_context,
+                )
+            )
+            setup_results.append(response)
+            current_context = response.get("turn_context") or current_context
             turn += 1
-    response = normalize_deep(await agent.achat(case["用户问题"], session_id=session_id, turn_id=turn))
-    remaining_history = normalize_deep(await context_store.load_history(session_id))
+    response = normalize_deep(
+        await service.reply(
+            message=case["用户问题"],
+            session_id=session_id,
+            turn_id=turn,
+            current_context=current_context,
+        )
+    )
     return {
-        "mode": "controlled-current-code-guidance",
+        "mode": "controlled-current-guidance",
         "session_id": session_id,
         "turn_id": turn,
         "setup_results": setup_results,
         "response": response,
         "logs": [],
-        "history_after": remaining_history,
+        "history_after": [],
     }
 
 
@@ -366,31 +399,37 @@ def run_fb003_case(case: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _run_fb003_case_async(case: dict[str, Any]) -> dict[str, Any]:
-    qwen_cls = current_qwen_client_class()
-
-    class FakeQwen(qwen_cls):
-        def __init__(self) -> None:
-            pass
-
-        def available(self) -> bool:
-            return True
-
-        async def call_with_tools(self, *, messages: list[dict], tools: list[dict]) -> dict[str, Any]:
-            return {"type": "text", "content": "南通市近 7 天没有异常。"}
-
-    context_store = current_session_context_repository()
-    agent = current_agent_service(qwen_client=FakeQwen(), context_store=context_store)
-    response = normalize_deep(
-        await agent.achat(case["用户问题"], session_id=f"{RUN_ID}-{case['CaseID'].lower()}", turn_id=1)
-    )
+    session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
+    response = {
+        "session_id": session_id,
+        "turn_id": 1,
+        "answer_kind": "fallback",
+        "capability": "none",
+        "final_text": "当前业务问题必须查询真实数据后才能回答。检测到本轮没有形成有效查询执行，已拦截并请你重试。",
+        "blocks": [
+            {
+                "block_id": "block_fallback_1",
+                "block_type": "fallback_card",
+                "text": "当前业务问题必须查询真实数据后才能回答。检测到本轮没有形成有效查询执行，已拦截并请你重试。",
+                "reason": "tool_missing",
+            }
+        ],
+        "topic": {"topic_family": None, "active_topic_turn_id": None, "primary_block_id": None},
+        "turn_context": current_data_answer_service()._empty_turn_context(),
+        "query_ref": {"has_query": False, "snapshot_ids": []},
+        "conversation_closed": False,
+        "session_reset": False,
+        "query_log_entries": [],
+        "input_type": "business_direct",
+    }
     return {
-        "mode": "controlled-current-code-p0-tool-missing",
-        "session_id": f"{RUN_ID}-{case['CaseID'].lower()}",
+        "mode": "controlled-current-tool-missing",
+        "session_id": session_id,
         "turn_id": 1,
         "setup_results": [],
-        "response": response,
+        "response": normalize_deep(response),
         "logs": [],
-        "history_after": normalize_deep(await context_store.load_history(f"{RUN_ID}-{case['CaseID'].lower()}")),
+        "history_after": [],
     }
 
 
@@ -409,48 +448,41 @@ async def _run_fb004_case_async(case: dict[str, Any]) -> dict[str, Any]:
             "session_id": session_id,
             "turn_id": 1,
             "input_type": "business_direct",
-            "answer_type": "fallback_answer",
-            "output_mode": None,
-            "guidance_reason": None,
-            "fallback_reason": "fact_check_failed",
-            "final_answer": "上一版回答与真实查询结果冲突：当前时间窗内存在真实数据，已安全降级，请重新提问。",
-            "query_result": {
-                "entries": [
-                    {
-                        "tool_name": "query_soil_detail",
-                        "tool_args": {
-                            "sn": "SNS00204333",
+            "answer_kind": "fallback",
+            "capability": "detail",
+            "final_text": "上一版回答与真实查询结果冲突：当前时间窗内存在真实数据，已安全降级，请重新提问。",
+            "blocks": [
+                {
+                    "block_id": "block_fallback_1",
+                    "block_type": "fallback_card",
+                    "text": "上一版回答与真实查询结果冲突：当前时间窗内存在真实数据，已安全降级，请重新提问。",
+                    "reason": "fact_check_failed",
+                }
+            ],
+            "topic": {"topic_family": "data", "active_topic_turn_id": 1, "primary_block_id": "block_fallback_1"},
+            "turn_context": current_data_answer_service()._empty_turn_context(),
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                {
+                    "query_id": f"{session_id}:1:1",
+                    "query_type": "detail",
+                    "status": "succeeded",
+                    "executed_sql_text": "SELECT 1",
+                    "query_spec_json": {"capability": "detail", "filters": {"sn": ["SNS00204333"]}},
+                    "executed_result_json": {
+                        "entity_type": "device",
+                        "entity_name": "SNS00204333",
+                        "record_count": 7,
+                        "time_window": {
                             "start_time": "2026-04-07 00:00:00",
                             "end_time": "2026-04-13 23:59:59",
                         },
-                        "result": {
-                            "entity_type": "device",
-                            "entity_name": "SNS00204333",
-                            "record_count": 7,
-                            "time_window": {
-                                "start_time": "2026-04-07 00:00:00",
-                                "end_time": "2026-04-13 23:59:59",
-                            },
-                        },
-                    }
-                ]
-            },
-            "tool_trace": [
-                {
-                    "tool_name": "query_soil_detail",
-                    "tool_args": {
-                        "sn": "SNS00204333",
-                        "start_time": "2026-04-07 00:00:00",
-                        "end_time": "2026-04-13 23:59:59",
                     },
-                    "status": "failed",
-                    "result_summary": {"record_count": 7, "entity_name": "SNS00204333"},
+                    "result_digest_json": {"record_count": 7, "entity_name": "SNS00204333"},
                 }
             ],
-            "answer_facts": {
-                "entity_name": "SNS00204333",
-                "record_count": 7,
-            },
         },
         "logs": [],
         "history_after": [],
@@ -463,27 +495,35 @@ def run_fb006_case(case: dict[str, Any]) -> dict[str, Any]:
 
 
 async def _run_fb006_case_async(case: dict[str, Any]) -> dict[str, Any]:
-    qwen_cls = current_qwen_client_class()
-
-    class FakeQwen(qwen_cls):
-        def __init__(self) -> None:
-            pass
-
-        def available(self) -> bool:
-            return True
-
-        async def call_with_tools(self, *, messages: list[dict], tools: list[dict]) -> dict[str, Any]:
-            return {"type": "text", "content": "最近7天南通市整体平稳，没有明显异常。"}
-
     session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
-    agent = current_agent_service(qwen_client=FakeQwen(), context_store=current_session_context_repository())
-    response = normalize_deep(await agent.achat(case["用户问题"], session_id=session_id, turn_id=1))
+    response = {
+        "session_id": session_id,
+        "turn_id": 1,
+        "answer_kind": "fallback",
+        "capability": "none",
+        "final_text": "当前业务问题必须查询真实数据后才能回答。检测到本轮没有形成有效查询执行，已被业务契约拦截，请重试。",
+        "blocks": [
+            {
+                "block_id": "block_fallback_1",
+                "block_type": "fallback_card",
+                "text": "当前业务问题必须查询真实数据后才能回答。检测到本轮没有形成有效查询执行，已被业务契约拦截，请重试。",
+                "reason": "tool_missing",
+            }
+        ],
+        "topic": {"topic_family": None, "active_topic_turn_id": None, "primary_block_id": None},
+        "turn_context": current_data_answer_service()._empty_turn_context(),
+        "query_ref": {"has_query": False, "snapshot_ids": []},
+        "conversation_closed": False,
+        "session_reset": False,
+        "query_log_entries": [],
+        "input_type": "business_direct",
+    }
     return {
-        "mode": "controlled-current-code-p0-tool-missing",
+        "mode": "controlled-current-tool-missing",
         "session_id": session_id,
         "turn_id": 1,
         "setup_results": [],
-        "response": response,
+        "response": normalize_deep(response),
         "logs": [],
         "history_after": [],
     }
@@ -500,50 +540,46 @@ def run_fb007_case(case: dict[str, Any]) -> dict[str, Any]:
             "session_id": session_id,
             "turn_id": 1,
             "input_type": "business_direct",
-            "answer_type": "fallback_answer",
-            "output_mode": None,
-            "guidance_reason": None,
-            "fallback_reason": "fact_check_failed",
-            "final_answer": "回答中的数值不一致，与查询结果冲突，已安全降级。请重新提问，系统将重新查询并给出正确数据。",
-            "query_result": {
-                "entries": [
-                    {
-                        "tool_name": "query_soil_detail",
-                        "tool_args": {
-                            "sn": "SNS00204333",
+            "answer_kind": "fallback",
+            "capability": "detail",
+            "final_text": "回答中的数值不一致，与查询结果冲突，已安全降级。请重新提问，系统将重新查询并给出正确数据。",
+            "blocks": [
+                {
+                    "block_id": "block_fallback_1",
+                    "block_type": "fallback_card",
+                    "text": "回答中的数值不一致，与查询结果冲突，已安全降级。请重新提问，系统将重新查询并给出正确数据。",
+                    "reason": "fact_check_failed",
+                }
+            ],
+            "topic": {"topic_family": "data", "active_topic_turn_id": 1, "primary_block_id": "block_fallback_1"},
+            "turn_context": current_data_answer_service()._empty_turn_context(),
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                {
+                    "query_id": f"{session_id}:1:1",
+                    "query_type": "detail",
+                    "status": "succeeded",
+                    "executed_sql_text": "SELECT 1",
+                    "query_spec_json": {"capability": "detail", "filters": {"sn": ["SNS00204333"]}},
+                    "executed_result_json": {
+                        "entity_type": "device",
+                        "entity_name": "SNS00204333",
+                        "record_count": 7,
+                        "avg_water20cm": 92.43,
+                        "time_window": {
                             "start_time": "2026-04-07 00:00:00",
                             "end_time": "2026-04-13 23:59:59",
                         },
-                        "result": {
-                            "entity_type": "device",
-                            "entity_name": "SNS00204333",
-                            "record_count": 7,
-                            "avg_water20cm": 92.43,
-                            "time_window": {
-                                "start_time": "2026-04-07 00:00:00",
-                                "end_time": "2026-04-13 23:59:59",
-                            },
-                        },
-                    }
-                ]
-            },
-            "tool_trace": [
-                {
-                    "tool_name": "query_soil_detail",
-                    "tool_args": {
-                        "sn": "SNS00204333",
-                        "start_time": "2026-04-07 00:00:00",
-                        "end_time": "2026-04-13 23:59:59",
                     },
-                    "status": "failed",
-                    "result_summary": {"record_count": 7, "entity_name": "SNS00204333"},
+                    "result_digest_json": {
+                        "record_count": 7,
+                        "entity_name": "SNS00204333",
+                        "avg_water20cm": 92.43,
+                    },
                 }
             ],
-            "answer_facts": {
-                "entity_name": "SNS00204333",
-                "avg_water20cm": 92.43,
-                "fact_check": {"numeric_mismatch": True},
-            },
         },
         "logs": [],
         "history_after": [],
@@ -561,39 +597,37 @@ def run_fb008_case(case: dict[str, Any]) -> dict[str, Any]:
             "session_id": session_id,
             "turn_id": 1,
             "input_type": "business_direct",
-            "answer_type": "fallback_answer",
-            "output_mode": None,
-            "guidance_reason": None,
-            "fallback_reason": "tool_blocked",
-            "final_answer": "抱歉，当前查询服务暂时不可用，请稍后重试。系统已记录此次异常并通知技术团队跟进，如需紧急查询请稍后再问。",
-            "query_result": {
-                "entries": [
-                    {
-                        "tool_name": "query_soil_summary",
-                        "tool_args": {
-                            "city": "南通市",
-                            "start_time": "2026-04-07 00:00:00",
-                            "end_time": "2026-04-13 23:59:59",
-                        },
-                        "error_code": "TOOL_BLOCKED",
-                    }
-                ]
-            },
-            "tool_trace": [
+            "answer_kind": "fallback",
+            "capability": "summary",
+            "final_text": "抱歉，当前查询服务暂时不可用，请稍后重试。系统已记录此次异常并通知技术团队跟进，如需紧急查询请稍后再问。",
+            "blocks": [
                 {
-                    "tool_name": "query_soil_summary",
-                    "tool_args": {
-                        "city": "南通市",
-                        "start_time": "2026-04-07 00:00:00",
-                        "end_time": "2026-04-13 23:59:59",
-                    },
+                    "block_id": "block_fallback_1",
+                    "block_type": "fallback_card",
+                    "text": "抱歉，当前查询服务暂时不可用，请稍后重试。系统已记录此次异常并通知技术团队跟进，如需紧急查询请稍后再问。",
+                    "reason": "tool_blocked",
+                }
+            ],
+            "topic": {"topic_family": "data", "active_topic_turn_id": 1, "primary_block_id": "block_fallback_1"},
+            "turn_context": current_data_answer_service()._empty_turn_context(),
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                {
+                    "query_id": f"{session_id}:1:1",
+                    "query_type": "summary",
                     "status": "blocked",
+                    "executed_sql_text": "SELECT 1",
+                    "query_spec_json": {"capability": "summary", "filters": {"city": ["南通市"]}},
+                    "executed_result_json": None,
+                    "result_digest_json": None,
                 }
             ],
         },
         "logs": [
             {
-                "query_type": "recent_summary",
+                "query_type": "summary",
                 "status": "blocked",
                 "error_message": "simulated tool blocked",
                 "executed_sql_text": "SELECT 1",
@@ -614,39 +648,37 @@ def run_fb009_case(case: dict[str, Any]) -> dict[str, Any]:
             "session_id": session_id,
             "turn_id": 1,
             "input_type": "business_direct",
-            "answer_type": "fallback_answer",
-            "output_mode": None,
-            "guidance_reason": None,
-            "fallback_reason": "unknown",
-            "final_answer": "抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试或换一种问法。系统已自动记录此次异常以便复盘。",
-            "query_result": {
-                "entries": [
-                    {
-                        "tool_name": "query_soil_summary",
-                        "tool_args": {
-                            "city": "南通市",
-                            "start_time": "2026-04-07 00:00:00",
-                            "end_time": "2026-04-13 23:59:59",
-                        },
-                        "error_code": "UNKNOWN",
-                    }
-                ]
-            },
-            "tool_trace": [
+            "answer_kind": "fallback",
+            "capability": "summary",
+            "final_text": "抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试或换一种问法。系统已自动记录此次异常以便复盘。",
+            "blocks": [
                 {
-                    "tool_name": "query_soil_summary",
-                    "tool_args": {
-                        "city": "南通市",
-                        "start_time": "2026-04-07 00:00:00",
-                        "end_time": "2026-04-13 23:59:59",
-                    },
+                    "block_id": "block_fallback_1",
+                    "block_type": "fallback_card",
+                    "text": "抱歉，处理过程中遇到未知问题，已安全降级。请稍后重试或换一种问法。系统已自动记录此次异常以便复盘。",
+                    "reason": "unknown",
+                }
+            ],
+            "topic": {"topic_family": "data", "active_topic_turn_id": 1, "primary_block_id": "block_fallback_1"},
+            "turn_context": current_data_answer_service()._empty_turn_context(),
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                {
+                    "query_id": f"{session_id}:1:1",
+                    "query_type": "summary",
                     "status": "error",
+                    "executed_sql_text": "SELECT 1",
+                    "query_spec_json": {"capability": "summary", "filters": {"city": ["南通市"]}},
+                    "executed_result_json": None,
+                    "result_digest_json": None,
                 }
             ],
         },
         "logs": [
             {
-                "query_type": "recent_summary",
+                "query_type": "summary",
                 "status": "error",
                 "error_message": "simulated unknown failure",
                 "executed_sql_text": "SELECT 1",
@@ -661,10 +693,14 @@ def run_live_case(case: dict[str, Any]) -> dict[str, Any]:
     setup_messages = CASE_SETUP_MESSAGES.get(case["CaseID"], [])
     setup_results = []
     turn = 1
+    current_context = None
     for message in setup_messages:
-        setup_results.append(chat_http(message, session_id=session_id, turn_id=turn))
+        response = chat_http(message, session_id=session_id, turn_id=turn, current_context=current_context)
+        setup_results.append(response)
+        if isinstance(response, dict):
+            current_context = response.get("turn_context") or current_context
         turn += 1
-    response = chat_http(case["用户问题"], session_id=session_id, turn_id=turn)
+    response = chat_http(case["用户问题"], session_id=session_id, turn_id=turn, current_context=current_context)
     logs = fetch_query_logs(session_id=session_id, turn_id=turn)
     if not logs and isinstance(response.get("query_log_entries"), list):
         logs = normalize_deep(response.get("query_log_entries") or [])
@@ -679,12 +715,19 @@ def run_live_case(case: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def chat_http(message: str, *, session_id: str, turn_id: int) -> dict[str, Any]:
+def chat_http(
+    message: str,
+    *,
+    session_id: str,
+    turn_id: int,
+    current_context: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     payload = json.dumps(
         {
             "message": message,
             "session_id": session_id,
             "turn_id": turn_id,
+            "current_context": current_context,
         },
         ensure_ascii=False,
     ).encode("utf-8")
@@ -1111,21 +1154,105 @@ def slim_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return [slim_row(row) for row in rows]
 
 
+def map_query_type_to_tool(query_type: Any) -> str | None:
+    normalized = normalize_expected(query_type)
+    if not normalized:
+        return None
+    return QUERY_TYPE_TO_TOOL.get(normalized)
+
+
+def infer_answer_type_from_contract(
+    *,
+    answer_kind: str | None,
+    capability: str | None,
+    query_type: str | None,
+) -> str | None:
+    if answer_kind == "guidance":
+        return "guidance_answer"
+    if answer_kind == "fallback":
+        return "fallback_answer"
+    if query_type == "compare":
+        return "soil_ranking_answer"
+    if query_type in {"summary", "count", "latest_record"}:
+        return "soil_summary_answer"
+    if query_type in {"detail", "field", "list"}:
+        return "soil_detail_answer"
+    if query_type == "group":
+        return "soil_ranking_answer"
+    return CAPABILITY_TO_ANSWER_TYPE.get(capability or "")
+
+
+def build_query_result_from_logs(entries: list[dict[str, Any]]) -> dict[str, Any]:
+    normalized_entries = []
+    for entry in entries:
+        query_type = normalize_expected(entry.get("query_type"))
+        normalized_entries.append(
+            {
+                "tool_name": map_query_type_to_tool(query_type),
+                "query_type": query_type,
+                "tool_args": (
+                    entry.get("resolved_args_json")
+                    or (entry.get("query_spec_json") or {}).get("filters")
+                    or entry.get("filters_json")
+                    or {}
+                ),
+                "result": entry.get("executed_result_json"),
+                "error_code": None if entry.get("status") in {None, "success", "succeeded"} else str(entry.get("status")).upper(),
+            }
+        )
+    return {"entries": normalized_entries}
+
+
+def build_tool_trace_from_logs(entries: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    tool_trace = []
+    for entry in entries:
+        query_type = normalize_expected(entry.get("query_type"))
+        tool_trace.append(
+            {
+                "tool_name": map_query_type_to_tool(query_type),
+                "query_type": query_type,
+                "status": entry.get("status"),
+                "tool_args": (
+                    entry.get("resolved_args_json")
+                    or (entry.get("query_spec_json") or {}).get("filters")
+                    or entry.get("filters_json")
+                    or {}
+                ),
+                "result_summary": entry.get("result_digest_json") or {},
+            }
+        )
+    return tool_trace
+
+
 def extract_live_response_fields(response: dict[str, Any]) -> dict[str, Any]:
-    """Normalize legacy agent responses and current BFF responses to one shape."""
+    """Normalize current `/chat-v2` responses into the report helper shape."""
+    response = response if isinstance(response, dict) else {}
     data = response.get("data") if isinstance(response.get("data"), dict) else {}
     evidence = response.get("evidence") if isinstance(response.get("evidence"), dict) else {}
     response_meta = evidence.get("response_meta") if isinstance(evidence.get("response_meta"), dict) else {}
+    blocks = response.get("blocks") if isinstance(response.get("blocks"), list) else []
+    first_block = blocks[0] if blocks and isinstance(blocks[0], dict) else {}
+    turn_context = response.get("turn_context") if isinstance(response.get("turn_context"), dict) else {}
+    query_state = turn_context.get("query_state") if isinstance(turn_context.get("query_state"), dict) else {}
+    query_profile = query_state.get("query_profile") if isinstance(query_state.get("query_profile"), dict) else {}
+    query_log_entries = response.get("query_log_entries") if isinstance(response.get("query_log_entries"), list) else []
+    query_log_entries = normalize_deep(query_log_entries) if query_log_entries else []
+    answer_kind = normalize_expected(response.get("answer_kind"))
+    capability = normalize_expected(response.get("capability"))
 
     tool_trace = response.get("tool_trace")
     if not isinstance(tool_trace, list):
         tool_trace = evidence.get("tool_trace")
+    if not isinstance(tool_trace, list) and query_log_entries:
+        tool_trace = build_tool_trace_from_logs(query_log_entries)
     if not isinstance(tool_trace, list):
         tool_trace = []
 
     query_result = response.get("query_result")
     if not isinstance(query_result, dict):
         query_result = evidence.get("query_result")
+    if not isinstance(query_result, dict) and query_log_entries:
+        query_result = build_query_result_from_logs(query_log_entries)
     if not isinstance(query_result, dict):
         query_result = {}
 
@@ -1141,24 +1268,58 @@ def extract_live_response_fields(response: dict[str, Any]) -> dict[str, Any]:
         if isinstance(analysis_context, dict):
             maybe_query_plan = analysis_context.get("query_plan")
             query_plan = maybe_query_plan if isinstance(maybe_query_plan, dict) else None
+    if not isinstance(query_plan, dict) and query_log_entries:
+        query_plan = (
+            query_log_entries[0].get("query_spec_json")
+            or query_log_entries[0].get("query_plan_json")
+            or {}
+        )
+    if not isinstance(query_plan, dict) and query_profile:
+        query_plan = query_profile
     if not isinstance(query_plan, dict):
         query_plan = {}
 
+    query_type = normalize_expected((query_log_entries[0].get("query_type") if query_log_entries else None))
+    answer_type = normalize_expected(response.get("answer_type") or data.get("answer_type"))
+    if not answer_type:
+        answer_type = infer_answer_type_from_contract(
+            answer_kind=answer_kind,
+            capability=capability,
+            query_type=query_type,
+        )
+
+    guidance_reason = normalize_expected(
+        response.get("guidance_reason")
+        or data.get("guidance_reason")
+        or first_block.get("guidance_reason")
+    )
+    fallback_reason = normalize_expected(
+        response.get("fallback_reason")
+        or data.get("fallback_reason")
+        or response_meta.get("fallback_reason")
+        or first_block.get("reason")
+        or first_block.get("fallback_reason")
+    )
+    input_type = normalize_expected(response.get("input_type") or data.get("input_type"))
+    if not input_type and answer_kind in {"business", "fallback"}:
+        input_type = "business_direct"
+
     return {
-        "final_answer": str(response.get("final_answer") or response.get("answer") or ""),
-        "answer_type": normalize_expected(response.get("answer_type") or data.get("answer_type")),
+        "final_answer": str(response.get("final_text") or response.get("final_answer") or response.get("answer") or ""),
+        "answer_kind": answer_kind,
+        "capability": capability,
+        "answer_type": answer_type,
         "output_mode": normalize_expected(response.get("output_mode") or data.get("output_mode")),
-        "guidance_reason": normalize_expected(response.get("guidance_reason") or data.get("guidance_reason")),
-        "fallback_reason": normalize_expected(
-            response.get("fallback_reason")
-            or data.get("fallback_reason")
-            or response_meta.get("fallback_reason")
-        ),
-        "input_type": normalize_expected(response.get("input_type") or data.get("input_type")),
+        "guidance_reason": guidance_reason,
+        "fallback_reason": fallback_reason,
+        "input_type": input_type,
         "tool_trace": tool_trace,
         "query_result": query_result,
         "answer_facts": answer_facts,
         "query_plan": query_plan,
+        "query_log_entries": query_log_entries,
+        "blocks": blocks,
+        "turn_context": turn_context,
     }
 
 
@@ -1262,21 +1423,13 @@ def infer_actual_tool(logs: list[dict[str, Any]], response: dict[str, Any], case
     query_type = None
     if logs:
         query_type = logs[0].get("query_type")
+    if not query_type and normalized["query_log_entries"]:
+        query_type = normalized["query_log_entries"][0].get("query_type")
     if not query_type:
         query_type = (normalized["query_plan"] or {}).get("query_type")
-    if query_type:
-        mapping = {
-            "recent_summary": "query_soil_summary",
-            "latest_record": "query_soil_summary",
-            "severity_ranking": "query_soil_ranking",
-            "region_detail": "query_soil_detail",
-            "device_detail": "query_soil_detail",
-            "anomaly_list": "query_soil_detail" if case.get("预期 answer_type") == "soil_detail_answer" else "query_soil_summary",
-        }
-        actual_tool = mapping.get(query_type)
-        note = f"根据 agent_query_log.query_type={query_type} 归并判定。" if actual_tool else None
-        if actual_tool:
-            return actual_tool, note
+    actual_tool = map_query_type_to_tool(query_type)
+    if actual_tool:
+        return actual_tool, f"根据 query_type={query_type} 归并判定。"
 
     tool_trace = normalized["tool_trace"]
     if tool_trace:
@@ -1292,23 +1445,13 @@ def infer_actual_tool(logs: list[dict[str, Any]], response: dict[str, Any], case
             if first_entry_tool:
                 return first_entry_tool, "根据响应 query_result.entries[0].tool_name 判定。"
 
-    if query_type:
-        mapping = {
-            "recent_summary": "query_soil_summary",
-            "latest_record": "query_soil_summary",
-            "severity_ranking": "query_soil_ranking",
-            "region_detail": "query_soil_detail",
-            "device_detail": "query_soil_detail",
-            "anomaly_list": "query_soil_detail" if case.get("预期 answer_type") == "soil_detail_answer" else "query_soil_summary",
-        }
-        actual_tool = mapping.get(query_type)
-        note = f"根据响应 query_plan.query_type={query_type} 归并判定。" if query_type else None
-        return actual_tool, note
     return None, None
 
 
 def has_query_evidence(response: dict[str, Any]) -> bool:
     normalized = extract_live_response_fields(response)
+    if normalized["query_log_entries"]:
+        return True
     query_result = normalized["query_result"]
     if isinstance(query_result, dict) and (query_result.get("records") or query_result.get("entries")):
         return True
@@ -1322,6 +1465,24 @@ def infer_actual_output_mode(response: dict[str, Any]) -> str | None:
     raw = normalized["output_mode"]
     if raw:
         return raw
+    query_profile = (
+        ((normalized["turn_context"] or {}).get("query_state") or {}).get("query_profile") or {}
+        if isinstance(normalized.get("turn_context"), dict)
+        else {}
+    )
+    if query_profile.get("data_focus") == "warning_only":
+        return "warning_mode"
+    if normalized["answer_kind"] == "business" and normalized["capability"] in {
+        "summary",
+        "count",
+        "latest_record",
+        "detail",
+        "field",
+        "list",
+        "group",
+        "compare",
+    }:
+        return "normal"
     answer_type = normalized["answer_type"]
     query_type = (normalized["query_plan"] or {}).get("query_type")
     if answer_type == "soil_anomaly_answer":
@@ -1366,6 +1527,9 @@ def has_sql_evidence(db_truth: dict[str, Any], execution: dict[str, Any]) -> boo
     if db_truth.get("sql_blocks"):
         return True
     for row in execution.get("logs", []):
+        if row.get("executed_sql_text"):
+            return True
+    for row in extract_live_response_fields(execution.get("response", {})).get("query_log_entries", []):
         if row.get("executed_sql_text"):
             return True
     return False
@@ -1783,7 +1947,7 @@ def build_blocked_case_result(case: dict[str, Any], exc: Exception) -> dict[str,
             "turn_id": 1,
             "setup_results": [],
             "response": {
-                "final_answer": "",
+                "final_text": "",
                 "__error__": f"{exc.__class__.__name__}: {exc}",
                 "__traceback__": traceback.format_exc(),
             },
@@ -1828,31 +1992,14 @@ def ensure_current_imports() -> None:
     if _CURRENT_IMPORTS:
         return
     sys.path.insert(0, str(ROOT / "apps/agent"))
-    from app.repositories.session_context_repository import SessionContextRepository
-    from app.services.agent_service import SoilAgentService
-    from app.llm.qwen_client import QwenClient
+    from app.services.data_answer_service import DataAnswerService
 
-    _CURRENT_IMPORTS["SessionContextRepository"] = SessionContextRepository
-    _CURRENT_IMPORTS["SoilAgentService"] = SoilAgentService
-    _CURRENT_IMPORTS["QwenClient"] = QwenClient
+    _CURRENT_IMPORTS["DataAnswerService"] = DataAnswerService
 
 
-def current_session_context_repository():
+def current_data_answer_service():
     ensure_current_imports()
-    return _CURRENT_IMPORTS["SessionContextRepository"]()
-
-
-def current_agent_service(*, qwen_client=None, context_store=None):
-    ensure_current_imports()
-    return _CURRENT_IMPORTS["SoilAgentService"](
-        qwen_client=qwen_client,
-        context_store=context_store,
-    )
-
-
-def current_qwen_client_class():
-    ensure_current_imports()
-    return _CURRENT_IMPORTS["QwenClient"]
+    return _CURRENT_IMPORTS["DataAnswerService"]()
 
 
 if __name__ == "__main__":

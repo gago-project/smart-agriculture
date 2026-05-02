@@ -1,18 +1,13 @@
 from __future__ import annotations
 
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
-from app.repositories.rule_repository import SoilRuleProfile
-from app.services.agent_service import SoilAgentService
 from app.services.parameter_resolver_service import (
     CONFIDENCE_HIGH,
     CONFIDENCE_LOW,
     CONFIDENCE_MEDIUM,
     ParameterResolverService,
 )
-from app.services.tool_executor_service import ToolExecutorService
 
 
 _LBT = "2026-04-20 12:00:00"
@@ -36,17 +31,6 @@ def _alias_row(
         "parent_city_name": parent_city_name,
         "alias_source": alias_source,
     }
-
-
-def _profile() -> SoilRuleProfile:
-    return SoilRuleProfile(
-        rule_name="soil_warning_v1",
-        heavy_drought_max=50.0,
-        waterlogging_min=150.0,
-        device_fault_water20=0.0,
-        device_fault_t20=0.0,
-        rule_version="test@2026-01-01T00:00:00",
-    )
 
 
 class FakeAliasRepository:
@@ -402,73 +386,3 @@ class TestComparisonStructuredEntities:
 
         assert result.should_clarify is True
         assert result.entity_confidence == CONFIDENCE_LOW
-
-    @pytest.mark.asyncio
-    async def test_execute_comparison_branches_by_entity_level(self):
-        calls: list[dict[str, object]] = []
-        sample_record = {
-            "sn": "SNS00204333",
-            "city": "南通市",
-            "county": "如东县",
-            "create_time": "2026-04-13 23:59:17",
-            "water20cm": 92.43,
-        }
-
-        async def _fake_filter_records_async(**kwargs):
-            calls.append(kwargs)
-            if kwargs.get("city") == "南通市" or kwargs.get("county") == "如东县":
-                return [dict(sample_record)]
-            return []
-
-        repo = MagicMock()
-        repo.filter_records_async = AsyncMock(side_effect=_fake_filter_records_async)
-        repo.region_record_count_async = AsyncMock(return_value=1)
-        repo.device_record_count_async = AsyncMock(return_value=1)
-        rule_repo = MagicMock()
-        rule_repo.get_active_rule_profile = AsyncMock(return_value=_profile())
-        svc = ToolExecutorService(repository=repo, rule_repository=rule_repo)
-
-        result = await svc.execute(
-            tool_name="query_soil_comparison",
-            tool_args={
-                "entity_type": "region",
-                "entities": [
-                    {
-                        "raw_name": "南通",
-                        "canonical_name": "南通市",
-                        "level": "city",
-                        "parent_city_name": None,
-                    },
-                    {
-                        "raw_name": "如东",
-                        "canonical_name": "如东县",
-                        "level": "county",
-                        "parent_city_name": "南通市",
-                    },
-                ],
-                "start_time": "2026-04-14 00:00:00",
-                "end_time": "2026-04-20 23:59:59",
-            },
-        )
-
-        assert result["total_entities"] == 2
-        assert calls == [
-            {
-                "city": "南通市",
-                "start_time": "2026-04-14 00:00:00",
-                "end_time": "2026-04-20 23:59:59",
-            },
-            {
-                "county": "如东县",
-                "start_time": "2026-04-14 00:00:00",
-                "end_time": "2026-04-20 23:59:59",
-            },
-        ]
-
-
-class TestServiceWiring:
-    def test_soil_agent_service_uses_repository_backed_resolver(self):
-        repo = MagicMock()
-        service = SoilAgentService(repository=repo)
-
-        assert service.agent_loop_service.resolver._repository is repo

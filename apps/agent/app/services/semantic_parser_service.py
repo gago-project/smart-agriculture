@@ -6,7 +6,7 @@ or when coreference markers are detected ("它", "那个", "换成上周"…).
 One LLM call serves three purposes (P1-7 / P1-8 / P1-9):
   - InputGuard LLM fallback: reclassify ambiguous inputs
   - Coreference resolution: expand "它"/"那个地区" to concrete entities
-  - Intent extraction: return explicit intent_hint for AgentLoopNode
+  - Intent extraction: return explicit intent_hint for the deterministic answer pipeline
 
 Timeout: 8 s — on any failure the raw user_input is returned unchanged
 (宁可多查一次，不拦截合法请求).
@@ -79,8 +79,8 @@ class SemanticParserService:
     ) -> SemanticParseResult:
         """Parse user_input with optional history context.
 
-        history_tail: last few messages from SessionContextRepository (at most 6
-        messages = ~3 turns) — passed verbatim as user/assistant pairs.
+        history_tail: last few user/assistant messages from the current turn
+        context (at most 6 messages, roughly 3 turns), passed verbatim.
         Falls back to raw user_input on any error or timeout.
         """
         if not self._client or not getattr(self._client, "available", lambda: False)():

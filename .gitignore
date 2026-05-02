@@ -24,6 +24,7 @@ infra/mysql/local/*.local.xlsx
 !infra/mysql/local/*.json.example
 .npm-cache
 legacy
+outputs/
 
 testdata/agent/soil-moisture/outputs/*
 !testdata/agent/soil-moisture/outputs/.gitkeep

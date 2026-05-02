@@ -3,15 +3,14 @@
 ## Runtime Services
 
 - `web`: Next.js main platform. It serves pages, Admin entry, Chat UI, Soniox token API, and BFF routes.
-- `agent`: Python FastAPI service. LLM + Function Calling single-agent. See `apps/agent/plans/1/` for design docs.
+- `agent`: Python FastAPI service. Deterministic `/chat-v2` data-answer service. See `apps/agent/plans/1/9.query-profile-governance.md`.
 - `mysql`: Isolated `smart_agriculture` schema. It stores soil measurements, import batch, rules, templates, query logs, and admin logs.
-- `redis`: Runtime context/cache service. Stores conversation message history (max 20 messages per session). Must not store full `FlowState`.
 
 ## Service Boundaries
 
 - Browser only calls `web`.
 - `web` calls `agent` through `AGENT_BASE_URL`.
-- `agent` reads MySQL for facts and uses Redis for short-lived context.
+- `agent` reads MySQL for facts and uses server-backed session context passed in from `web`.
 - Soniox long-lived key stays in `web` environment variables only.
 
 ## First Visible Features
@@ -20,16 +19,14 @@
 - `/chat`: soil moisture agent chat page.
 - `/admin`: soil data management overview table.
 - `/api/health`: web health check.
-- `agent:/health`: agent health check.
 - `/api/agent/chat`: web BFF to agent chat.
-- `/api/agent/summary`: web BFF to agent summary.
+- `agent:/health`: agent health check.
 
 ## Validation Basis
 
-- Answer contract follows `apps/agent/plans/1/1.plan.md` and `apps/agent/plans/1/4.python-flow-design.md`.
-- Agent tool calling follows `apps/agent/app/llm/tools/soil_tools.py`.
+- Answer contract follows `apps/agent/plans/1/9.query-profile-governance.md`.
 - MVP acceptance follows `testdata/agent/soil-moisture/case-library.md` plus the soil-moisture QA skill/rule assets.
-- Flow safety follows `apps/agent/plans/1/8.flow-risk-contract.md`.
+- Region alias resolution follows `infra/mysql/docs/region-alias-resolution.md`.
 
 ## Documentation Boundaries
 

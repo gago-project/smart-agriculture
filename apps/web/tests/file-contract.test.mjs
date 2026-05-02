@@ -81,7 +81,6 @@ test('workspace routes for auth and chat exist', () => {
   assert.equal(existsSync(new URL('../app/api/auth/me/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/auth/logout/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/agent/chat/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/agent/summary/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/developer/agent/query-logs/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/developer/agent/query-logs/[queryId]/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../workspace/App.tsx', import.meta.url)), true);
@@ -277,8 +276,8 @@ test('database query log docs include request and routing context fields', () =>
 
 test('region alias and acceptance docs live in dedicated non-plan directories', () => {
   const readmeSource = readFileSync(new URL('../../agent/plans/1/README.md', import.meta.url), 'utf8');
-  const mainPlanSource = readFileSync(
-    new URL('../../agent/plans/1/1.plan.md', import.meta.url),
+  const governanceSource = readFileSync(
+    new URL('../../agent/plans/1/9.query-profile-governance.md', import.meta.url),
     'utf8',
   );
   const planSource = readFileSync(
@@ -286,10 +285,10 @@ test('region alias and acceptance docs live in dedicated non-plan directories', 
     'utf8',
   );
 
+  assert.match(readmeSource, /9\.query-profile-governance\.md/);
   assert.match(readmeSource, /infra\/mysql\/docs\/README\.md/);
   assert.match(readmeSource, /testdata\/agent\/soil-moisture\/README\.md/);
-  assert.match(mainPlanSource, /region_alias/);
-  assert.match(mainPlanSource, /infra\/mysql\/docs\/region-alias-resolution\.md/);
+  assert.match(governanceSource, /deterministic `\/chat-v2` 查询链路/);
   assert.match(planSource, /地区别名解析与 `region_alias` 使用设计/);
   assert.match(planSource, /南京[\s\S]*南京市/);
   assert.match(planSource, /静态种子/);
@@ -297,14 +296,11 @@ test('region alias and acceptance docs live in dedicated non-plan directories', 
   assert.match(planSource, /一编辑距离/);
 });
 
-test('system design doc reflects current region alias implementation', () => {
-  const planSource = readFileSync(
-    new URL('../../agent/plans/1/7.system-design-diagram.md', import.meta.url),
-    'utf8',
-  );
+test('agent plans directory keeps only the current deterministic query-governance doc', () => {
+  const readmeSource = readFileSync(new URL('../../agent/plans/1/README.md', import.meta.url), 'utf8');
 
-  assert.match(planSource, /RegionAliasResolver \+ region_alias\(city\/county\) \+ fact_soil_moisture 存在性校验/);
-  assert.doesNotMatch(planSource, /结构化维表映射/);
+  assert.match(readmeSource, /只保留当前 deterministic `\/chat-v2` 的查询治理说明/);
+  assert.doesNotMatch(readmeSource, /受限 Flow|Function Calling|系统设计图|风险契约/);
 });
 
 test('soil moisture testing docs use testdata case library as the single formal case source', () => {
@@ -394,11 +390,8 @@ test('deploy skills treat chat smoke as publish gate; formal 56-case QA is optio
   assert.match(rootPackageSource, /check-local\.sh/);
 });
 
-test('agent summary route must surface upstream errors instead of fake fallback data', () => {
-  const source = readFileSync(new URL('../app/api/agent/summary/route.ts', import.meta.url), 'utf8');
-  assert.doesNotMatch(source, /待连接/);
-  assert.doesNotMatch(source, /total_records:\s*0/);
-  assert.doesNotMatch(source, /status:\s*200/);
+test('web no longer keeps the deprecated agent summary bff route', () => {
+  assert.equal(existsSync(new URL('../app/api/agent/summary/route.ts', import.meta.url)), false);
 });
 
 test('web start script prepares standalone static assets', () => {

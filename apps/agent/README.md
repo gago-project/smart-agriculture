@@ -1,43 +1,21 @@
 # Soil Moisture Agent
 
-LLM + Function Calling 单 Agent 服务，正式设计以 `plans/1/` 下的架构文档为准。
+当前只保留 deterministic `/chat-v2` 一套数据回答链路。
 
-## 架构概览
+## 当前链路
 
-```
-用户输入
-  -> InputGuard          （安全门：拦截非业务/越界输入）
-  -> AgentLoop           （LLM + Function Calling 核心循环）
-  -> DataFactCheck       （事实核查：数字/地区/时间）
-  -> AnswerVerify        （回答合规：防空答/防内部术语）
-  -> FallbackGuard       （统一兜底）
-```
+`InputGuard` -> `TurnRouteDecisionService` -> `QueryProfileResolverService` -> `DataAnswerService`
 
-LLM 负责理解用户意图、选择工具、决定调用顺序。代码负责参数验证、SQL 执行、事实核查。
+## 核心原则
 
-## 目标工具契约（4 类真实能力）
-
-| 工具 | 作用 |
-|------|------|
-| `query_soil_summary` | 整体概况 / 聚合概览 |
-| `query_soil_ranking` | 排名对比 / TopN |
-| `query_soil_detail` | 区域 / 设备详情 |
-| `diagnose_empty_result` | 空结果诊断 |
-
-正式工具契约是以上 `4` 类真实执行能力。`anomaly / warning / advice` 作为输出模式保留，不再作为一层级工具分类。
-
-## 关键设计原则
-
-- **LLM 是决策者**：意图理解、工具选择、多轮上下文全部交给 LLM
-- **代码是守门员**：参数验证、SQL 执行、事实核查不经过 LLM
-- **域内问题必须命中 tool**：只要是业务问题，就不能允许模型绕过工具直接编造回答
-- **消息历史驱动多轮**：目标是标准 transcript（user/assistant/tool），LLM 基于历史理解多轮上下文
-- **facts only**：LLM 不得编造数字、地区、设备号，所有事实来自 `fact_soil_moisture`
-- **回答契约固定**：一级 `answer_type` 为 `5` 类，`warning / advice / anomaly` 作为输出模式处理
+- 事实只来自 `fact_soil_moisture`
+- 查询证据只走 `agent_query_log`
+- 多轮追问只围绕 `TurnContext` 和 `QueryProfile`
 
 ## 文档导航
 
-- `plans/1/1.plan.md` — Agent 核心架构契约
-- `plans/1/4.python-flow-design.md` — Python 工程分层设计
-- `plans/1/7.system-design-diagram.md` — 系统设计图与时序图
-- `plans/1/8.flow-risk-contract.md` — 安全契约与降级策略
+- `plans/1/README.md` - 当前查询治理索引
+- `plans/1/9.query-profile-governance.md` - `/chat-v2` 查询治理说明
+- `infra/mysql/docs/README.md` - 数据库设计入口
+- `infra/mysql/docs/region-alias-resolution.md` - 地区别名解析
+- `testdata/agent/soil-moisture/README.md` - 56 条正式验收入口

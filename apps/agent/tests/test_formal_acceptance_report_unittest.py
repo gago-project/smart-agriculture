@@ -32,32 +32,39 @@ class FormalAcceptanceReportTest(unittest.TestCase):
         cls.helper = load_helper()
 
     def build_business_response(self) -> dict[str, Any]:
-        """Return a current live response shape for a business ranking answer."""
+        """Return a current `/chat-v2` response shape for a business ranking answer."""
         return {
-            "answer": "最近30天县区里最严重的是清江浦区。",
-            "mode": "normal",
-            "data": {
-                "answer_type": "soil_ranking_answer",
-                "output_mode": "normal",
-                "fallback_reason": None,
-                "guidance_reason": None,
-                "input_type": "business_direct",
-            },
-            "evidence": {
-                "tool_trace": [
-                    {
-                        "tool_name": "query_soil_ranking",
+            "turn_id": 1,
+            "answer_kind": "business",
+            "capability": "group",
+            "final_text": "最近30天县区里最严重的是清江浦区。",
+            "blocks": [
+                {
+                    "block_id": "block_group_1",
+                    "block_type": "group_table",
+                    "text": "最近30天县区里最严重的是清江浦区。",
+                }
+            ],
+            "turn_context": {
+                "query_state": {
+                    "query_profile": {
+                        "answer_mode": "group",
+                        "data_focus": "all_records",
                     }
-                ],
-                "query_result": {
-                    "entries": [
-                        {
-                            "tool_name": "query_soil_ranking",
-                            "records": [{"sn": "SNS-001"}],
-                        }
-                    ]
-                },
+                }
             },
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "query_log_entries": [
+                {
+                    "query_id": "s1:1:1",
+                    "query_type": "group",
+                    "status": "succeeded",
+                    "executed_sql_text": "SELECT 1",
+                    "executed_result_json": {"items": [{"name": "清江浦区"}]},
+                    "result_digest_json": {"top_item": "清江浦区"},
+                    "query_spec_json": {"capability": "group", "filters": {}},
+                }
+            ],
         }
 
     def test_infer_actual_tool_reads_nested_tool_trace(self) -> None:
