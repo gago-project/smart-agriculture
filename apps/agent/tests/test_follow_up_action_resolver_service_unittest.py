@@ -98,6 +98,15 @@ class FollowUpActionResolverServiceTest(unittest.TestCase):
         self.assertEqual(result.operation, "clarify")
         self.assertEqual(result.clarify_reason, "count_mismatch")
 
+    def test_ignores_time_window_digits_in_standalone_region_question(self) -> None:
+        result = self.service.resolve(
+            text="最近30天有没有需要重点关注的地区",
+            current_context=self.base_context,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "none")
+
     def test_returns_none_for_stale_action_target(self) -> None:
         context = {
             **self.base_context,

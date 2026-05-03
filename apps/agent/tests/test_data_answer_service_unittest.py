@@ -542,6 +542,31 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("已按地区汇总，共 80 组", grouped["final_text"])
         self.assertEqual(grouped["blocks"][0]["pagination"]["total_count"], 80)
 
+    async def test_standalone_summary_question_with_new_time_window_does_not_fall_into_action_target_clarify(self) -> None:
+        summary = await self.service.reply(
+            message="最近7天全省整体墒情怎么样",
+            session_id="standalone-summary-clears-old-region-action-target",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近30天有没有需要重点关注的地区",
+            session_id="standalone-summary-clears-old-region-action-target",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertEqual(follow_up["turn_context"]["time_window"]["start_time"], "2026-03-15 00:00:00")
+        self.assertEqual(follow_up["turn_context"]["time_window"]["end_time"], "2026-04-13 23:59:59")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertNotIn("当前这轮可继续展开的是", follow_up["final_text"])
+        self.assertIn("重点关注地区", follow_up["final_text"])
+
     async def test_standalone_group_query_runs_without_prior_context(self) -> None:
         grouped = await self.service.reply(
             message="最近30天按地区汇总墒情数据",

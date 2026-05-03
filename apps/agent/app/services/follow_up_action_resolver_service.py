@@ -9,7 +9,9 @@ from typing import Any
 from app.services.follow_up_intent_resolver_service import FOLLOW_UP_MAX_TURN_GAP
 
 
-_COUNT_PATTERN = re.compile(r"([0-9一二两三四五六七八九十百]+)\s*(个|条)?")
+# Only treat explicit count units as expandable object counts.
+# This avoids misreading time phrases like "最近30天" as "30个..." follow-up counts.
+_COUNT_PATTERN = re.compile(r"([0-9一二两三四五六七八九十百]+)\s*(个|条)")
 _ORDINAL_PATTERN = re.compile(r"第([0-9一二两三四五六七八九十百]+)个")
 _REF_MARKERS = ("上面那个", "那个", "这个", "其中", "这里的", "上面的")
 _BLOCKING_TOKENS = ("最严重", "排名", "排行", "为什么", "原因", "规则", "模板")
