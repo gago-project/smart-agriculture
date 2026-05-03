@@ -2242,7 +2242,10 @@ class DataAnswerService:
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=self._query_profile_follow_up_mode(
+                route="standalone_list",
+                operation=resolution_meta["operation"],
+            ),
         )
         base_records = await self._query_records(resolved_args)
         records = list(base_records)
@@ -2268,7 +2271,10 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=self._query_profile_follow_up_mode(
+                route="standalone_group",
+                operation=resolution_meta["operation"],
+            ),
         )
         if warning_only:
             query_spec["filters"]["alert_only"] = True
@@ -2420,7 +2426,10 @@ class DataAnswerService:
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=self._query_profile_follow_up_mode(
+                route="standalone_list",
+                operation=resolution_meta["operation"],
+            ),
         )
         base_records = await self._query_records(resolved_args)
         records = list(base_records)
@@ -2447,7 +2456,10 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=self._query_profile_follow_up_mode(
+                route="standalone_group",
+                operation=resolution_meta["operation"],
+            ),
         )
         if warning_only:
             query_spec["filters"]["alert_only"] = True
@@ -3204,7 +3216,10 @@ class DataAnswerService:
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=self._query_profile_follow_up_mode(
+                route="standalone_list",
+                operation=resolution_meta["operation"],
+            ),
             list_target=list_target,
         )
         warning_only = query_profile.get("data_focus") == "warning_only"
@@ -3569,7 +3584,10 @@ class DataAnswerService:
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=self._query_profile_follow_up_mode(
+                route="standalone_group",
+                operation=resolution_meta["operation"],
+            ),
             group_by=group_by,
         )
         warning_only = query_profile.get("data_focus") == "warning_only"
@@ -4847,6 +4865,12 @@ class DataAnswerService:
         if operation in {"inherit", "replace_slot", "correct_slot", "switch_capability"}:
             return "inherit"
         return "standalone"
+
+    @staticmethod
+    def _query_profile_follow_up_mode(*, route: str, operation: str) -> str:
+        if route in {"standalone_list", "standalone_group"}:
+            return "standalone"
+        return DataAnswerService._follow_up_mode_from_operation(operation)
 
     @staticmethod
     def _filter_snapshot_rows(rows: list[dict[str, Any]], filter_entities: dict[str, Any]) -> list[dict[str, Any]]:

@@ -496,6 +496,52 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("当前这轮可继续展开的是", listing["final_text"])
         self.assertGreater(len(listing["blocks"][0]["rows"]), 0)
 
+    async def test_explicit_standalone_list_does_not_inherit_warning_focus_from_previous_warning_list(self) -> None:
+        warning_listing = await self.service.reply(
+            message="最近7天出现预警的点位详情",
+            session_id="standalone-list-clears-warning-focus",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        listing = await self.service.reply(
+            message="南通市最近7天点位详情",
+            session_id="standalone-list-clears-warning-focus",
+            turn_id=2,
+            current_context=warning_listing["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(listing["answer_kind"], "business")
+        self.assertEqual(listing["capability"], "list")
+        self.assertEqual(listing["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
+        self.assertIn("37 个点位", listing["final_text"])
+        self.assertEqual(listing["blocks"][0]["pagination"]["total_count"], 37)
+
+    async def test_explicit_standalone_group_does_not_inherit_warning_focus_from_previous_warning_list(self) -> None:
+        warning_listing = await self.service.reply(
+            message="最近7天出现预警的点位详情",
+            session_id="standalone-group-clears-warning-focus",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        grouped = await self.service.reply(
+            message="最近30天按地区汇总墒情数据",
+            session_id="standalone-group-clears-warning-focus",
+            turn_id=2,
+            current_context=warning_listing["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(grouped["answer_kind"], "business")
+        self.assertEqual(grouped["capability"], "group")
+        self.assertEqual(grouped["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
+        self.assertIn("已按地区汇总，共 80 组", grouped["final_text"])
+        self.assertEqual(grouped["blocks"][0]["pagination"]["total_count"], 80)
+
     async def test_standalone_group_query_runs_without_prior_context(self) -> None:
         grouped = await self.service.reply(
             message="最近30天按地区汇总墒情数据",
