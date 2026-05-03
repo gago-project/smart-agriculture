@@ -88,6 +88,7 @@ class InputGuardService:
     )
     greeting_fragments = ("你好", "您好", "在吗", "在不在", "hello", "hi")
     casual_smalltalk_fragments = ("哈哈", "呵呵", "嘿嘿")
+    creative_request_re = re.compile(r"(写|创作).{0,16}(诗|散文|作文|故事|文章|文案|歌词|小说)")
 
     def classify(self, text: str) -> InputGuardResult:
         """对单条用户消息做分类；若不应进业务流，则附带建议回复与终态动作。"""
@@ -240,6 +241,8 @@ class InputGuardService:
     @staticmethod
     def _is_out_of_domain_request(text: str) -> bool:
         lowered = text.lower()
+        if InputGuardService.creative_request_re.search(text):
+            return True
         return any(
             token in text or token in lowered
             for token in (

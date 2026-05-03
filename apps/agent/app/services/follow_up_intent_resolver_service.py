@@ -14,6 +14,42 @@ _SWITCH_CAPABILITY_MARKERS = ("详情", "明细", "规则", "模板")
 _ORDINAL_PATTERN = re.compile(r"第([0-9一二两三四五六七八九十]+)个")
 _TEMPLATE_QUERY_MARKERS = ("按模板", "按模版", "模板输出", "模版输出")
 _GLOBAL_TEMPLATE_ANY_MARKERS = ("任何一条", "任意一条", "任一条", "随便一条")
+_TIME_ONLY_FOLLOW_UP_PATTERN = re.compile(
+    r"^(?:最近|近|过去|前)?\s*[0-9一二两三四五六七八九十百]+\s*(?:天|周|月|年|个月)\s*(?:呢)?$"
+    r"|^(?:今天|昨天|前天|上周|这周|本周|这个月|本月|上个月|今年|最近)\s*(?:呢)?$",
+    re.IGNORECASE,
+)
+_STANDALONE_QUERY_CUES = (
+    "有没有",
+    "有多少",
+    "多少个",
+    "多少条",
+    "哪些",
+    "哪个",
+    "哪几个",
+    "详情",
+    "明细",
+    "汇总",
+    "对比",
+    "平均",
+    "最新",
+    "预警",
+    "异常",
+    "点位",
+    "设备",
+    "记录",
+    "地区",
+    "县",
+    "市",
+    "规则",
+    "模板",
+    "模版",
+    "最需要关注",
+    "最危险",
+    "情况",
+    "怎么样",
+    "如何",
+)
 
 _CHINESE_ORDINALS = {
     "一": 1,
@@ -76,9 +112,26 @@ class FollowUpIntentResolverService:
                 new_slots=new_slots,
             )
 
+        if self._looks_like_standalone_business_query(
+            text=normalized,
+            has_explicit_entity=has_explicit_entity,
+            time_has_signal=time_has_signal,
+        ):
+            return FollowUpIntentResult(
+                operation="standalone",
+                confidence=0.96,
+                new_slots=new_slots,
+            )
+
         if current_context.get("closed"):
             if has_explicit_entity and time_has_signal:
                 return FollowUpIntentResult(operation="standalone")
+            if self._looks_like_standalone_business_query(
+                text=normalized,
+                has_explicit_entity=has_explicit_entity,
+                time_has_signal=time_has_signal,
+            ):
+                return FollowUpIntentResult(operation="standalone", confidence=0.96, new_slots=new_slots)
             if has_explicit_entity:
                 return FollowUpIntentResult(
                     operation="clarify",
@@ -197,6 +250,20 @@ class FollowUpIntentResolverService:
         if text.endswith("呢"):
             return True
         return any(marker in text for marker in _PRONOUN_MARKERS)
+
+    @staticmethod
+    def _looks_like_standalone_business_query(*, text: str, has_explicit_entity: bool, time_has_signal: bool) -> bool:
+        if not text or not time_has_signal:
+            return False
+        if _TIME_ONLY_FOLLOW_UP_PATTERN.fullmatch(text):
+            return False
+        if any(marker in text for marker in _PRONOUN_MARKERS):
+            return False
+        if text.startswith(("那", "这个", "这些", "那些", "上面", "刚才")) and not has_explicit_entity:
+            return False
+        if any(cue in text for cue in _STANDALONE_QUERY_CUES):
+            return True
+        return has_explicit_entity and any(token in text for token in ("查", "看", "问", "说"))
 
     def _looks_like_follow_up(self, text: str, time_has_signal: bool, has_explicit_entity: bool) -> bool:
         return self._looks_like_contextual_follow_up(text) or time_has_signal or has_explicit_entity

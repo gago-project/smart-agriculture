@@ -82,6 +82,9 @@ class QueryProfileResolverService:
         text = str(message or "").strip()
         prior_profile = self._prior_profile(current_context)
         route = str(getattr(route_decision, "route", "") or "")
+        action = str(getattr(route_decision, "action", "") or "")
+        if not action and getattr(route_decision, "query_shape", None):
+            action = str(getattr(route_decision.query_shape, "action", "") or "")
         explicit_data_focus = self._resolve_explicit_data_focus(text)
         data_focus = explicit_data_focus or self._inherit_data_focus(
             route=route,
@@ -100,14 +103,14 @@ class QueryProfileResolverService:
         result_grain = "aggregate"
         measure = None
         list_target = getattr(route_decision, "list_target", None)
-        if not list_target and route in {"standalone_list", "follow_up_list"}:
+        if not list_target and (action == "list" or route in {"standalone_list", "follow_up_list"}):
             inherited_list_target = str(prior_profile.get("list_target") or "")
             list_target = inherited_list_target or None
 
         if route == "latest_record":
             answer_mode = "latest_record"
             result_grain = "entity_detail"
-        elif route == "count":
+        elif action == "count" or route == "count":
             answer_mode = "count"
             measure = count_measure or self._inherited_measure(
                 route=route,
@@ -117,11 +120,11 @@ class QueryProfileResolverService:
             if measure is None:
                 measure = self._resolve_count_measure(text, data_focus=data_focus)
             result_grain = self._grain_from_measure(measure)
-        elif route == "field":
+        elif action == "field" or route == "field":
             answer_mode = "field"
             result_grain = "device_list" if field_mode == "filtered_list" else "entity_detail"
             measure = field_name
-        elif route == "compare":
+        elif action == "compare" or route == "compare":
             answer_mode = "compare"
             result_grain = "entity_compare"
             measure = compare_metric or self._inherited_measure(
@@ -129,10 +132,10 @@ class QueryProfileResolverService:
                 follow_up_mode=follow_up_mode,
                 prior_profile=prior_profile,
             )
-        elif route in {"standalone_list", "follow_up_list"}:
+        elif action == "list" or route in {"standalone_list", "follow_up_list"}:
             answer_mode = "list"
             result_grain = "record_list" if list_target == "records" else "device_list"
-        elif route in {"standalone_group", "follow_up_group", "follow_up_action_expand"} and getattr(route_decision, "query_shape", None) and getattr(route_decision.query_shape, "action", "") == "group":
+        elif action == "group":
             answer_mode = "group"
             result_grain = "region_group"
             measure = self._inherited_measure(
@@ -142,10 +145,10 @@ class QueryProfileResolverService:
             )
             if measure is None:
                 measure = "alert_device_count" if data_focus == "warning_only" else None
-        elif route in {"explicit_detail", "detail", "follow_up_detail"}:
+        elif action == "detail" or route in {"explicit_detail", "detail", "follow_up_detail"}:
             answer_mode = "detail"
             result_grain = "entity_detail"
-        elif route == "summary":
+        elif action == "summary" or route == "summary":
             answer_mode = "summary"
             result_grain = "aggregate"
 
@@ -248,7 +251,7 @@ class QueryProfileResolverService:
         follow_up_mode: str,
         prior_profile: dict[str, Any],
     ) -> str:
-        if follow_up_mode != "standalone" or route in {"count", "follow_up_list", "follow_up_group", "follow_up_detail"}:
+        if follow_up_mode != "standalone" or route in {"follow_up_list", "follow_up_group", "follow_up_detail"}:
             inherited = str(prior_profile.get("data_focus") or "")
             if inherited:
                 return inherited

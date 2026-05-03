@@ -8,9 +8,8 @@ import json
 import logging
 import re
 from collections import defaultdict
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
-from types import SimpleNamespace
 from typing import Any
 
 from app.repositories.result_snapshot_repository import ResultSnapshotRepository
@@ -116,6 +115,14 @@ LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
 GLOBAL_TEMPLATE_WARNING_ANY_MARKERS = ("任何一条", "任意一条", "任一条", "随便一条")
 LIST_TABLE_PAGE_SIZE = 10
+
+
+@dataclass(frozen=True)
+class QueryProfileRouteMetadata:
+    route: str
+    action: str
+    list_target: str | None = None
+    group_by: str | None = None
 
 
 logger = logging.getLogger(__name__)
@@ -710,18 +717,15 @@ class DataAnswerService:
         self,
         *,
         message: str,
-        route: str,
+        route_metadata: QueryProfileRouteMetadata,
         current_context: dict[str, Any],
         slots: dict[str, Any],
         time_window: dict[str, Any],
         follow_up_mode: str,
-        list_target: str | None = None,
-        group_by: str | None = None,
     ) -> dict[str, Any]:
-        route_stub = SimpleNamespace(route=route, list_target=list_target, group_by=group_by)
         profile = self.query_profile_resolver.resolve(
             message=message,
-            route_decision=route_stub,
+            route_decision=route_metadata,
             current_context=current_context,
             slots=slots,
             time_window=time_window,
@@ -2236,16 +2240,18 @@ class DataAnswerService:
                 grain="aggregate",
                 clarify_text=str(exc),
         )
+        route_metadata = self._query_profile_route_metadata(route="summary")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="summary",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._query_profile_follow_up_mode(
-                route="standalone_list",
-                operation=resolution_meta["operation"],
-            ),
+            follow_up_mode=follow_up_mode,
         )
         base_records = await self._query_records(resolved_args)
         records = list(base_records)
@@ -2271,10 +2277,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._query_profile_follow_up_mode(
-                route="standalone_group",
-                operation=resolution_meta["operation"],
-            ),
+            follow_up_mode=follow_up_mode,
         )
         if warning_only:
             query_spec["filters"]["alert_only"] = True
@@ -2420,16 +2423,18 @@ class DataAnswerService:
                 clarify_text=str(exc),
             )
 
+        route_metadata = self._query_profile_route_metadata(route="count")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="count",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._query_profile_follow_up_mode(
-                route="standalone_list",
-                operation=resolution_meta["operation"],
-            ),
+            follow_up_mode=follow_up_mode,
         )
         base_records = await self._query_records(resolved_args)
         records = list(base_records)
@@ -2456,10 +2461,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._query_profile_follow_up_mode(
-                route="standalone_group",
-                operation=resolution_meta["operation"],
-            ),
+            follow_up_mode=follow_up_mode,
         )
         if warning_only:
             query_spec["filters"]["alert_only"] = True
@@ -2621,13 +2623,18 @@ class DataAnswerService:
                 clarify_text=str(exc),
             )
 
+        route_metadata = self._query_profile_route_metadata(route="latest_record")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="latest_record",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         records = await self.repository.filter_records_async(
             **self._query_filters_from_args(resolved_args),
@@ -2649,7 +2656,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         block = {
             "block_id": block_id,
@@ -2741,9 +2748,10 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
+        route_metadata = self._query_profile_route_metadata(route="field")
         seed_profile = self._resolve_query_profile(
             message=message,
-            route="field",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=self._slots_from_context(current_context),
             time_window=current_context.get("time_window") or {},
@@ -2773,13 +2781,17 @@ class DataAnswerService:
                 clarify_text=str(exc),
             )
 
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="field",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         records = await self._query_records(resolved_args)
         if not records:
@@ -2797,7 +2809,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         base_context = {
             "topic_family": "data",
@@ -3098,14 +3110,17 @@ class DataAnswerService:
             time_source=current_context.get("time_window", {}).get("source") or "",
             operation="subset" if follow_up_mode == "subset" else "inherit",
         )
+        route_metadata = self._query_profile_route_metadata(
+            route="follow_up_list",
+            list_target=list_target,
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="follow_up_list",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=slots,
             time_window=current_context.get("time_window") or {},
             follow_up_mode=follow_up_mode,
-            list_target=list_target,
         )
         warning_only = query_profile.get("data_focus") == "warning_only"
         if warning_only:
@@ -3210,17 +3225,21 @@ class DataAnswerService:
                 clarify_text=str(exc),
             )
 
+        route_metadata = self._query_profile_route_metadata(
+            route="standalone_list",
+            list_target=list_target,
+        )
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="standalone_list",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._query_profile_follow_up_mode(
-                route="standalone_list",
-                operation=resolution_meta["operation"],
-            ),
-            list_target=list_target,
+            follow_up_mode=follow_up_mode,
         )
         warning_only = query_profile.get("data_focus") == "warning_only"
         rule_row = None
@@ -3243,7 +3262,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         if warning_only:
             query_spec["filters"]["alert_only"] = True
@@ -3429,6 +3448,14 @@ class DataAnswerService:
             inherited_group_by = str(prior_query_profile.get("group_by") or "")
             if inherited_group_by:
                 group_by = inherited_group_by
+        route_metadata = self._query_profile_route_metadata(
+            route="follow_up_group",
+            group_by=group_by,
+        )
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation="inherit",
+        )
         raw_snapshot_rows = [self._raw_row(item.get("payload_json") or {}) for item in snapshot.get("items") or []]
         if snapshot_id == current_context.get("derived_sets", {}).get("region_group_snapshot_id"):
             rows = raw_snapshot_rows
@@ -3445,7 +3472,7 @@ class DataAnswerService:
             },
             "provenance": {
                 "source_turn_id": current_context.get("active_topic_turn_id") or turn_id,
-                "follow_up_mode": "subset",
+                "follow_up_mode": follow_up_mode,
             },
         }
         block = self._build_paginated_table_block(
@@ -3469,12 +3496,11 @@ class DataAnswerService:
         slot_source = dict((current_context.get("query_state") or {}).get("slot_source") or {})
         query_profile = self._resolve_query_profile(
             message=message,
-            route="follow_up_group",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=slots,
             time_window=current_context.get("time_window") or {},
-            follow_up_mode="inherit",
-            group_by=group_by,
+            follow_up_mode=follow_up_mode,
         )
         query_state = self._build_query_state(
             turn_id=turn_id,
@@ -3578,17 +3604,21 @@ class DataAnswerService:
             )
 
         group_by = resolved_group_by or self._resolve_group_by(message)
+        route_metadata = self._query_profile_route_metadata(
+            route="standalone_group",
+            group_by=group_by,
+        )
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="standalone_group",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._query_profile_follow_up_mode(
-                route="standalone_group",
-                operation=resolution_meta["operation"],
-            ),
-            group_by=group_by,
+            follow_up_mode=follow_up_mode,
         )
         warning_only = query_profile.get("data_focus") == "warning_only"
         rule_row = None
@@ -3619,7 +3649,7 @@ class DataAnswerService:
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         if warning_only:
             query_spec["filters"]["alert_only"] = True
@@ -3866,13 +3896,18 @@ class DataAnswerService:
         metrics = self._summary_metrics(records, focus_rows)
         block_id = f"block_detail_{turn_id}"
         label = self._entity_label(resolved_entities) or str(latest_record.get("sn") or "详情")
+        route_metadata = self._query_profile_route_metadata(route="detail")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_spec = self._build_query_spec(
             capability="detail",
             grain="entity_detail",
             time_window=time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         block = {
             "block_id": block_id,
@@ -3900,11 +3935,11 @@ class DataAnswerService:
         }
         query_profile = self._resolve_query_profile(
             message=message,
-            route="detail",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=resolution_meta["slots"],
             time_window=time_window,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         query_state = self._build_query_state(
             turn_id=turn_id,
@@ -4003,15 +4038,24 @@ class DataAnswerService:
             if canonical_sn and canonical_sn not in names:
                 names.append(canonical_sn)
         context_slots = self._slots_from_context(current_context)
+        route_metadata = self._query_profile_route_metadata(route="compare")
+        compare_mode = self.query_profile_resolver._resolve_compare_mode(message) or "entity_compare"
+        follow_up_mode = self._compare_follow_up_mode(
+            current_context=current_context,
+            time_window=time_window,
+            compare_mode=compare_mode,
+            explicit_entity_names=names,
+            context_slots=context_slots,
+        )
         query_profile = self._resolve_query_profile(
             message=message,
-            route="compare",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=context_slots,
             time_window=time_window,
-            follow_up_mode="standalone",
+            follow_up_mode=follow_up_mode,
         )
-        compare_mode = str(query_profile.get("compare_mode") or "entity_compare")
+        compare_mode = str(query_profile.get("compare_mode") or compare_mode)
         compared: list[dict[str, Any]] = []
         winner: str | None = None
         left_value: float | int | None = None
@@ -4130,7 +4174,7 @@ class DataAnswerService:
             "filters": {"source_snapshot_id": None},
             "sort": {"field": "entity", "direction": "asc"},
             "page": {"page": 1, "page_size": 50},
-            "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+            "provenance": {"source_turn_id": turn_id, "follow_up_mode": follow_up_mode},
         }
         block = {
             "block_id": block_id,
@@ -4164,11 +4208,11 @@ class DataAnswerService:
         }
         query_profile = self._resolve_query_profile(
             message=message,
-            route="compare",
+            route_metadata=route_metadata,
             current_context=current_context,
             slots=slots,
             time_window=time_window,
-            follow_up_mode="standalone",
+            follow_up_mode=follow_up_mode,
         )
         query_state = self._build_query_state(
             turn_id=turn_id,
@@ -4658,13 +4702,18 @@ class DataAnswerService:
                 latest_only=latest_only,
             )
 
+        route_metadata = self._query_profile_route_metadata(route="detail")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
         query_spec = self._build_query_spec(
             capability="detail",
             grain="entity_detail",
             time_window=effective_time_window,
             resolved_args=resolved_args,
             source_turn_id=turn_id,
-            follow_up_mode=self._follow_up_mode_from_operation(resolution_meta["operation"]),
+            follow_up_mode=follow_up_mode,
         )
         base_context = {
             "topic_family": "data",
@@ -4681,6 +4730,14 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route_metadata=route_metadata,
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=effective_time_window,
+            follow_up_mode=follow_up_mode,
+        )
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="detail",
@@ -4689,6 +4746,7 @@ class DataAnswerService:
             time_window=effective_time_window,
             slot_confidence=resolution_meta["slot_confidence"],
             slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
         )
         turn_context = self._finalize_context(
             base_context=base_context,
@@ -4763,7 +4821,7 @@ class DataAnswerService:
                         "filters": {"template_id": template_row.get("template_id")},
                         "sort": {"field": "updated_at", "direction": "desc"},
                         "page": {"page": 1, "page_size": 1},
-                        "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+                        "provenance": {"source_turn_id": turn_id, "follow_up_mode": follow_up_mode},
                     },
                     executed_sql_text=self.repository.build_warning_template_audit_sql(),
                     row_count=1,
@@ -4857,6 +4915,39 @@ class DataAnswerService:
         return "device_snapshot_id"
 
     @staticmethod
+    def _query_profile_route_action(route: str) -> str:
+        route_to_action = {
+            "summary": "summary",
+            "count": "count",
+            "standalone_list": "list",
+            "follow_up_list": "list",
+            "standalone_group": "group",
+            "follow_up_group": "group",
+            "detail": "detail",
+            "explicit_detail": "detail",
+            "latest_record": "detail",
+            "field": "field",
+            "compare": "compare",
+        }
+        return route_to_action.get(route, "summary")
+
+    @classmethod
+    def _query_profile_route_metadata(
+        cls,
+        *,
+        route: str,
+        action: str | None = None,
+        list_target: str | None = None,
+        group_by: str | None = None,
+    ) -> QueryProfileRouteMetadata:
+        return QueryProfileRouteMetadata(
+            route=route,
+            action=action or cls._query_profile_route_action(route),
+            list_target=list_target,
+            group_by=group_by,
+        )
+
+    @staticmethod
     def _follow_up_mode_from_operation(operation: str) -> str:
         if operation == "subset":
             return "subset"
@@ -4866,11 +4957,28 @@ class DataAnswerService:
             return "inherit"
         return "standalone"
 
-    @staticmethod
-    def _query_profile_follow_up_mode(*, route: str, operation: str) -> str:
-        if route in {"standalone_list", "standalone_group"}:
+    @classmethod
+    def _query_profile_follow_up_mode(cls, *, route_metadata: QueryProfileRouteMetadata, operation: str) -> str:
+        if route_metadata.route.startswith("standalone_"):
             return "standalone"
-        return DataAnswerService._follow_up_mode_from_operation(operation)
+        return cls._follow_up_mode_from_operation(operation)
+
+    @staticmethod
+    def _compare_follow_up_mode(
+        *,
+        current_context: dict[str, Any],
+        time_window: dict[str, Any],
+        compare_mode: str,
+        explicit_entity_names: list[str],
+        context_slots: dict[str, Any],
+    ) -> str:
+        if current_context.get("topic_family") != "data":
+            return "standalone"
+        if str(time_window.get("source") or "") == "history_inherited":
+            return "inherit"
+        if compare_mode == "time_compare" and not explicit_entity_names and any(context_slots.values()):
+            return "inherit"
+        return "standalone"
 
     @staticmethod
     def _filter_snapshot_rows(rows: list[dict[str, Any]], filter_entities: dict[str, Any]) -> list[dict[str, Any]]:

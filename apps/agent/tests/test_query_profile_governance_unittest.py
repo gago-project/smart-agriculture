@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
 
 from app.services.data_answer_service import DataAnswerService
+from app.services.query_profile_resolver_service import QueryProfileResolverService
 from tests.support_repositories import SeedSoilRepository
 
 
@@ -320,6 +322,142 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["answer_mode"], "list")
 
+    async def test_standalone_warning_summary_resets_prior_city_scope(self) -> None:
+        scoped = await self.service.reply(
+            message="2026年4月1日到4月13日徐州市墒情怎么样",
+            session_id="qp-standalone-warning-summary-reset-scope",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近30天有没有需要重点关注的地区",
+            session_id="qp-standalone-warning-summary-reset-scope",
+            turn_id=2,
+            current_context=scoped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertFalse(follow_up["turn_context"]["resolved_entities"])
+        self.assertNotIn("徐州市2026-03-15至2026-04-13按当前预警规则筛选后", follow_up["final_text"])
+        self.assertIn("42 个预警点位", follow_up["final_text"])
+
+    async def test_standalone_warning_list_resets_prior_device_scope(self) -> None:
+        detail = await self.service.reply(
+            message="SNS00204333最新一条记录是什么",
+            session_id="qp-standalone-warning-list-reset-scope",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近7天出现预警的点位详情",
+            session_id="qp-standalone-warning-list-reset-scope",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "list")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertGreater(follow_up["blocks"][0]["pagination"]["total_count"], 0)
+        self.assertNotIn("当前条件下没有查到墒情数据", follow_up["final_text"])
+
+    async def test_standalone_count_resets_prior_warning_focus(self) -> None:
+        warning_count = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的记录有多少条",
+            session_id="qp-standalone-count-reset-focus",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近7天南通市涉及多少个点位",
+            session_id="qp-standalone-count-reset-focus",
+            turn_id=2,
+            current_context=warning_count["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "count")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["measure"], "device_count")
+        self.assertIn("37个点位", follow_up["final_text"])
+
+    async def test_standalone_list_with_explicit_scope_and_time_resets_prior_warning_focus(self) -> None:
+        warning_count = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的记录有多少条",
+            session_id="qp-standalone-list-reset-warning-focus",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="南通市最近7天点位详情",
+            session_id="qp-standalone-list-reset-warning-focus",
+            turn_id=2,
+            current_context=warning_count["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "list")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
+        self.assertIn("37 个点位", follow_up["final_text"])
+
+    async def test_standalone_group_with_explicit_time_resets_prior_warning_focus(self) -> None:
+        warning_list = await self.service.reply(
+            message="最近7天出现预警的点位详情",
+            session_id="qp-standalone-group-reset-warning-focus",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="最近30天按地区汇总墒情数据",
+            session_id="qp-standalone-group-reset-warning-focus",
+            turn_id=2,
+            current_context=warning_list["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "group")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
+        self.assertIn("已按地区汇总，共 80 组", follow_up["final_text"])
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["answer_mode"], "group")
+
+    async def test_creative_request_is_blocked_even_with_active_data_context(self) -> None:
+        summary = await self.service.reply(
+            message="最近7天全省整体墒情怎么样",
+            session_id="qp-creative-boundary-after-data",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="帮我写一首关于春耕的诗",
+            session_id="qp-creative-boundary-after-data",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "guidance")
+        self.assertEqual(follow_up["blocks"][0]["guidance_reason"], "boundary")
+        self.assertIn("暂不处理", follow_up["final_text"])
+
     async def test_warning_device_detail_query_returns_list_instead_of_detail(self) -> None:
         reply = await self.service.reply(
             message="最近7天出现预警的点位详情",
@@ -590,6 +728,147 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["group_by"], "county")
         self.assertEqual(follow_up["blocks"][0]["group_by"], "county")
+
+    async def test_warning_summary_follow_up_keeps_warning_focus_and_inherit_provenance(self) -> None:
+        summary = await self.service.reply(
+            message="最近30天全省有没有预警点位",
+            session_id="qp-warning-summary-follow-up-inherit",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那昨天呢",
+            session_id="qp-warning-summary-follow-up-inherit",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "summary")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertEqual(
+            follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"],
+            follow_up["turn_context"]["primary_query_spec"]["provenance"]["follow_up_mode"],
+        )
+
+    async def test_warning_count_follow_up_keeps_warning_measure_and_inherit_provenance(self) -> None:
+        counted = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的点位有多少个",
+            session_id="qp-warning-count-follow-up-inherit",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那昨天呢",
+            session_id="qp-warning-count-follow-up-inherit",
+            turn_id=2,
+            current_context=counted["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "count")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["measure"], "alert_device_count")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertEqual(
+            follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"],
+            follow_up["turn_context"]["primary_query_spec"]["provenance"]["follow_up_mode"],
+        )
+
+    async def test_compare_follow_up_with_inherited_time_persists_inherit_metadata(self) -> None:
+        summary = await self.service.reply(
+            message="南通市最近7天墒情怎么样",
+            session_id="qp-compare-follow-up-inherit",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="徐州和南通对比一下",
+            session_id="qp-compare-follow-up-inherit",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "compare")
+        self.assertEqual(follow_up["turn_context"]["time_window"]["source"], "history_inherited")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertEqual(
+            follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"],
+            follow_up["turn_context"]["primary_query_spec"]["provenance"]["follow_up_mode"],
+        )
+
+    async def test_template_output_follow_up_writes_query_profile_and_inherit_audit_provenance(self) -> None:
+        detail = await self.service.reply(
+            message="如东县最近7天详情",
+            session_id="qp-template-output-follow-up-inherit",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="按模板输出预警",
+            session_id="qp-template-output-follow-up-inherit",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "template")
+        self.assertEqual(follow_up["turn_context"]["topic_family"], "data")
+        self.assertEqual(follow_up["turn_context"]["primary_query_spec"]["provenance"]["follow_up_mode"], "inherit")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["answer_mode"], "detail")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertEqual(
+            follow_up["query_log_entries"][1]["query_spec_json"]["provenance"]["follow_up_mode"],
+            "inherit",
+        )
+
+
+class QueryProfileResolverServiceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.service = QueryProfileResolverService()
+
+    def test_standalone_group_without_query_shape_still_resolves_group_answer_mode(self) -> None:
+        profile = self.service.resolve(
+            message="最近30天按地区汇总墒情数据",
+            route_decision=SimpleNamespace(route="standalone_group", action="group", group_by="region"),
+            current_context={},
+            slots={},
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            follow_up_mode="standalone",
+        )
+
+        self.assertEqual(profile.answer_mode, "group")
+        self.assertEqual(profile.result_grain, "region_group")
+        self.assertEqual(profile.group_by, "region")
+
+    def test_follow_up_group_without_query_shape_still_resolves_group_answer_mode(self) -> None:
+        profile = self.service.resolve(
+            message="地区详情呢",
+            route_decision=SimpleNamespace(route="follow_up_group", action="group", group_by="county"),
+            current_context={"query_state": {"query_profile": {"data_focus": "warning_only"}}},
+            slots={"city": "南通市"},
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            follow_up_mode="inherit",
+        )
+
+        self.assertEqual(profile.answer_mode, "group")
+        self.assertEqual(profile.result_grain, "region_group")
+        self.assertEqual(profile.group_by, "county")
+        self.assertEqual(profile.follow_up_mode, "inherit")
 
 
 if __name__ == "__main__":

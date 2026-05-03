@@ -157,6 +157,28 @@ class FollowUpIntentResolverServiceTest(unittest.TestCase):
 
         self.assertEqual(result.operation, "standalone")
 
+    def test_self_contained_warning_summary_query_with_new_time_window_is_treated_as_standalone(self) -> None:
+        result = self.service.resolve(
+            text="最近30天有没有需要重点关注的地区",
+            current_context=self.base_context,
+            extracted_entities={"province": [], "city": [], "county": [], "sn": []},
+            time_has_signal=True,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "standalone")
+
+    def test_self_contained_warning_list_query_with_new_time_window_is_treated_as_standalone(self) -> None:
+        result = self.service.resolve(
+            text="最近7天出现预警的点位详情",
+            current_context=self.base_context,
+            extracted_entities={"province": [], "city": [], "county": [], "sn": []},
+            time_has_signal=True,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "standalone")
+
 
 if __name__ == "__main__":
     unittest.main()
