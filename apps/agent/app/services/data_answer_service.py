@@ -2071,6 +2071,142 @@ class DataAnswerService:
         return None
 
     @staticmethod
+    def _time_window_range_label(time_window: dict[str, Any]) -> str:
+        start = str(time_window.get("start_time") or "")[:10]
+        end = str(time_window.get("end_time") or "")[:10]
+        if start and end:
+            return f"{start}至{end}"
+        return ""
+
+    @classmethod
+    def _scoped_range_label(cls, scope: str, time_window: dict[str, Any]) -> str:
+        range_label = cls._time_window_range_label(time_window)
+        if not scope:
+            return range_label
+        if not range_label:
+            return scope
+        needs_connector = bool(scope[-1:].isascii() and scope[-1:].isalnum())
+        connector = "在" if needs_connector else ""
+        return f"{scope}{connector}{range_label}"
+
+    @staticmethod
+    def _compare_measure_label(metric: str | None) -> str:
+        if metric == "alert_device_count":
+            return "预警点位数"
+        if metric == "alert_record_count":
+            return "预警记录数"
+        if metric == "device_count":
+            return "点位数"
+        if metric == "record_count":
+            return "记录数"
+        if metric in {"region_count", "alert_region_count"}:
+            return "地区数"
+        if not metric or not metric.startswith("avg_"):
+            return "对比指标"
+        field_name = metric.removeprefix("avg_")
+        water_match = re.fullmatch(r"water(\d+)cm", field_name)
+        if water_match:
+            return f"{water_match.group(1)}cm平均相对含水量"
+        temp_match = re.fullmatch(r"t(\d+)cm", field_name)
+        if temp_match:
+            return f"{temp_match.group(1)}cm平均土壤温度"
+        return f"{field_name}平均值"
+
+    @staticmethod
+    def _compare_measure_unit(metric: str | None) -> str:
+        if metric in {"alert_device_count", "device_count", "region_count", "alert_region_count"}:
+            return "个"
+        if metric in {"alert_record_count", "record_count"}:
+            return "条"
+        if metric and metric.startswith("avg_t"):
+            return "℃"
+        if metric and metric.startswith("avg_"):
+            return "%"
+        return ""
+
+    @classmethod
+    def _compare_value_text(cls, metric: str | None, value: float | int | None) -> str:
+        if value is None:
+            return "暂无"
+        unit = cls._compare_measure_unit(metric)
+        if unit in {"个", "条"}:
+            return f"{value} {unit}"
+        return f"{value}{unit}"
+
+    @staticmethod
+    def _compare_predicate(metric: str | None) -> str:
+        return "更高" if metric and metric.startswith("avg_") else "更多"
+
+    @classmethod
+    def _render_metric_compare_text(
+        cls,
+        *,
+        time_window: dict[str, Any],
+        metric: str | None,
+        compared: list[dict[str, Any]],
+        winner: str | None,
+        warning_rule_brief: str = "",
+    ) -> str:
+        if len(compared) < 2:
+            return cls._render_compare_digest(compared, [])
+        left = compared[0]
+        right = compared[1]
+        measure_label = cls._compare_measure_label(metric)
+        predicate = cls._compare_predicate(metric)
+        left_value_text = cls._compare_value_text(metric, left.get("metric_value"))
+        right_value_text = cls._compare_value_text(metric, right.get("metric_value"))
+        prefix = f"在{cls._time_window_range_label(time_window)}时间范围内，"
+        if warning_rule_brief:
+            prefix += "按当前预警规则筛选后，"
+        if winner:
+            text = (
+                f"{prefix}按{measure_label}对比，{winner}{predicate}，"
+                f"{left.get('entity')}为 {left_value_text}，{right.get('entity')}为 {right_value_text}。"
+            )
+        else:
+            text = (
+                f"{prefix}按{measure_label}对比，"
+                f"{left.get('entity')}和{right.get('entity')}持平，均为 {left_value_text}。"
+            )
+        if warning_rule_brief:
+            text += f" 当前预警规则：{warning_rule_brief}。"
+        return text
+
+    @classmethod
+    def _render_time_compare_text(
+        cls,
+        *,
+        entity_label: str,
+        compared: list[dict[str, Any]],
+    ) -> str:
+        if len(compared) < 2:
+            return f"{entity_label or '当前对象'}已完成时间窗对比。"
+        current_row = compared[0]
+        prior_row = compared[1]
+        current_window = cls._time_window_range_label(current_row.get("window") or {})
+        prior_window = cls._time_window_range_label(prior_row.get("window") or {})
+        current_avg = current_row.get("avg_water20cm")
+        prior_avg = prior_row.get("avg_water20cm")
+        text = (
+            f"{entity_label or '当前对象'}在{current_window}共有 {int(current_row.get('record_count') or 0)} 条记录，"
+            f"涉及 {int(current_row.get('device_count') or 0)} 个点位，"
+            f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', current_avg)}；"
+            f"前一时间窗{prior_window}共有 {int(prior_row.get('record_count') or 0)} 条记录，"
+            f"涉及 {int(prior_row.get('device_count') or 0)} 个点位，"
+            f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', prior_avg)}。"
+        )
+        if current_avg is not None and prior_avg is not None:
+            diff = round(float(current_avg) - float(prior_avg), 2)
+            if diff > 0:
+                trend = f"上升 {abs(diff)} 个百分点"
+            elif diff < 0:
+                trend = f"下降 {abs(diff)} 个百分点"
+            else:
+                trend = "持平"
+            text += f" 相比前一时间窗，20cm平均相对含水量{trend}。"
+        return text
+
+    @staticmethod
     def _prior_time_window(time_window: dict[str, Any]) -> dict[str, str]:
         start = datetime.strptime(str(time_window["start_time"]), "%Y-%m-%d %H:%M:%S")
         end = datetime.strptime(str(time_window["end_time"]), "%Y-%m-%d %H:%M:%S")
@@ -2699,7 +2835,7 @@ class DataAnswerService:
         scope = self._entity_label(resolved_entities) or "当前查询范围"
         if time_window:
             final_text = (
-                f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}范围内的最新一条记录时间为 "
+                f"{self._scoped_range_label(scope, time_window)}范围内的最新一条记录时间为 "
                 f"{latest_record.get('create_time') or '暂无'}，"
                 f"{self._latest_record_brief(latest_record)}。"
             )
@@ -3634,15 +3770,20 @@ class DataAnswerService:
         block_id = f"block_group_{turn_id}"
         device_rows = self._focus_device_rows(records)
         record_rows = self._alert_record_rows(records)
+        total_group_count = 0
         if query_profile.get("data_focus") == "warning_only" or query_profile.get("top_n"):
-            rows = self._group_metric_rows(
+            all_group_rows = self._group_metric_rows(
                 records,
                 group_by=group_by,
                 data_focus=str(query_profile.get("data_focus") or "all_records"),
-                top_n=query_profile.get("top_n"),
+                top_n=None,
             )
+            total_group_count = len(all_group_rows)
+            top_n = query_profile.get("top_n")
+            rows = all_group_rows[:top_n] if top_n else all_group_rows
         else:
             rows = self._group_rows(record_rows, group_by=group_by)
+            total_group_count = len(rows)
         query_spec = self._build_query_spec(
             capability="group",
             grain="region_group" if group_by in {"county", "region"} else "aggregate",
@@ -3742,16 +3883,40 @@ class DataAnswerService:
         if warning_only:
             audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
         if warning_only:
+            range_label = self._time_window_range_label(time_window)
+            group_label = self._group_label(group_by)
+            top_n = int(query_profile.get("top_n") or 0)
             final_text = (
-                f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}按当前预警规则筛选后，再按{self._group_label(group_by)}汇总，共 {len(rows)} 组命中预警规则。"
+                f"{label}{range_label}按当前预警规则筛选后，再按{group_label}汇总。"
+                if range_label
+                else f"{label}按当前预警规则筛选后，再按{group_label}汇总。"
             )
+            if top_n > 0:
+                final_text += f" 在命中预警规则的 {total_group_count} 个{group_label}中，"
+            else:
+                final_text += f" 共 {total_group_count} 个{group_label}命中预警规则。"
             if rows:
                 lead = rows[0]
                 lead_label = f"{lead.get('city') or ''}{lead.get('county') or ''}".strip() or "当前首位地区"
-                final_text += (
-                    f" 最需要关注的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
-                    f"{int(lead.get('alert_record_count') or 0)} 条预警记录。"
-                )
+                if top_n == 1:
+                    final_text += (
+                        f" 最需要关注的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                        f"{int(lead.get('alert_record_count') or 0)} 条预警记录，"
+                        f"最近预警时间为 {lead.get('latest_alert_time') or '暂无'}。"
+                    )
+                elif top_n > 1:
+                    final_text += f" 当前返回前 {top_n} 个重点{group_label}。"
+                    final_text += (
+                        f" 排名第一的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                        f"{int(lead.get('alert_record_count') or 0)} 条预警记录，"
+                        f"最近预警时间为 {lead.get('latest_alert_time') or '暂无'}。"
+                    )
+                else:
+                    final_text += (
+                        f" 最需要关注的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                        f"{int(lead.get('alert_record_count') or 0)} 条预警记录，"
+                        f"最近预警时间为 {lead.get('latest_alert_time') or '暂无'}。"
+                    )
             if top_preview:
                 final_text += f" 当前重点地区：{top_preview}。"
             if warning_rule_brief:
@@ -4061,6 +4226,7 @@ class DataAnswerService:
         left_value: float | int | None = None
         right_value: float | int | None = None
         resolved_entities: list[dict[str, Any]] = []
+        warning_rule_row: dict[str, Any] | None = None
 
         if compare_mode == "time_compare":
             entity_name = names[0] if names else (context_slots.get("sn") or context_slots.get("county") or context_slots.get("city"))
@@ -4092,7 +4258,8 @@ class DataAnswerService:
                 }
                 records = await self.repository.filter_records_async(**filters)
                 if query_profile.get("data_focus") == "warning_only":
-                    records, _rule_row = await self._warning_filtered_records(records)
+                    records, current_rule_row = await self._warning_filtered_records(records)
+                    warning_rule_row = warning_rule_row or current_rule_row
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
@@ -4130,7 +4297,8 @@ class DataAnswerService:
                 }
                 records = await self.repository.filter_records_async(**filters)
                 if query_profile.get("data_focus") == "warning_only":
-                    records, _rule_row = await self._warning_filtered_records(records)
+                    records, current_rule_row = await self._warning_filtered_records(records)
+                    warning_rule_row = warning_rule_row or current_rule_row
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
@@ -4244,17 +4412,31 @@ class DataAnswerService:
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
             action_targets=[],
         )
+        warning_rule_brief = (
+            self._warning_rule_brief(warning_rule_row)
+            if query_profile.get("data_focus") == "warning_only"
+            else ""
+        )
         if compare_mode == "time_compare":
-            final_text = (
-                f"已按 {resolved_entities[0]['canonical_name']} 的两个相邻时间窗完成对比。"
-                if resolved_entities
-                else "已完成时间窗对比。"
+            final_text = self._render_time_compare_text(
+                entity_label=resolved_entities[0]["canonical_name"] if resolved_entities else "当前对象",
+                compared=compared,
             )
         elif query_profile.get("measure") and winner and left_value is not None and right_value is not None:
-            unit = "%" if str(query_profile.get("measure") or "").startswith("avg_") else ""
-            final_text = f"{winner} 更高，分别为 {left_value}{unit} 和 {right_value}{unit}。"
+            final_text = self._render_metric_compare_text(
+                time_window=time_window,
+                metric=str(query_profile.get("measure") or ""),
+                compared=compared,
+                winner=winner,
+                warning_rule_brief=warning_rule_brief,
+            )
         else:
-            final_text = self._render_compare_digest(compared, resolved_entities)
+            prefix = (
+                f"在{self._time_window_range_label(time_window)}时间范围内，"
+                if self._time_window_range_label(time_window)
+                else ""
+            )
+            final_text = prefix + self._render_compare_digest(compared, resolved_entities)
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -4274,20 +4456,32 @@ class DataAnswerService:
                     query_type="compare",
                     query_spec=query_spec,
                     executed_sql_text=";\n\n".join(
-                        self.repository.build_filter_records_audit_sql(
-                            city=(item.get("canonical_name") if item.get("kind") == "city" else None),
-                            county=(item.get("canonical_name") if item.get("kind") == "county" else None),
-                            sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
-                            start_time=time_window["start_time"],
-                            end_time=time_window["end_time"],
+                        (
+                            self._warning_query_audit_sql(base_sql, warning_rule_row)
+                            if query_profile.get("data_focus") == "warning_only"
+                            else base_sql
                         )
-                        for item in resolved_entities[:2]
+                        for base_sql in (
+                            self.repository.build_filter_records_audit_sql(
+                                city=(item.get("canonical_name") if item.get("kind") == "city" else None),
+                                county=(item.get("canonical_name") if item.get("kind") == "county" else None),
+                                sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
+                                start_time=time_window["start_time"],
+                                end_time=time_window["end_time"],
+                            )
+                            for item in resolved_entities[:2]
+                        )
                     ),
                     row_count=sum(int(item["record_count"]) for item in compared),
                     snapshot_id=None,
                     time_window=time_window,
                     filters=query_spec["filters"],
-                    executed_result={"rows": compared, "metric": query_profile.get("measure"), "winner": winner},
+                    executed_result={
+                        "rows": compared,
+                        "metric": query_profile.get("measure"),
+                        "winner": winner,
+                        **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
+                    },
                     result_digest={"entities": [item["canonical_name"] for item in resolved_entities[:2]]},
                 )
             ],
@@ -5077,11 +5271,12 @@ class DataAnswerService:
         scope = label or "当前整体墒情"
         avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
         latest_time = str(metrics.get("latest_create_time") or "暂无")
+        range_label = DataAnswerService._scoped_range_label(scope, time_window)
         if warning_only:
             preview = DataAnswerService._warning_region_preview(top_regions or [])
             if int(metrics.get("record_count") or 0) > 0:
                 text = (
-                    f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}按当前预警规则筛选后，命中预警记录 "
+                    f"{range_label}按当前预警规则筛选后，命中预警记录 "
                     f"{metrics['record_count']} 条，涉及 {metrics['device_count']} 个预警点位，"
                     f"覆盖 {metrics['region_count']} 个预警地区，最新预警时间为 {latest_time}。"
                 )
@@ -5089,14 +5284,14 @@ class DataAnswerService:
                     text += f" 重点关注地区包括：{preview}。"
             else:
                 text = (
-                    f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
+                    f"{range_label}"
                     "按当前预警规则筛选后，没有命中预警规则的点位或记录。"
                 )
             if warning_rule_brief:
                 text += f" 当前预警规则：{warning_rule_brief}。"
         else:
             text = (
-                f"{scope}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}的墒情概况如下："
+                f"{range_label}的墒情概况如下："
                 f"20cm平均相对含水量约 {avg_text}，"
                 f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 个点位，"
                 f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
@@ -5115,7 +5310,7 @@ class DataAnswerService:
         if latest_record.get("water20cm") is not None:
             parts.append(f"20cm含水量 {latest_record.get('water20cm')}%")
         if latest_record.get("t20cm") is not None:
-            parts.append(f"20cm温度 {latest_record.get('t20cm')}℃")
+            parts.append(f"土壤温度 {latest_record.get('t20cm')}℃")
         return "，".join(parts) if parts else "暂无更多原始字段信息"
 
     @staticmethod
@@ -5152,9 +5347,10 @@ class DataAnswerService:
         avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
         window_start = str(time_window.get("start_time") or "")[:10]
         window_end = str(time_window.get("end_time") or "")[:10]
+        range_label = DataAnswerService._scoped_range_label(label, time_window)
         if window_start and window_end:
             text = (
-                f"{label}{window_start}至{window_end}的详情如下："
+                f"{range_label}的详情如下："
                 f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
                 f"涉及 {int(metrics.get('device_count') or 0)} 个点位，"
                 f"20cm平均相对含水量约 {avg_text}，"
