@@ -17,6 +17,27 @@ from __future__ import annotations
 import re
 from dataclasses import dataclass
 
+_GREETING_ANSWER = (
+    "您好，我是苏农云指挥调度中心智能体，当前可为您提供江苏省全省土壤墒情监测数据查询、"
+    "墒情预警信息获取及预警处置建议服务。"
+    "您可通过语音或文字方式描述您的查询需求，我将为您及时解答。"
+)
+
+_CAPABILITY_ANSWER = (
+    "您好，我是苏农云指挥调度中心智能体，当前支持的核心服务范围如下：\n"
+    "1. 江苏省全省土壤墒情监测设备基础信息查询\n"
+    "2. 全省各区域墒情预警信息查询\n"
+    "3. 墒情预警事件处置进度与情况查询\n"
+    "4. 墒情预警规则与处置建议咨询\n"
+    "您可通过语音或文字方式描述您的具体需求，我将为您精准解答。"
+)
+
+_INVALID_ANSWER = (
+    "您好，我是苏农云指挥调度中心智能体，当前仅支持江苏省全省土壤墒情监测数据查询、"
+    "墒情预警信息获取及预警处置建议相关服务。"
+    "请您描述与上述服务相关的具体需求，我将全力为您解答。"
+)
+
 
 def _contains_chinese(text: str) -> bool:
     """判断字符串中是否至少包含一个中日韩统一表意文字（CJK）字符。"""
@@ -85,8 +106,17 @@ class InputGuardService:
         "会什么",
         "支持什么",
         "你是谁",
+        "你有什么功能",
+        "有什么功能",
+        "有哪些功能",
+        "你可以提供什么服务",
+        "可以提供什么服务",
+        "你能干什么",
+        "你的能力范围",
+        "能力范围是什么",
     )
-    greeting_fragments = ("你好", "您好", "在吗", "在不在", "hello", "hi")
+    greeting_exact = {"你好", "您好", "在吗", "嗨", "早上好", "下午好", "晚上好", "hello", "hi"}
+    greeting_fragments = ("你好", "您好", "在吗", "在不在", "嗨", "早上好", "下午好", "晚上好", "hello", "hi")
     casual_smalltalk_fragments = ("哈哈", "呵呵", "嘿嘿")
     creative_request_re = re.compile(r"(写|创作).{0,16}(诗|散文|作文|故事|文章|文案|歌词|小说)")
 
@@ -94,43 +124,43 @@ class InputGuardService:
         """对单条用户消息做分类；若不应进业务流，则附带建议回复与终态动作。"""
         normalized = text.strip()
         compact = normalized.replace(" ", "")
-        # 空输入或纯占位符：安全提示后直接结束。
+        # 空输入或纯占位符：无效提问，声明服务范围。
         if not normalized or normalized in {"？？？", "???", "..."}:
             return InputGuardResult(
                 allow_business_flow=False,
                 input_type="meaningless_input",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我是墒情智能助手，可以帮你查询墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。你可以问：最近墒情怎么样？如东县最近怎么样？最近30天按地区汇总墒情数据。",
+                suggested_answer=_INVALID_ANSWER,
                 guidance_reason="safe_hint",
             )
-        # 简单问候：不查库，友好说明能力范围。
-        if normalized in {"你好", "在吗", "hello", "hi"}:
+        # 简单问候：固定身份 + 服务范围话术。
+        if normalized.lower() in {g.lower() for g in self.greeting_exact}:
             return InputGuardResult(
                 allow_business_flow=False,
                 input_type="greeting",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="你好，我可以帮助查询土壤墒情、查看地区或设备详情、按地区汇总数据，以及查看预警规则和模板。",
+                suggested_answer=_GREETING_ANSWER,
                 guidance_reason="safe_hint",
             )
         if self._is_greeting_like_smalltalk(normalized, compact):
             return InputGuardResult(
                 allow_business_flow=False,
-                input_type="meaningless_input",
+                input_type="greeting",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我可以继续帮你查墒情数据、地区/点位/记录明细、按地区汇总，或查看预警规则和模板。你也可以直接说地区、设备或时间范围。",
+                suggested_answer=_GREETING_ANSWER,
                 guidance_reason="safe_hint",
             )
-        # 能力/身份询问：用固定话术概括支持范围。
+        # 能力/身份询问：固定 4 项核心服务话术。
         if any(marker in normalized for marker in self.capability_markers):
             return InputGuardResult(
                 allow_business_flow=False,
                 input_type="capability_question",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我当前支持墒情概况、地区/点位/记录明细、按地区汇总，以及预警规则和模板查看。你可以直接给地区、设备或时间范围来问。",
+                suggested_answer=_CAPABILITY_ANSWER,
                 guidance_reason="safe_hint",
             )
         domain_knowledge_answer = self._domain_knowledge_answer(normalized)
@@ -149,7 +179,7 @@ class InputGuardService:
                 input_type="out_of_domain",
                 terminal_action="boundary_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我当前只支持土壤墒情相关的数据查询，以及预警规则、模板查看，暂不处理创作型请求或内部系统指令问题。",
+                suggested_answer=_INVALID_ANSWER,
                 intent="out_of_scope",
                 guidance_reason="boundary",
             )
@@ -169,7 +199,7 @@ class InputGuardService:
                 input_type="out_of_domain",
                 terminal_action="boundary_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我当前只支持土壤墒情相关的数据查询，以及预警规则、模板查看，暂不处理天气、诗歌或股票类问题。",
+                suggested_answer=_INVALID_ANSWER,
                 intent="out_of_scope",
                 guidance_reason="boundary",
             )
@@ -184,14 +214,14 @@ class InputGuardService:
                 intent="clarification_needed",
                 guidance_reason="clarification",
             )
-        # 全拉丁且无中文：乱敲/试探，安全提示。
+        # 全拉丁且无中文：乱敲/试探，声明服务范围。
         if self.meaningless_re.match(normalized) and not _contains_chinese(normalized):
             return InputGuardResult(
                 allow_business_flow=False,
                 input_type="meaningless_input",
                 terminal_action="safe_end",
                 suggested_answer_type="guidance_answer",
-                suggested_answer="我这边更擅长处理墒情业务问题。你可以直接问地区、设备、时间范围，或让我按地区汇总墒情数据。",
+                suggested_answer=_INVALID_ANSWER,
                 guidance_reason="safe_hint",
             )
         # 其余视为可进业务：区分口语短问与更明确的业务直述。

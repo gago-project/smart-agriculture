@@ -457,7 +457,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(follow_up["answer_kind"], "guidance")
         self.assertEqual(follow_up["blocks"][0]["guidance_reason"], "boundary")
-        self.assertIn("暂不处理", follow_up["final_text"])
+        self.assertIn("苏农云", follow_up["final_text"])
 
     async def test_warning_device_detail_query_returns_list_instead_of_detail(self) -> None:
         reply = await self.service.reply(

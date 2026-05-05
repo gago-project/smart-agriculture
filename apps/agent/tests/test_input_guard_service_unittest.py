@@ -72,7 +72,7 @@ class InputGuardServiceTest(unittest.TestCase):
         self.assertFalse(result.allow_business_flow)
         self.assertEqual(result.input_type, "capability_question")
         self.assertEqual(result.guidance_reason, "safe_hint")
-        self.assertIn("支持", result.suggested_answer)
+        self.assertIn("核心服务范围", result.suggested_answer)
 
     def test_ambiguous_low_confidence_returns_clarification_guidance_reason(self) -> None:
         result = self.service.classify("看看")
@@ -87,7 +87,7 @@ class InputGuardServiceTest(unittest.TestCase):
         result = self.service.classify("比你好")
 
         self.assertFalse(result.allow_business_flow)
-        self.assertEqual(result.input_type, "meaningless_input")
+        self.assertEqual(result.input_type, "greeting")
         self.assertEqual(result.guidance_reason, "safe_hint")
         self.assertIn("墒情", result.suggested_answer)
 

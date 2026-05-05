@@ -864,7 +864,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reply["answer_kind"], "guidance")
         self.assertEqual(reply["capability"], "none")
-        self.assertIn("支持", reply["final_text"])
+        self.assertIn("核心服务范围", reply["final_text"])
 
     async def test_short_noisy_chinese_returns_safe_hint_instead_of_time_clarification(self) -> None:
         reply = await self.service.reply(
