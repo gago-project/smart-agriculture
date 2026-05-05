@@ -210,10 +210,17 @@ class ResultSnapshotRepository:
         """Async wrapper for snapshot creation."""
         return await asyncio.to_thread(self.create_snapshot, **kwargs)
 
-    def get_snapshot(self, snapshot_id: str) -> dict[str, Any] | None:
-        """Return snapshot metadata and all items."""
+    def get_snapshot(self, snapshot_id: str, *, session_id: str | None = None) -> dict[str, Any] | None:
+        """Return snapshot metadata and all items.
+
+        If session_id is provided, the snapshot is only returned when it belongs
+        to that session — preventing cross-session data leakage via snapshot_id.
+        """
         if snapshot_id in self._memory_snapshots:
-            return self._memory_snapshots[snapshot_id]
+            cached = self._memory_snapshots[snapshot_id]
+            if session_id is not None and cached.get("session_id") != session_id:
+                return None
+            return cached
 
         connection = self._open_connection()
         if connection is None:
@@ -221,18 +228,32 @@ class ResultSnapshotRepository:
 
         try:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    SELECT snapshot_id, session_id, source_turn_id, source_block_id, snapshot_kind,
-                           query_spec_json, query_spec_hash, rule_version, total_count,
-                           DATE_FORMAT(expires_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS expires_at,
-                           DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at
-                    FROM agent_result_snapshot
-                    WHERE snapshot_id = %s
-                    LIMIT 1
-                    """,
-                    (snapshot_id,),
-                )
+                if session_id is not None:
+                    cursor.execute(
+                        """
+                        SELECT snapshot_id, session_id, source_turn_id, source_block_id, snapshot_kind,
+                               query_spec_json, query_spec_hash, rule_version, total_count,
+                               DATE_FORMAT(expires_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS expires_at,
+                               DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at
+                        FROM agent_result_snapshot
+                        WHERE snapshot_id = %s AND session_id = %s
+                        LIMIT 1
+                        """,
+                        (snapshot_id, session_id),
+                    )
+                else:
+                    cursor.execute(
+                        """
+                        SELECT snapshot_id, session_id, source_turn_id, source_block_id, snapshot_kind,
+                               query_spec_json, query_spec_hash, rule_version, total_count,
+                               DATE_FORMAT(expires_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS expires_at,
+                               DATE_FORMAT(created_at, '%%Y-%%m-%%d %%H:%%i:%%s') AS created_at
+                        FROM agent_result_snapshot
+                        WHERE snapshot_id = %s
+                        LIMIT 1
+                        """,
+                        (snapshot_id,),
+                    )
                 snapshot_row = cursor.fetchone()
                 if not snapshot_row:
                     return None
@@ -262,6 +283,6 @@ class ResultSnapshotRepository:
         finally:
             connection.close()
 
-    async def get_snapshot_async(self, snapshot_id: str) -> dict[str, Any] | None:
+    async def get_snapshot_async(self, snapshot_id: str, *, session_id: str | None = None) -> dict[str, Any] | None:
         """Async wrapper for snapshot lookup."""
-        return await asyncio.to_thread(self.get_snapshot, snapshot_id)
+        return await asyncio.to_thread(self.get_snapshot, snapshot_id, session_id=session_id)

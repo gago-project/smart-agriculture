@@ -7,6 +7,7 @@ import asyncio
 import json
 import logging
 import re
+import time
 from collections import defaultdict
 from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta
@@ -168,6 +169,8 @@ class DataAnswerService:
         self.turn_route_decision_service = turn_route_decision_service or TurnRouteDecisionService()
         self.query_profile_resolver = query_profile_resolver or QueryProfileResolverService()
         self.warning_predicate_service = warning_predicate_service or WarningPredicateService()
+        self._business_time_cache: str | None = None
+        self._business_time_cache_at: float = 0.0
 
     async def reply(
         self,
@@ -348,7 +351,31 @@ class DataAnswerService:
         if llm_guard_result is not None:
             return llm_guard_result
 
+        if not self._has_clear_business_signal(text, time_evidence, entities, context):
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=SAFE_HINT_TEXT,
+                current_context=context,
+                guidance_reason="safe_hint",
+            )
+
         return await self._reply_summary(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+
+    @staticmethod
+    def _has_clear_business_signal(
+        text: str, time_evidence: Any, entities: dict[str, Any], context: dict[str, Any]
+    ) -> bool:
+        if any(token in text for token in DOMAIN_INTENT_TOKENS):
+            return True
+        if getattr(time_evidence, "matched", False):
+            return True
+        if any(entities.get(k) for k in ("province", "city", "county", "sn")):
+            return True
+        if context.get("topic_family") == "data":
+            return True
+        if any(marker in text for marker in CONTEXTUAL_FOLLOW_UP_MARKERS):
+            return True
+        return False
 
     def _normalize_context(self, current_context: dict[str, Any] | None) -> dict[str, Any]:
         context = current_context if isinstance(current_context, dict) else {}
@@ -1346,8 +1373,14 @@ class DataAnswerService:
         return True
 
     async def _latest_business_time(self) -> str:
+        _TTL = 60.0
+        now = time.monotonic()
+        if self._business_time_cache and now - self._business_time_cache_at < _TTL:
+            return self._business_time_cache
         latest = await self.repository.latest_business_time_async()
-        return str(latest or "1970-01-01 00:00:00")
+        self._business_time_cache = str(latest or "1970-01-01 00:00:00")
+        self._business_time_cache_at = now
+        return self._business_time_cache
 
     async def _load_alias_rows(self) -> list[dict[str, Any]]:
         try:
@@ -3130,7 +3163,7 @@ class DataAnswerService:
         source_sql = None
         snapshot = None
         if source_snapshot_id:
-            snapshot = await self.snapshot_repository.get_snapshot_async(source_snapshot_id)
+            snapshot = await self.snapshot_repository.get_snapshot_async(source_snapshot_id, session_id=session_id)
         if not snapshot:
             snapshot, source_sql = await self._recover_snapshot_from_context(
                 session_id=session_id,
@@ -3569,7 +3602,7 @@ class DataAnswerService:
 
         del resolved_snapshot_kind
         snapshot_id = resolved_snapshot_id or current_context.get("derived_sets", {}).get(self._group_source_snapshot_key(current_context))
-        snapshot = await self.snapshot_repository.get_snapshot_async(snapshot_id) if snapshot_id else None
+        snapshot = await self.snapshot_repository.get_snapshot_async(snapshot_id, session_id=session_id) if snapshot_id else None
         if not snapshot:
             return self._build_guidance_response(
                 turn_id=turn_id,
