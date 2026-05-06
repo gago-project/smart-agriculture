@@ -40,6 +40,8 @@ DETAIL_HINT_TOKENS = ("详情", "明细")
 LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
 RANKING_MARKERS = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
+_DEVICE_REGISTRY_COUNT_TOKENS = ("墒情仪", "墒情监测设备", "台账")
+_DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS = ("多少", "总数", "总量", "总计", "数量")
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
@@ -114,6 +116,14 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="unsupported_derived", action="guidance", grain="none", mode="standalone"),
                 reason_codes=("unsupported_derived",),
+            )
+        if subject == "device_registry":
+            return self._decision(
+                route="device_registry_count",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="device_registry", action="count", grain="total", mode="standalone"),
+                reason_codes=("device_registry_count",),
             )
 
         has_explicit_detail = self._has_explicit_detail(normalized_text, extracted_entities)
@@ -376,7 +386,17 @@ class TurnRouteDecisionService:
             return "rule"
         if TurnRouteDecisionService._is_unsupported_derived_analysis_request(text):
             return "unsupported_derived"
+        if TurnRouteDecisionService._is_device_registry_count_request(text):
+            return "device_registry"
         return "soil"
+
+    @staticmethod
+    def _is_device_registry_count_request(text: str) -> bool:
+        if not any(t in text for t in _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS):
+            return False
+        if "接入" in text:
+            return True
+        return any(t in text for t in _DEVICE_REGISTRY_COUNT_TOKENS)
 
     @staticmethod
     def _current_list_grain(context: dict[str, Any]) -> str:

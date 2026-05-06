@@ -246,6 +246,8 @@ class DataAnswerService:
                 current_context=context,
                 guidance_reason="clarification",
             )
+        if route_decision.route == "device_registry_count":
+            return await self._reply_device_registry_count(session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "count":
             return await self._reply_count(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "field":
@@ -4536,6 +4538,86 @@ class DataAnswerService:
                         **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
                     },
                     result_digest={"entities": [item["canonical_name"] for item in resolved_entities[:2]]},
+                )
+            ],
+        }
+
+    async def _reply_device_registry_count(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        count = await self.repository.total_soil_device_count_async()
+        if count is None:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="device_registry_count",
+                text="当前设备台账暂时不可用，请联系管理员检查配置。",
+                current_context=current_context,
+            )
+        final_text = f"截至当前，苏农云指挥调度中心已接入 {count} 套土壤墒情仪设备。"
+        block_id = f"block_device_registry_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "device_registry_count_card",
+            "display_mode": "evidence_only",
+            "total_count": count,
+            "device_type": "土壤墒情仪",
+        }
+        base_context = {
+            "topic_family": "device_registry",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "device_registry_count",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="device_registry_count",
+                    query_spec={
+                        "spec_id": f"qs_{turn_id}_device_registry",
+                        "dataset": "subject_device_record",
+                        "capability": "device_registry_count",
+                        "grain": "total",
+                        "time_window": {},
+                        "entities": {"city": [], "county": [], "sn": []},
+                        "filters": {"device_type": "土壤墒情仪"},
+                        "sort": {"field": "id", "direction": "asc"},
+                        "page": {"page": 1, "page_size": 1},
+                        "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+                    },
+                    executed_sql_text=self.repository.build_total_soil_device_count_audit_sql(),
+                    row_count=1,
+                    snapshot_id=None,
+                    time_window={},
+                    filters={"device_type": "土壤墒情仪"},
+                    executed_result={"total_count": count},
+                    result_digest={"total_count": count},
                 )
             ],
         }

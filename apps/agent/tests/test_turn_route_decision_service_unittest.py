@@ -233,6 +233,66 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.grain, "none")
         self.assertEqual(result.query_shape.mode, "standalone")
 
+    def test_device_registry_count_platform_query(self) -> None:
+        result = self.service.decide(
+            message="目前平台接入了多少台土壤墒情仪？",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "device_registry_count")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.action, "count")
+        self.assertEqual(result.query_shape.grain, "total")
+
+    def test_device_registry_count_total_query(self) -> None:
+        result = self.service.decide(
+            message="苏农云接入的墒情仪总数是多少",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "device_registry_count")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+
+    def test_device_registry_count_province_query(self) -> None:
+        result = self.service.decide(
+            message="全省有多少台土壤墒情仪",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "device_registry_count")
+        self.assertEqual(result.query_shape.action, "count")
+
+    def test_device_registry_count_access_variant(self) -> None:
+        result = self.service.decide(
+            message="平台一共接入了多少套土壤墒情监测设备",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "device_registry_count")
+
+    def test_is_device_registry_count_request_detection(self) -> None:
+        from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc
+        self.assertTrue(Svc._is_device_registry_count_request("目前平台接入了多少台土壤墒情仪"))
+        self.assertTrue(Svc._is_device_registry_count_request("苏农云接入的墒情仪总数是多少"))
+        self.assertTrue(Svc._is_device_registry_count_request("全省有多少台土壤墒情仪"))
+        self.assertTrue(Svc._is_device_registry_count_request("平台一共接入了多少套土壤墒情监测设备"))
+        self.assertTrue(Svc._is_device_registry_count_request("设备台账总数"))
+        # should NOT match regular count queries
+        self.assertFalse(Svc._is_device_registry_count_request("最近7天南通市涉及多少个点位"))
+        self.assertFalse(Svc._is_device_registry_count_request("南京最近一个月的数据"))
+
 
 if __name__ == "__main__":
     unittest.main()

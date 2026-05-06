@@ -265,3 +265,11 @@ class SeedSoilRepository(SoilRepository):
     async def warning_template_row_async(self, domain: str = "soil_moisture") -> dict[str, Any] | None:
         """Async warning-template fixture lookup."""
         return self.warning_template_row(domain)
+
+    def total_soil_device_count(self) -> int | None:
+        """Return seed device count (528 土壤墒情仪 devices from subject_device_record fixture)."""
+        return 528
+
+    async def total_soil_device_count_async(self) -> int | None:
+        """Async wrapper for seed device count."""
+        return self.total_soil_device_count()

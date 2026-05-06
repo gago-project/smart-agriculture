@@ -2,26 +2,26 @@
 name: soil-moisture-qa
 description: >
   Use when running QA, regression testing, or business review for the
-  soil-moisture Agent. Single source of truth is the 74-case formal
+  soil-moisture Agent. Single source of truth is the 77-case formal
   acceptance library at testdata/agent/soil-moisture/case-library.md.
 ---
 
 # Smart Agriculture — 墒情 Agent QA Skill
 
 > **架构版本**：LLM + Function Calling 5 节点。
-> 正式测试入口为一套 **74 条** 的正式验收库。
+> 正式测试入口为一套 **77 条** 的正式验收库。
 
 ## 权威入口
 
 | 资产 | 路径 | 说明 |
 |------|------|------|
-| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 74 条正式验收 Case，每次全量执行 |
+| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 77 条正式验收 Case，每次全量执行 |
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
 | Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
 
 ## 快速路由回归（推荐先跑）
 
-> 顶层真实问法变体、轻量错字、`list/group/detail/summary` 冲突优先补到这层，不直接扩正式 74 条。
+> 顶层真实问法变体、轻量错字、`list/group/detail/summary` 冲突优先补到这层，不直接扩正式 77 条。
 
 ```bash
 PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m unittest \
@@ -31,7 +31,7 @@ PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m unittest \
 
 ## 全量正式验收（一键流程，回归用）
 
-> 与历史 `scripts/qa/run-soil-moisture-release-gate.sh` **等价**：先本地验活，再跑 74 条正式 Case 并写报告。以本节为权威步骤（不再维护独立 `.sh`）。**流程模式发布技能（`deploy`）不再将本段列为必做门禁**；需要回归或发版前自检时再执行。
+> 与历史 `scripts/qa/run-soil-moisture-release-gate.sh` **等价**：先本地验活，再跑 77 条正式 Case 并写报告。以本节为权威步骤（不再维护独立 `.sh`）。**流程模式发布技能（`deploy`）不再将本段列为必做门禁**；需要回归或发版前自检时再执行。
 
 ### 前置条件
 
@@ -49,7 +49,7 @@ export BASE_AGENT="${BASE_AGENT:-http://localhost:${LOCAL_AGENT_PORT}}"
 BASE_WEB="$BASE_WEB" BASE_AGENT="$BASE_AGENT" bash scripts/health/check-local.sh
 ```
 
-### 步骤 2/2：74 条正式验收（生成报告）
+### 步骤 2/2：77 条正式验收（生成报告）
 
 ```bash
 export FORMAL_AGENT_URL="${FORMAL_AGENT_URL:-${BASE_AGENT}/chat}"
@@ -129,7 +129,7 @@ npm run qa:soil:formal
 
 ## 正式验收库结构
 
-正式库共 **74** 条，分布如下：
+正式库共 **77** 条，分布如下：
 
 | 章节 | 数量 | CaseID |
 |---|---:|---|
@@ -138,6 +138,7 @@ npm run qa:soil:formal
 | Ranking Cases | 8 | `SM-RANK-001 ~ SM-RANK-008` |
 | Detail Cases | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
 | Fallback Cases | 10 | `SM-FB-001 ~ SM-FB-010` |
+| Device Registry Cases | 3 | `SM-DEV-001 ~ SM-DEV-003` |
 
 ### 必须覆盖的重点
 
@@ -164,9 +165,9 @@ npm run qa:soil:formal
 
 正式要求是：
 - 只维护一套正式库
-- 每次都全量跑完 74 条
+- 每次都全量跑完 77 条
 - 测试以单元测试为主
-- 顶层问法变体先补快速路由矩阵，再决定是否需要进入正式 74 条
+- 顶层问法变体先补快速路由矩阵，再决定是否需要进入正式 77 条
 
 ### 长文本回答必须保留
 
@@ -193,7 +194,7 @@ npm run qa:soil:formal
 
 ### 标准详细测试报告
 
-当用户明确要求”正式测试报告””逐条详细报告””74 条 Case 全量验收报告”时，必须按统一报告标准输出。
+当用户明确要求”正式测试报告””逐条详细报告””77 条 Case 全量验收报告”时，必须按统一报告标准输出。
 
 推荐报告落点：
 
@@ -203,7 +204,7 @@ npm run qa:soil:formal
 
 #### 报告范围
 
-- 必须逐条覆盖全部 **74** 条正式 Case
+- 必须逐条覆盖全部 **77** 条正式 Case
 - 不允许抽样
 - 每条业务 Case 都必须包含数据库回查与事实校验
 - 每条业务 Case 都必须明确给出 `是否符合事实`
@@ -300,7 +301,7 @@ npm run qa:soil:formal
 - 测试范围
 - 正式库自检结果
 - Python / Node 测试结果
-- 74 条逐条测试结果
+- 77 条逐条测试结果
 - 数据库真实性校验汇总
 - 哪些 Case 的 `是否符合事实` 需要调整
 - 是否仍存在“未调 Tool 直接回答业务问题”的路径
@@ -320,7 +321,7 @@ npm run qa:soil:formal
 - 地区 / 设备识别逻辑改变
 - 修复了可稳定复现的线上问题
 - 数据真实性校验规则改变
-- 如果只是顶层问法变体、轻量错字或路由冲突，先补 `TurnRouteDecisionService` 路由矩阵；只有正式口径变化时才改 74 条主库
+- 如果只是顶层问法变体、轻量错字或路由冲突，先补 `TurnRouteDecisionService` 路由矩阵；只有正式口径变化时才改 77 条主库
 
 ---
 

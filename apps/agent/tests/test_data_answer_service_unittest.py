@@ -1773,3 +1773,45 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["answer_kind"], "business")
         self.assertEqual(follow_up["turn_context"]["context_version"], 3)
         self.assertTrue(follow_up["turn_context"]["follow_up_targets"])
+
+    async def test_device_registry_count_returns_correct_answer(self) -> None:
+        result = await self.service.reply(
+            message="目前平台接入了多少台土壤墒情仪？",
+            session_id="device-registry-count",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "device_registry_count")
+        self.assertIn("528", result["final_text"])
+        self.assertIn("截至当前", result["final_text"])
+        self.assertIn("套土壤墒情仪设备", result["final_text"])
+
+    async def test_device_registry_count_alternative_phrasing(self) -> None:
+        result = await self.service.reply(
+            message="苏农云接入的墒情仪总数是多少",
+            session_id="device-registry-count-alt",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "device_registry_count")
+        self.assertIn("528", result["final_text"])
+
+    async def test_device_registry_count_query_log_contains_sql(self) -> None:
+        result = await self.service.reply(
+            message="全省有多少台土壤墒情仪",
+            session_id="device-registry-count-log",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        log_entries = result.get("query_log_entries", [])
+        self.assertEqual(len(log_entries), 1)
+        self.assertIn("subject_device_record", log_entries[0].get("executed_sql_text", ""))
+        self.assertEqual(log_entries[0]["executed_result_json"]["total_count"], 528)

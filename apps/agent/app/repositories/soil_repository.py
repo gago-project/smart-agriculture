@@ -595,3 +595,28 @@ class SoilRepository:
     def warning_template_text(self) -> str:
         """Return the default warning template text for rendering services."""
         return DEFAULT_WARNING_TEMPLATE_TEXT
+
+    @staticmethod
+    def build_total_soil_device_count_audit_sql() -> str:
+        return "SELECT COUNT(*) AS total_count FROM subject_device_record WHERE type = '土壤墒情仪'"
+
+    def total_soil_device_count(self) -> int | None:
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT COUNT(*) AS total_count FROM subject_device_record WHERE type = %s",
+                    ("土壤墒情仪",),
+                )
+                row = cursor.fetchone()
+                return int(row.get("total_count") or 0) if row else None
+        except Exception as exc:
+            message = str(exc)
+            if "subject_device_record" in message and ("1146" in message or "doesn't exist" in message):
+                return None
+            raise DatabaseQueryError(f"MySQL 查询设备台账失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def total_soil_device_count_async(self) -> int | None:
+        return await asyncio.to_thread(self.total_soil_device_count)
