@@ -293,13 +293,43 @@ class SeedSoilRepository(SoilRepository):
         """Async warning-template fixture lookup."""
         return self.warning_template_row(domain)
 
-    def total_soil_device_count(self) -> int | None:
-        """Return seed device count (528 土壤墒情仪 devices from subject_device_record fixture)."""
+    def total_soil_device_count(
+        self,
+        city: str | None = None,
+        county: str | None = None,
+    ) -> int | None:
+        """Return seed device count with optional city/county filters."""
+        if city:
+            normalized_city = self._normalize_city_name(city)
+            for row in self.device_city_distribution_rows:
+                if row.get("city") == normalized_city:
+                    if county:
+                        county_rows = self.device_county_distribution_rows.get(normalized_city or "", [])
+                        return sum(
+                            int(item.get("device_count") or 0)
+                            for item in county_rows
+                            if str(item.get("county") or "") == str(county)
+                        )
+                    return int(row.get("device_count") or 0)
+            return 0
+        if county:
+            total = 0
+            for county_rows in self.device_county_distribution_rows.values():
+                total += sum(
+                    int(item.get("device_count") or 0)
+                    for item in county_rows
+                    if str(item.get("county") or "") == str(county)
+                )
+            return total
         return 528
 
-    async def total_soil_device_count_async(self) -> int | None:
+    async def total_soil_device_count_async(
+        self,
+        city: str | None = None,
+        county: str | None = None,
+    ) -> int | None:
         """Async wrapper for seed device count."""
-        return self.total_soil_device_count()
+        return self.total_soil_device_count(city=city, county=county)
 
     def soil_device_city_distribution(self) -> list[dict[str, Any]] | None:
         """Return deterministic city-level device distribution for tests."""

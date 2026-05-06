@@ -597,17 +597,36 @@ class SoilRepository:
         return DEFAULT_WARNING_TEMPLATE_TEXT
 
     @staticmethod
-    def build_total_soil_device_count_audit_sql() -> str:
-        return "SELECT COUNT(*) AS total_count FROM subject_device_record WHERE type = '土壤墒情仪'"
+    def build_total_soil_device_count_audit_sql(
+        city: str | None = None,
+        county: str | None = None,
+    ) -> str:
+        clauses = ["type = '土壤墒情仪'"]
+        normalized_city = SoilRepository._normalize_city_name(city)
+        if normalized_city:
+            clauses.append(f"city = {SoilRepository._normalize_sql_literal(normalized_city)}")
+        if county:
+            clauses.append(f"county = {SoilRepository._normalize_sql_literal(county)}")
+        return "SELECT COUNT(*) AS total_count FROM subject_device_record WHERE " + " AND ".join(clauses)
 
-    def total_soil_device_count(self) -> int | None:
+    def total_soil_device_count(
+        self,
+        city: str | None = None,
+        county: str | None = None,
+    ) -> int | None:
+        normalized_city = self._normalize_city_name(city)
         connection = self._connect()
         try:
             with connection.cursor() as cursor:
-                cursor.execute(
-                    "SELECT COUNT(*) AS total_count FROM subject_device_record WHERE type = %s",
-                    ("土壤墒情仪",),
-                )
+                sql = "SELECT COUNT(*) AS total_count FROM subject_device_record WHERE type = %s"
+                params: list[Any] = ["土壤墒情仪"]
+                if normalized_city:
+                    sql += " AND city = %s"
+                    params.append(normalized_city)
+                if county:
+                    sql += " AND county = %s"
+                    params.append(county)
+                cursor.execute(sql, tuple(params))
                 row = cursor.fetchone()
                 return int(row.get("total_count") or 0) if row else None
         except Exception as exc:
@@ -618,8 +637,12 @@ class SoilRepository:
         finally:
             connection.close()
 
-    async def total_soil_device_count_async(self) -> int | None:
-        return await asyncio.to_thread(self.total_soil_device_count)
+    async def total_soil_device_count_async(
+        self,
+        city: str | None = None,
+        county: str | None = None,
+    ) -> int | None:
+        return await asyncio.to_thread(self.total_soil_device_count, city, county)
 
     @staticmethod
     def _normalize_city_name(city: str | None) -> str | None:

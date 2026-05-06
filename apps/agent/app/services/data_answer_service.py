@@ -282,7 +282,12 @@ class DataAnswerService:
                 current_context=context,
             )
         if route_decision.route == "device_registry_count":
-            return await self._reply_device_registry_count(session_id=session_id, turn_id=turn_id, current_context=context)
+            return await self._reply_device_registry_count(
+                route_decision=route_decision,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
         if route_decision.route == "count":
             return await self._reply_count(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "field":
@@ -4638,11 +4643,16 @@ class DataAnswerService:
     async def _reply_device_registry_count(
         self,
         *,
+        route_decision: Any,
         session_id: str,
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
-        count = await self.repository.total_soil_device_count_async()
+        resolved_entities = self._clarification_resolved_entities(route_decision.entities or {}, current_context)
+        slots = self._slots_from_resolved_entities(resolved_entities)
+        city = slots.get("city")
+        county = slots.get("county")
+        count = await self.repository.total_soil_device_count_async(city=city, county=county)
         if count is None:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -4650,7 +4660,18 @@ class DataAnswerService:
                 text="当前设备台账暂时不可用，请联系管理员检查配置。",
                 current_context=current_context,
             )
-        final_text = f"截至当前，苏农云指挥调度中心已接入 {count} 套土壤墒情仪设备。"
+        region_label = ""
+        if city and county:
+            region_label = f"{city}{county}"
+        elif county:
+            region_label = str(county)
+        elif city:
+            region_label = str(city)
+        final_text = (
+            f"截至当前，{region_label}已接入 {count} 套土壤墒情仪设备。"
+            if region_label
+            else f"截至当前，苏农云指挥调度中心已接入 {count} 套土壤墒情仪设备。"
+        )
         block_id = f"block_device_registry_{turn_id}"
         block = {
             "block_id": block_id,
@@ -4658,6 +4679,8 @@ class DataAnswerService:
             "display_mode": "evidence_only",
             "total_count": count,
             "device_type": "土壤墒情仪",
+            "city": city,
+            "county": county,
         }
         base_context = {
             "topic_family": "device_registry",
@@ -4665,7 +4688,7 @@ class DataAnswerService:
             "primary_block_id": block_id,
             "primary_query_spec": {},
             "time_window": {},
-            "resolved_entities": [],
+            "resolved_entities": resolved_entities,
             "derived_sets": {},
             "compare_winner_entity": None,
             "closed": False,
@@ -4698,19 +4721,35 @@ class DataAnswerService:
                         "capability": "device_registry_count",
                         "grain": "total",
                         "time_window": {},
-                        "entities": {"city": [], "county": [], "sn": []},
-                        "filters": {"device_type": "土壤墒情仪"},
+                        "entities": {"city": [city] if city else [], "county": [county] if county else [], "sn": []},
+                        "filters": {
+                            "device_type": "土壤墒情仪",
+                            **({"city": city} if city else {}),
+                            **({"county": county} if county else {}),
+                        },
                         "sort": {"field": "id", "direction": "asc"},
                         "page": {"page": 1, "page_size": 1},
                         "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
                     },
-                    executed_sql_text=self.repository.build_total_soil_device_count_audit_sql(),
+                    executed_sql_text=self.repository.build_total_soil_device_count_audit_sql(city=city, county=county),
                     row_count=1,
                     snapshot_id=None,
                     time_window={},
-                    filters={"device_type": "土壤墒情仪"},
-                    executed_result={"total_count": count},
-                    result_digest={"total_count": count},
+                    filters={
+                        "device_type": "土壤墒情仪",
+                        **({"city": city} if city else {}),
+                        **({"county": county} if county else {}),
+                    },
+                    executed_result={
+                        "total_count": count,
+                        **({"city": city} if city else {}),
+                        **({"county": county} if county else {}),
+                    },
+                    result_digest={
+                        "total_count": count,
+                        **({"city": city} if city else {}),
+                        **({"county": county} if county else {}),
+                    },
                 )
             ],
         }

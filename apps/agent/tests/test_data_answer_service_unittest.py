@@ -1816,6 +1816,36 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("subject_device_record", log_entries[0].get("executed_sql_text", ""))
         self.assertEqual(log_entries[0]["executed_result_json"]["total_count"], 528)
 
+    async def test_device_registry_count_city_query_returns_city_total(self) -> None:
+        result = await self.service.reply(
+            message="南京有多少台土壤墒情仪",
+            session_id="device-registry-count-city",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "device_registry_count")
+        self.assertIn("南京市", result["final_text"])
+        self.assertIn("48", result["final_text"])
+        self.assertNotIn("528", result["final_text"])
+
+    async def test_device_registry_count_city_query_log_contains_city_filter(self) -> None:
+        result = await self.service.reply(
+            message="南京有多少台土壤墒情仪",
+            session_id="device-registry-count-city-log",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        log_entries = result.get("query_log_entries", [])
+        self.assertEqual(len(log_entries), 1)
+        self.assertIn("subject_device_record", log_entries[0].get("executed_sql_text", ""))
+        self.assertEqual(log_entries[0]["executed_result_json"]["total_count"], 48)
+        self.assertEqual(log_entries[0]["filters_json"]["city"], "南京市")
+
     async def test_device_registry_distribution_returns_city_breakdown(self) -> None:
         result = await self.service.reply(
             message="土壤墒情仪分布在哪里",

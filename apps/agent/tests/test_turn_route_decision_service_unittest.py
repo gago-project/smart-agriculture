@@ -313,7 +313,7 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertFalse(Svc._is_device_registry_count_request("监控摄像头总共多少个"))
 
     def test_device_registry_count_regional_query_routes_to_registry(self) -> None:
-        """SM-DEV-007: 带城市名的设备数量查询仍路由到 device_registry_count（当前限制：返回全省总数）"""
+        """SM-DEV-007: 带城市名的设备数量查询仍路由到 device_registry_count，由执行层落到地区范围"""
         result = self.service.decide(
             message="南京接入了多少台土壤墒情仪",
             current_context={},
