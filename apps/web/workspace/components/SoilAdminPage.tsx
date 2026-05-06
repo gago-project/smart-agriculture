@@ -1,26 +1,25 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
-  applySoilImportJob,
+  applySoilImportPreview,
   bulkDeleteSoilRecords,
   createSoilImportPreview,
   deleteSoilRecord,
-  fetchSoilImportDiff,
-  fetchSoilImportJob,
+  fetchSoilImportPreviewDiff,
   fetchSoilRecords,
   updateSoilRecordField,
   type SoilImportDiffPage,
   type SoilImportDiffRow,
   type SoilImportDiffType,
-  type SoilImportJob,
   type SoilImportMode,
+  type SoilImportPreview,
   type SoilImportSummary,
   type SoilRecord,
   type SoilRecordPage,
 } from '../services/soilAdminApi';
 
 const DEFAULT_PAGE_SIZE = 50;
-const DIFF_PAGE_SIZE = 20;
+const DIFF_PAGE_SIZE = 10;
 const PAGE_SIZE_OPTIONS = [20, 50, 100];
 
 const EDITABLE_FIELDS = [
@@ -67,13 +66,7 @@ interface EditModalState {
   value: string;
 }
 
-const STATUS_LABELS: Record<string, string> = {
-  previewing: '预览中',
-  ready: '待确认',
-  applying: '导入中',
-  succeeded: '已完成',
-  failed: '失败',
-};
+type ImportPreviewPhase = 'idle' | 'preview_ready' | 'applying';
 
 const DIFF_TYPE_LABELS: Record<SoilImportDiffType, string> = {
   all: '全部',
@@ -121,8 +114,10 @@ function fieldLabel(field: EditableField) {
   return EDITABLE_FIELDS.find((item) => item.key === field)?.label || field;
 }
 
-function statusLabel(status?: string | null) {
-  return STATUS_LABELS[status || ''] || status || '未开始';
+function phaseLabel(phase: ImportPreviewPhase) {
+  if (phase === 'preview_ready') return '待确认';
+  if (phase === 'applying') return '导入中';
+  return '未开始';
 }
 
 function recordRegion(record: SoilRecord) {
@@ -131,13 +126,6 @@ function recordRegion(record: SoilRecord) {
 
 function summaryNumber(summary: SoilImportSummary | null | undefined, key: keyof SoilImportSummary) {
   return Number(summary?.[key] || 0);
-}
-
-function progressText(job: SoilImportJob | null) {
-  if (!job) return '';
-  const action = job.status === 'applying' ? '上传中' : job.status === 'previewing' ? '预览中' : statusLabel(job.status);
-  const total = job.total_rows > 0 ? job.total_rows : 0;
-  return total > 0 ? `${action} ${job.processed_rows}/${total}` : action;
 }
 
 function summarizeRecord(record?: SoilRecord | null) {
@@ -162,6 +150,10 @@ function formatFieldChanges(row: SoilImportDiffRow): string {
   return keys.map((key) => `${key}: ${String(fieldChanges[key]?.before ?? '-') } → ${String(fieldChanges[key]?.after ?? '-')}`).join('；');
 }
 
+function isPreviewExpiredError(message: string) {
+  return message.includes('预览已过期');
+}
+
 export function SoilAdminPage() {
   const [draftFilters, setDraftFilters] = useState<Filters>(initialFilters);
   const [filters, setFilters] = useState<Filters>(initialFilters);
@@ -171,7 +163,8 @@ export function SoilAdminPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [editModal, setEditModal] = useState<EditModalState | null>(null);
   const [uploadFile, setUploadFile] = useState<File | null>(null);
-  const [importJob, setImportJob] = useState<SoilImportJob | null>(null);
+  const [importPreview, setImportPreview] = useState<SoilImportPreview | null>(null);
+  const [previewPhase, setPreviewPhase] = useState<ImportPreviewPhase>('idle');
   const [diffType, setDiffType] = useState<SoilImportDiffType>('all');
   const [diffPage, setDiffPage] = useState(1);
   const [diffData, setDiffData] = useState(emptyDiffPage);
@@ -185,12 +178,12 @@ export function SoilAdminPage() {
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const initialLoadedRef = useRef(false);
-  const lastImportStatusRef = useRef<string | null>(null);
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds]);
   const currentPageIds = useMemo(() => data.rows.map((record) => record.id), [data.rows]);
   const allPageSelected = currentPageIds.length > 0 && currentPageIds.every((id) => selectedSet.has(id));
-  const importSummary = importJob?.summary || null;
+  const previewToken = importPreview?.preview_token || null;
+  const importSummary = importPreview?.summary || diffData.summary || null;
   const incrementalApplyRows = summaryNumber(importSummary, 'create_rows');
   const replaceApplyRows = summaryNumber(importSummary, 'valid_rows');
 
@@ -221,61 +214,30 @@ export function SoilAdminPage() {
     void loadRecords(1, DEFAULT_PAGE_SIZE, initialFilters);
   }, [loadRecords]);
 
-  useEffect(() => {
-    if (!importJob?.job_id) {
-      lastImportStatusRef.current = null;
-      return;
+  const resetImportPreview = useCallback((nextMessage: string | null = null) => {
+    setImportPreview(null);
+    setPreviewPhase('idle');
+    setDiffData(emptyDiffPage);
+    setDiffPage(1);
+    setDiffType('all');
+    setShowReplaceConfirm(false);
+    setReplaceConfirmText('');
+    if (nextMessage) {
+      setMessage(nextMessage);
     }
-    if (!['previewing', 'applying'].includes(importJob.status)) {
-      lastImportStatusRef.current = importJob.status;
-      return;
-    }
-
-    let cancelled = false;
-    const timer = window.setInterval(async () => {
-      try {
-        const nextJob = await fetchSoilImportJob(importJob.job_id);
-        if (cancelled) return;
-        const previousStatus = lastImportStatusRef.current;
-        lastImportStatusRef.current = nextJob.status;
-        setImportJob(nextJob);
-
-        if (nextJob.status === 'ready' && previousStatus !== 'ready') {
-          setMessage(`预览完成：新增 ${summaryNumber(nextJob.summary, 'create_rows')} 条，存在差异 ${summaryNumber(nextJob.summary, 'update_rows')} 条。`);
-        }
-        if (nextJob.status === 'succeeded' && previousStatus !== 'succeeded') {
-          setMessage(`导入完成：${nextJob.apply_mode === 'replace' ? '全量覆盖' : '增量添加'}已执行。`);
-          void loadRecords(1, pageSize, filters);
-        }
-        if (nextJob.status === 'failed' && previousStatus !== 'failed') {
-          setError(nextJob.error_message || '导入任务执行失败');
-        }
-      } catch (caughtError) {
-        if (cancelled) return;
-        setError(caughtError instanceof Error ? caughtError.message : '导入任务轮询失败');
-      }
-    }, 1000);
-
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [filters, importJob?.job_id, importJob?.status, loadRecords, pageSize]);
+  }, []);
 
   useEffect(() => {
-    if (!importJob?.job_id) {
+    if (!previewToken) {
       setDiffData(emptyDiffPage);
       return;
     }
-    if (!['ready', 'applying', 'succeeded'].includes(importJob.status)) {
-      return;
-    }
 
+    const activePreviewToken = previewToken;
     let cancelled = false;
-    const jobId = importJob.job_id;
     async function loadDiff() {
       try {
-        const result = await fetchSoilImportDiff(jobId, {
+        const result = await fetchSoilImportPreviewDiff(activePreviewToken, {
           type: diffType,
           page: diffPage,
           page_size: DIFF_PAGE_SIZE,
@@ -285,7 +247,13 @@ export function SoilAdminPage() {
         }
       } catch (caughtError) {
         if (!cancelled) {
-          setError(caughtError instanceof Error ? caughtError.message : '导入 diff 加载失败');
+          const nextError = caughtError instanceof Error ? caughtError.message : '导入 diff 加载失败';
+          if (isPreviewExpiredError(nextError)) {
+            resetImportPreview(nextError);
+            setError(null);
+            return;
+          }
+          setError(nextError);
         }
       }
     }
@@ -294,7 +262,7 @@ export function SoilAdminPage() {
     return () => {
       cancelled = true;
     };
-  }, [diffPage, diffType, importJob?.job_id, importJob?.status]);
+  }, [diffPage, diffType, previewToken, resetImportPreview]);
 
   function updateDraftFilter(field: keyof Filters, value: string) {
     setDraftFilters((current) => ({ ...current, [field]: value }));
@@ -401,39 +369,49 @@ export function SoilAdminPage() {
     setError(null);
     setMessage(null);
     try {
-      const job = await createSoilImportPreview(uploadFile);
-      lastImportStatusRef.current = job.status;
-      setImportJob(job);
+      const preview = await createSoilImportPreview(uploadFile);
+      setImportPreview(preview);
+      setPreviewPhase('preview_ready');
       setDiffType('all');
       setDiffPage(1);
       setDiffData(emptyDiffPage);
-      setMessage(`已创建预览任务：${job.filename}`);
+      setShowReplaceConfirm(false);
+      setReplaceConfirmText('');
+      setMessage(`预览完成：${preview.filename}`);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : '预览任务创建失败');
+      setError(caughtError instanceof Error ? caughtError.message : '导入预览创建失败');
     } finally {
       setIsPreviewStarting(false);
     }
   }
 
   async function handleApply(mode: SoilImportMode, confirmFullReplace: boolean) {
-    if (!importJob?.job_id) {
+    if (!previewToken) {
       setError('请先生成导入预览');
       return;
     }
     setIsApplyStarting(true);
+    setPreviewPhase('applying');
     setError(null);
     try {
-      const job = await applySoilImportJob(importJob.job_id, {
+      const result = await applySoilImportPreview(previewToken, {
         mode,
         confirm_full_replace: confirmFullReplace,
       });
-      lastImportStatusRef.current = job.status;
-      setImportJob(job);
+      setPreviewPhase('preview_ready');
       setShowReplaceConfirm(false);
       setReplaceConfirmText('');
-      setMessage(mode === 'replace' ? '已开始全量覆盖' : '已开始增量添加');
+      setMessage(`导入完成：${mode === 'replace' ? '全量覆盖' : '增量添加'}已执行，共写入 ${result.loaded_rows} 条。`);
+      await loadRecords(1, pageSize, filters);
     } catch (caughtError) {
-      setError(caughtError instanceof Error ? caughtError.message : '导入启动失败');
+      const nextError = caughtError instanceof Error ? caughtError.message : '导入失败';
+      setPreviewPhase(importPreview ? 'preview_ready' : 'idle');
+      if (isPreviewExpiredError(nextError)) {
+        resetImportPreview(nextError);
+        setError(null);
+        return;
+      }
+      setError(nextError);
     } finally {
       setIsApplyStarting(false);
     }
@@ -461,7 +439,7 @@ export function SoilAdminPage() {
         <div className="admin-card upload-panel">
           <div className="admin-card-title">
             <h3>Excel 导入预览</h3>
-            <span className={`admin-status-badge is-${importJob?.status || 'idle'}`}>{statusLabel(importJob?.status)}</span>
+            <span className={`admin-status-badge is-${previewPhase}`}>{phaseLabel(previewPhase)}</span>
           </div>
           <div className="upload-card">
             <label>
@@ -475,20 +453,20 @@ export function SoilAdminPage() {
             </label>
             <label>
               当前文件
-              <input value={uploadFile?.name || importJob?.filename || ''} readOnly placeholder="请选择 Excel 文件" />
+              <input value={uploadFile?.name || importPreview?.filename || ''} readOnly placeholder="请选择 Excel 文件" />
             </label>
-            <button onClick={() => void handleStartPreview()} disabled={!uploadFile || isPreviewStarting || importJob?.status === 'previewing' || importJob?.status === 'applying'}>
+            <button onClick={() => void handleStartPreview()} disabled={!uploadFile || isPreviewStarting || previewPhase === 'applying'}>
               {isPreviewStarting ? '创建中...' : '生成预览'}
             </button>
           </div>
 
-          {importJob ? (
+          {importPreview ? (
             <div className="admin-progress-card">
               <div className="admin-progress-header">
-                <strong>{progressText(importJob)}</strong>
-                <span>{importJob.filename}</span>
+                <strong>{phaseLabel(previewPhase)}</strong>
+                <span>{importPreview.filename}</span>
               </div>
-              <progress value={importJob.processed_rows} max={Math.max(importJob.total_rows, 1)} />
+              <p>预览有效期至 {importPreview.expires_at.replace('T', ' ').slice(0, 19)}</p>
             </div>
           ) : null}
 
@@ -506,14 +484,14 @@ export function SoilAdminPage() {
               <div className="admin-import-actions">
                 <button
                   onClick={() => void handleApply('incremental', false)}
-                  disabled={importJob?.status !== 'ready' || isApplyStarting}
+                  disabled={!previewToken || previewPhase === 'applying' || isApplyStarting}
                 >
                   增量添加 {incrementalApplyRows} 条
                 </button>
                 <button
                   className="danger-outline"
                   onClick={() => setShowReplaceConfirm(true)}
-                  disabled={importJob?.status !== 'ready' || isApplyStarting}
+                  disabled={!previewToken || previewPhase === 'applying' || isApplyStarting}
                 >
                   全量覆盖 {replaceApplyRows} 条
                 </button>
@@ -525,7 +503,7 @@ export function SoilAdminPage() {
             <div className="admin-card-title">
               <h3>Diff 预览</h3>
               <div className="admin-diff-toolbar">
-                <select value={diffType} onChange={(event) => { setDiffType(event.target.value as SoilImportDiffType); setDiffPage(1); }} disabled={!importJob}>
+                <select value={diffType} onChange={(event) => { setDiffType(event.target.value as SoilImportDiffType); setDiffPage(1); }} disabled={!previewToken}>
                   {Object.entries(DIFF_TYPE_LABELS).map(([value, label]) => (
                     <option key={value} value={value}>{label}</option>
                   ))}

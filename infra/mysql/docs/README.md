@@ -21,12 +21,10 @@
 
 - [`fact_soil_moisture.md`](./fact_soil_moisture.md)
 - [`subject_device_record.md`](./subject_device_record.md)
-- [`soil_import_job.md`](./soil_import_job.md)
 - [`region_alias.md`](./region_alias.md)
 - [`metric_rule.md`](./metric_rule.md)
 - [`warning_template.md`](./warning_template.md)
 - [`agent_query_log.md`](./agent_query_log.md)
-- [`admin_change_log.md`](./admin_change_log.md)
 - [`auth_user.md`](./auth_user.md)
 - [`auth_session.md`](./auth_session.md)
 

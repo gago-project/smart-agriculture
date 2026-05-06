@@ -22,10 +22,7 @@ function extractColumns(tableName) {
 test('mysql core tables strictly follow current soil domain contract', () => {
   for (const table of [
     'fact_soil_moisture',
-    'soil_import_job',
-    'soil_import_job_diff',
     'metric_rule',
-    'admin_change_log',
     'warning_template',
     'region_alias',
     'agent_result_snapshot',
@@ -77,34 +74,14 @@ test('fact_soil_moisture columns exactly match raw excel contract', () => {
   assert.match(sql, /CREATE INDEX idx_soil_region_create_time ON fact_soil_moisture \(city, county, create_time\)/i);
 });
 
-test('soil import preview tables keep current job and diff fields', () => {
-  assert.deepEqual(extractColumns('soil_import_job'), [
-    'job_id',
-    'filename',
-    'requested_by_user_id',
-    'requested_by_username',
-    'status',
-    'apply_mode',
-    'processed_rows',
-    'total_rows',
-    'summary_json',
-    'error_message',
-    'finished_at',
-    'created_at',
-    'updated_at',
-  ]);
-  assert.deepEqual(extractColumns('soil_import_job_diff'), [
-    'diff_id',
-    'job_id',
-    'diff_type',
-    'id',
-    'source_row',
-    'db_record_json',
-    'import_record_json',
-    'field_changes_json',
-    'created_at',
-  ]);
-  assert.match(sql, /FOREIGN KEY \(job_id\) REFERENCES soil_import_job\(job_id\)/i);
+test('mysql init explicitly drops removed soil import and admin audit tables', () => {
+  assert.match(sql, /DROP TABLE IF EXISTS soil_import_job_diff;/i);
+  assert.match(sql, /DROP TABLE IF EXISTS soil_import_job;/i);
+  assert.match(sql, /DROP TABLE IF EXISTS admin_change_log;/i);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS soil_import_job\b/i);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS soil_import_job_diff\b/i);
+  assert.doesNotMatch(sql, /CREATE TABLE IF NOT EXISTS admin_change_log\b/i);
+  assert.doesNotMatch(sql, /FOREIGN KEY \(job_id\) REFERENCES soil_import_job\(job_id\)/i);
 });
 
 test('region_alias only keeps city and county disambiguation fields', () => {

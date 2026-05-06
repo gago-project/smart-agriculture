@@ -6,36 +6,10 @@ DROP TABLE IF EXISTS agent_result_snapshot_item;
 DROP TABLE IF EXISTS agent_result_snapshot;
 DROP TABLE IF EXISTS agent_chat_turn;
 DROP TABLE IF EXISTS agent_chat_session;
+DROP TABLE IF EXISTS soil_import_job_diff;
+DROP TABLE IF EXISTS soil_import_job;
+DROP TABLE IF EXISTS admin_change_log;
 SET FOREIGN_KEY_CHECKS = 1;
-
-CREATE TABLE IF NOT EXISTS soil_import_job (
-  job_id CHAR(36) PRIMARY KEY,
-  filename VARCHAR(255) NOT NULL,
-  requested_by_user_id BIGINT NULL,
-  requested_by_username VARCHAR(64) NULL,
-  status VARCHAR(32) NOT NULL,
-  apply_mode VARCHAR(16) NULL,
-  processed_rows INT NOT NULL DEFAULT 0,
-  total_rows INT NOT NULL DEFAULT 0,
-  summary_json JSON NULL,
-  error_message TEXT NULL,
-  finished_at DATETIME NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-);
-
-CREATE TABLE IF NOT EXISTS soil_import_job_diff (
-  diff_id BIGINT PRIMARY KEY AUTO_INCREMENT,
-  job_id CHAR(36) NOT NULL,
-  diff_type VARCHAR(16) NOT NULL,
-  id VARCHAR(64) NULL,
-  source_row INT NULL,
-  db_record_json JSON NULL,
-  import_record_json JSON NULL,
-  field_changes_json JSON NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  CONSTRAINT fk_soil_import_job_diff_job FOREIGN KEY (job_id) REFERENCES soil_import_job(job_id)
-);
 
 CREATE TABLE IF NOT EXISTS fact_soil_moisture (
   id VARCHAR(64) PRIMARY KEY,
@@ -74,18 +48,6 @@ CREATE TABLE IF NOT EXISTS metric_rule (
   rule_definition_json JSON NOT NULL,
   enabled TINYINT NOT NULL DEFAULT 1,
   updated_at DATETIME NOT NULL
-);
-
-CREATE TABLE IF NOT EXISTS admin_change_log (
-  id BIGINT PRIMARY KEY,
-  operator_user_id BIGINT NULL,
-  operator_username VARCHAR(64) NULL,
-  operation VARCHAR(64) NOT NULL,
-  target_table VARCHAR(128) NOT NULL,
-  target_id VARCHAR(128) NULL,
-  before_json JSON NULL,
-  after_json JSON NULL,
-  created_at DATETIME NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS warning_template (
@@ -311,8 +273,6 @@ CALL drop_column_if_exists('agent_query_log', 'result_preview_json', 'ALTER TABL
 CALL ensure_index('fact_soil_moisture', 'idx_soil_create_time', 'CREATE INDEX idx_soil_create_time ON fact_soil_moisture (create_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_sn_create_time', 'CREATE INDEX idx_soil_sn_create_time ON fact_soil_moisture (sn, create_time)');
 CALL ensure_index('fact_soil_moisture', 'idx_soil_region_create_time', 'CREATE INDEX idx_soil_region_create_time ON fact_soil_moisture (city, county, create_time)');
-CALL ensure_index('soil_import_job', 'idx_soil_import_job_status_created_at', 'CREATE INDEX idx_soil_import_job_status_created_at ON soil_import_job (status, created_at)');
-CALL ensure_index('soil_import_job_diff', 'idx_soil_import_job_diff_lookup', 'CREATE INDEX idx_soil_import_job_diff_lookup ON soil_import_job_diff (job_id, diff_type, diff_id)');
 CALL ensure_index('metric_rule', 'idx_metric_rule_scope_enabled', 'CREATE INDEX idx_metric_rule_scope_enabled ON metric_rule (enabled, rule_scope, updated_at)');
 CALL ensure_index('agent_result_snapshot', 'idx_agent_result_snapshot_session_turn', 'CREATE INDEX idx_agent_result_snapshot_session_turn ON agent_result_snapshot (session_id, source_turn_id)');
 CALL ensure_index('agent_result_snapshot', 'idx_agent_result_snapshot_expires_at', 'CREATE INDEX idx_agent_result_snapshot_expires_at ON agent_result_snapshot (expires_at)');

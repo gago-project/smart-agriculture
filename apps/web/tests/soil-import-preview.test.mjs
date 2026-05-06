@@ -1,25 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import {
-  buildSoilImportPreview,
-  findDuplicateRecordIds,
-  getApplyRowsForMode,
-} from '../lib/server/soilImportJob.mjs';
+async function loadPreviewModule() {
+  return import(new URL(`../lib/server/soilImportPreview.mjs?ts=${Date.now()}`, import.meta.url));
+}
 
-test('findDuplicateRecordIds returns conflicting ids with source rows', () => {
-  const duplicates = findDuplicateRecordIds([
-    { id: 'soil-1', source_row: 2 },
-    { id: 'soil-2', source_row: 3 },
-    { id: 'soil-1', source_row: 8 },
-  ]);
+test('buildSoilImportPreview classifies create update unchanged delete and invalid rows', async () => {
+  const { buildSoilImportPreview } = await loadPreviewModule();
 
-  assert.deepEqual(duplicates, [
-    { id: 'soil-1', source_rows: [2, 8] },
-  ]);
-});
-
-test('buildSoilImportPreview classifies create update unchanged delete and invalid rows', () => {
   const preview = buildSoilImportPreview({
     existingRecords: [
       {
@@ -28,7 +16,6 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
         city: '南京市',
         create_time: '2026-04-20 00:00:00',
         water20cm: 30,
-        source_file: 'old.xlsx',
         source_row: 2,
       },
       {
@@ -37,7 +24,6 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
         city: '苏州市',
         create_time: '2026-04-20 00:00:00',
         water20cm: 40,
-        source_file: 'old.xlsx',
         source_row: 3,
       },
       {
@@ -46,7 +32,6 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
         city: '南通市',
         create_time: '2026-04-20 00:00:00',
         water20cm: 50,
-        source_file: 'old.xlsx',
         source_row: 4,
       },
     ],
@@ -57,7 +42,6 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
         city: '南京市',
         create_time: '2026-04-20 00:00:00',
         water20cm: 30,
-        source_file: 'new.xlsx',
         source_row: 2,
       },
       {
@@ -66,7 +50,6 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
         city: '南京市',
         create_time: '2026-04-20 00:00:00',
         water20cm: 45,
-        source_file: 'new.xlsx',
         source_row: 3,
       },
       {
@@ -75,7 +58,6 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
         city: '扬州市',
         create_time: '2026-04-20 00:00:00',
         water20cm: 60,
-        source_file: 'new.xlsx',
         source_row: 4,
       },
     ],
@@ -106,10 +88,11 @@ test('buildSoilImportPreview classifies create update unchanged delete and inval
     preview.diff_rows.map((item) => item.diff_type),
     ['invalid', 'unchanged', 'update', 'create', 'delete'],
   );
-  assert.match(JSON.stringify(preview.diff_rows.find((item) => item.diff_type === 'update')?.field_changes_json), /南京市/);
 });
 
-test('buildSoilImportPreview stops on duplicate valid ids', () => {
+test('buildSoilImportPreview stops on duplicate valid ids', async () => {
+  const { buildSoilImportPreview } = await loadPreviewModule();
+
   const preview = buildSoilImportPreview({
     existingRecords: [],
     importedRecords: [
@@ -122,14 +105,4 @@ test('buildSoilImportPreview stops on duplicate valid ids', () => {
   assert.deepEqual(preview.duplicate_ids, [
     { id: 'dup-1', source_rows: [2, 6] },
   ]);
-});
-
-test('getApplyRowsForMode keeps incremental as create-only', () => {
-  const summary = {
-    valid_rows: 10,
-    create_rows: 3,
-  };
-
-  assert.equal(getApplyRowsForMode(summary, 'incremental'), 3);
-  assert.equal(getApplyRowsForMode(summary, 'replace'), 10);
 });

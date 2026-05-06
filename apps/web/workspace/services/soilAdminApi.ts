@@ -50,7 +50,6 @@ export interface SoilRecordPage {
 }
 
 export type SoilImportMode = 'incremental' | 'replace';
-export type SoilImportJobStatus = 'previewing' | 'ready' | 'applying' | 'succeeded' | 'failed';
 export type SoilImportDiffType = 'all' | 'create' | 'update' | 'unchanged' | 'delete' | 'invalid';
 
 export interface SoilUploadInput {
@@ -88,18 +87,11 @@ export interface SoilImportSummary {
   apply_rows: number;
 }
 
-export interface SoilImportJob {
-  job_id: string;
+export interface SoilImportPreview {
+  preview_token: string;
   filename: string;
-  status: SoilImportJobStatus;
-  apply_mode?: SoilImportMode | null;
-  processed_rows: number;
-  total_rows: number;
   summary: SoilImportSummary | null;
-  error_message?: string | null;
-  created_at?: string | null;
-  updated_at?: string | null;
-  finished_at?: string | null;
+  expires_at: string;
 }
 
 export interface SoilImportFieldChange {
@@ -125,7 +117,9 @@ export interface SoilImportDiffPage {
   page_size: number;
   total_pages: number;
   summary?: SoilImportSummary | null;
-  status?: SoilImportJobStatus;
+  filename?: string;
+  preview_token?: string;
+  expires_at?: string;
 }
 
 function authHeaders(json = false): Record<string, string> {
@@ -217,9 +211,9 @@ export async function fetchSoilRecords(query: SoilRecordQuery): Promise<SoilReco
   });
 }
 
-export async function createSoilImportPreview(file: File): Promise<SoilImportJob> {
+export async function createSoilImportPreview(file: File): Promise<SoilImportPreview> {
   const bytes = await readFileBytes(file);
-  return requestJson<SoilImportJob>('/api/admin/soil/import-jobs', {
+  return requestJson<SoilImportPreview>('/api/admin/soil/import-preview', {
     method: 'POST',
     headers: authHeaders(true),
     body: JSON.stringify({
@@ -229,14 +223,7 @@ export async function createSoilImportPreview(file: File): Promise<SoilImportJob
   });
 }
 
-export async function fetchSoilImportJob(jobId: string): Promise<SoilImportJob> {
-  return requestJson<SoilImportJob>(`/api/admin/soil/import-jobs/${encodeURIComponent(jobId)}`, {
-    method: 'GET',
-    headers: authHeaders(),
-  });
-}
-
-export async function fetchSoilImportDiff(jobId: string, query: {
+export async function fetchSoilImportPreviewDiff(previewToken: string, query: {
   type?: SoilImportDiffType;
   page?: number;
   page_size?: number;
@@ -244,19 +231,19 @@ export async function fetchSoilImportDiff(jobId: string, query: {
   const params = new URLSearchParams();
   appendParam(params, 'type', query.type || 'all');
   appendParam(params, 'page', query.page || 1);
-  appendParam(params, 'page_size', query.page_size || 20);
+  appendParam(params, 'page_size', query.page_size || 10);
 
-  return requestJson<SoilImportDiffPage>(`/api/admin/soil/import-jobs/${encodeURIComponent(jobId)}/diff?${params.toString()}`, {
+  return requestJson<SoilImportDiffPage>(`/api/admin/soil/import-preview/${encodeURIComponent(previewToken)}/diff?${params.toString()}`, {
     method: 'GET',
     headers: authHeaders(),
   });
 }
 
-export async function applySoilImportJob(jobId: string, input: {
+export async function applySoilImportPreview(previewToken: string, input: {
   mode: SoilImportMode;
   confirm_full_replace: boolean;
-}): Promise<SoilImportJob> {
-  return requestJson<SoilImportJob>(`/api/admin/soil/import-jobs/${encodeURIComponent(jobId)}/apply`, {
+}): Promise<SoilUploadResult> {
+  return requestJson<SoilUploadResult>(`/api/admin/soil/import-preview/${encodeURIComponent(previewToken)}/apply`, {
     method: 'POST',
     headers: authHeaders(true),
     body: JSON.stringify(input),

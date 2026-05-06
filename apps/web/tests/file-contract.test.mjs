@@ -73,11 +73,30 @@ test('admin routes for records upload and rules exist', () => {
   assert.equal(existsSync(new URL('../app/api/admin/agent/query-evidence/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/admin/soil/records/route.ts', import.meta.url)), true);
   assert.equal(existsSync(new URL('../app/api/admin/soil/upload/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/[jobId]/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/[jobId]/diff/route.ts', import.meta.url)), true);
-  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/[jobId]/apply/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-preview/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-preview/[previewToken]/diff/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-preview/[previewToken]/apply/route.ts', import.meta.url)), true);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/route.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/[jobId]/route.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/[jobId]/diff/route.ts', import.meta.url)), false);
+  assert.equal(existsSync(new URL('../app/api/admin/soil/import-jobs/[jobId]/apply/route.ts', import.meta.url)), false);
   assert.equal(existsSync(new URL('../app/api/admin/soil/rules/route.ts', import.meta.url)), true);
+});
+
+test('workspace soil admin keeps preview and diff UI but no longer polls import jobs', () => {
+  const pageSource = readFileSync(new URL('../workspace/components/SoilAdminPage.tsx', import.meta.url), 'utf8');
+  const apiSource = readFileSync(new URL('../workspace/services/soilAdminApi.ts', import.meta.url), 'utf8');
+
+  assert.match(pageSource, /生成预览/);
+  assert.match(pageSource, /Diff 预览/);
+  assert.match(pageSource, /增量添加/);
+  assert.match(pageSource, /全量覆盖/);
+  assert.match(apiSource, /preview_token/);
+  assert.match(apiSource, /page_size \|\| 10/);
+  assert.doesNotMatch(pageSource, /fetchSoilImportJob/);
+  assert.doesNotMatch(pageSource, /applySoilImportJob/);
+  assert.doesNotMatch(pageSource, /setInterval/);
+  assert.doesNotMatch(apiSource, /\/api\/admin\/soil\/import-jobs/);
 });
 
 test('workspace routes for auth and chat exist', () => {

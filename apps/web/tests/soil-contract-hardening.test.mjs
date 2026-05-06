@@ -80,10 +80,6 @@ function legacyTokens() {
 test('database docs stay aligned with current ddl columns', () => {
   assert.deepEqual(markdownFieldNames('infra/mysql/docs/fact_soil_moisture.md'), sqlColumns('fact_soil_moisture'));
   assert.deepEqual(markdownFieldNames('infra/mysql/docs/region_alias.md'), sqlColumns('region_alias'));
-  assert.deepEqual(
-    markdownFieldNames('infra/mysql/docs/soil_import_job.md'),
-    [...sqlColumns('soil_import_job'), ...sqlColumns('soil_import_job_diff')],
-  );
   assert.deepEqual(markdownFieldNames('infra/mysql/docs/warning_template.md'), sqlColumns('warning_template'));
 });
 

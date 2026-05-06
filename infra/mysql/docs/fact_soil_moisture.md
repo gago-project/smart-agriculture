@@ -56,8 +56,8 @@
 
 - 写入：
   - `infra/mysql/init/003_insert_soil_data.sql`
-  - `apps/web/lib/server/soilImportJobRepository.mjs`
   - `apps/web/lib/server/soilAdminRepository.mjs`
+  - `apps/web/lib/server/soilImportPreviewService.mjs`
   - `apps/web/scripts/import-local-soil-excel.mjs`
 - 读取：
   - `apps/agent/app/repositories/soil_repository.py`

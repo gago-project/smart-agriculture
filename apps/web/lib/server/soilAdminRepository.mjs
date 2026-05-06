@@ -99,6 +99,53 @@ async function insertFactRows(connection, records, options = {}) {
   return insertedRows;
 }
 
+export async function listSoilFactSnapshots() {
+  return await withMysqlConnection(async (connection) => {
+    const [rows] = await connection.query(`${SELECT_FACT_SQL} ORDER BY id ASC`);
+    return rows;
+  });
+}
+
+export async function applySoilImportRecords({
+  filename,
+  records,
+  rawRows,
+  invalidRowsCount = 0,
+  mode,
+  confirmFullReplace,
+}) {
+  if (mode === 'replace' && !confirmFullReplace) {
+    throw new Error('全量覆盖导入必须显式确认');
+  }
+
+  return await withMysqlConnection(async (connection) => {
+    await connection.beginTransaction();
+    try {
+      if (mode === 'replace') {
+        await connection.execute('DELETE FROM fact_soil_moisture');
+      }
+
+      const loadedRows = await insertFactRows(connection, records, {
+        ignoreDuplicates: mode === 'incremental',
+      });
+
+      await refreshGeneratedRegionAliasesFromFacts(connection);
+      await connection.commit();
+
+      return {
+        filename,
+        mode,
+        raw_rows: rawRows,
+        loaded_rows: loadedRows,
+        invalid_rows: invalidRowsCount,
+      };
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    }
+  });
+}
+
 export async function listSoilRecords(query) {
   return await withMysqlConnection(async (connection) => {
     const filters = [];
@@ -153,36 +200,13 @@ export async function listSoilRecords(query) {
 export async function importSoilWorkbook({ filename, contentBase64, mode, confirmFullReplace }) {
   const buffer = Buffer.from(contentBase64, 'base64');
   const parsed = parseSoilWorkbookBuffer(buffer, filename);
-
-  if (mode === 'replace' && !confirmFullReplace) {
-    throw new Error('全量覆盖导入必须显式确认');
-  }
-
-  return await withMysqlConnection(async (connection) => {
-    await connection.beginTransaction();
-    try {
-      if (mode === 'replace') {
-        await connection.execute('DELETE FROM fact_soil_moisture');
-      }
-
-      const loadedRows = await insertFactRows(connection, parsed.records, {
-        ignoreDuplicates: mode === 'incremental',
-      });
-
-      await refreshGeneratedRegionAliasesFromFacts(connection);
-      await connection.commit();
-
-      return {
-        filename,
-        mode,
-        raw_rows: parsed.raw_rows,
-        loaded_rows: loadedRows,
-        invalid_rows: parsed.invalid_rows?.length ?? 0,
-      };
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    }
+  return await applySoilImportRecords({
+    filename,
+    records: parsed.records,
+    rawRows: parsed.raw_rows,
+    invalidRowsCount: parsed.invalid_rows?.length ?? 0,
+    mode,
+    confirmFullReplace,
   });
 }
 
