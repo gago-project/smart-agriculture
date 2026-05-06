@@ -60,6 +60,7 @@ run_sql "infra/mysql/init/001_init_tables.sql"
 run_sql "infra/mysql/init/002_insert_data.sql"
 run_sql "infra/mysql/init/003_insert_soil_data.sql"
 run_sql "infra/mysql/init/004_add_audit_columns.sql"
+run_sql "infra/mysql/init/005_add_subject_device_record.sql"
 
 LOCAL_AUTH_USERS_JSON_PATH=${LOCAL_AUTH_USERS_JSON:-infra/mysql/local/auth_users.local.json}
 if [ -n "${LOCAL_AUTH_USERS_JSON:-}" ] || [ -f "$LOCAL_AUTH_USERS_JSON_PATH" ]; then
@@ -76,6 +77,14 @@ if [ -n "${SOIL_EXCEL_SOURCE:-}" ] || [ -f "$LOCAL_SOIL_EXCEL_PATH" ]; then
   SOIL_EXCEL_SOURCE="$LOCAL_SOIL_EXCEL_PATH" run_node_local "apps/web/scripts/import-local-soil-excel.mjs"
 else
   echo "未检测到本地土壤 Excel，保留 003_insert_soil_data.sql 的全量初始化数据。"
+fi
+
+LOCAL_DEVICE_LEDGER_EXCEL_PATH=${DEVICE_LEDGER_EXCEL_SOURCE:-infra/mysql/local/device_ledger.local.xlsx}
+if [ -n "${DEVICE_LEDGER_EXCEL_SOURCE:-}" ] || [ -f "$LOCAL_DEVICE_LEDGER_EXCEL_PATH" ]; then
+  echo "检测到本地设备台账 Excel，执行 apps/web/scripts/import-device-ledger.mjs"
+  DEVICE_LEDGER_EXCEL_SOURCE="$LOCAL_DEVICE_LEDGER_EXCEL_PATH" run_node_local "apps/web/scripts/import-device-ledger.mjs"
+else
+  echo "未检测到本地设备台账 Excel，跳过 subject_device_record 数据导入。"
 fi
 
 MYSQL_PWD="$MYSQL_PASSWORD_FOR_LOCAL" mysql "${MYSQL_ARGS[@]}" -e "USE \`${MYSQL_DATABASE_FOR_LOCAL}\`; SELECT COUNT(*) AS fact_soil_moisture_count FROM fact_soil_moisture;"

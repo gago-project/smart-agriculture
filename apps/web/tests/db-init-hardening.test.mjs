@@ -18,6 +18,7 @@ test('docker mysql init contains only schema and business insert sql files', () 
     '002_insert_data.sql',
     '003_insert_soil_data.sql',
     '004_add_audit_columns.sql',
+    '005_add_subject_device_record.sql',
   ]);
 });
 
@@ -80,6 +81,7 @@ test('local init script exists and reads mysql credentials from environment', ()
   assert.match(script, /002_insert_data\.sql/);
   assert.match(script, /003_insert_soil_data\.sql/);
   assert.match(script, /004_add_audit_columns\.sql/);
+  assert.match(script, /005_add_subject_device_record\.sql/);
 });
 
 test('local init script can optionally import external soil excel into localhost mysql', () => {
@@ -87,6 +89,18 @@ test('local init script can optionally import external soil excel into localhost
 
   assert.match(script, /SOIL_EXCEL_SOURCE/);
   assert.match(script, /import-local-soil-excel\.mjs/);
+  assert.match(script, /DEVICE_LEDGER_EXCEL_SOURCE/);
+  assert.match(script, /import-device-ledger\.mjs/);
+});
+
+test('subject device record init sql stays compatible with older mysql index syntax', () => {
+  const sql = read('infra/mysql/init/005_add_subject_device_record.sql');
+
+  assert.match(sql, /CREATE TABLE IF NOT EXISTS subject_device_record/i);
+  assert.match(sql, /CREATE PROCEDURE ensure_index_005/i);
+  assert.match(sql, /information_schema\.statistics/i);
+  assert.match(sql, /CALL ensure_index_005\(\s*'subject_device_record',\s*'idx_subject_device_record_sn'/i);
+  assert.doesNotMatch(sql, /CREATE INDEX IF NOT EXISTS/i);
 });
 
 test('local auth bootstrap uses gitignored json config instead of committed real hashes', () => {

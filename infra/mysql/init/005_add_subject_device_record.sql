@@ -23,6 +23,46 @@ CREATE TABLE IF NOT EXISTS subject_device_record (
   tag            VARCHAR(255)  NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
-CREATE INDEX IF NOT EXISTS idx_subject_device_record_sn   ON subject_device_record (sn);
-CREATE INDEX IF NOT EXISTS idx_subject_device_record_type ON subject_device_record (type);
-CREATE INDEX IF NOT EXISTS idx_subject_device_record_city ON subject_device_record (city, county);
+DELIMITER //
+
+DROP PROCEDURE IF EXISTS ensure_index_005//
+
+CREATE PROCEDURE ensure_index_005(
+  IN in_table_name VARCHAR(64),
+  IN in_index_name VARCHAR(64),
+  IN in_index_sql TEXT
+)
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM information_schema.statistics
+    WHERE table_schema = DATABASE()
+      AND table_name = in_table_name
+      AND index_name = in_index_name
+  ) THEN
+    SET @ensure_index_sql_005 = in_index_sql;
+    PREPARE ensure_index_stmt_005 FROM @ensure_index_sql_005;
+    EXECUTE ensure_index_stmt_005;
+    DEALLOCATE PREPARE ensure_index_stmt_005;
+  END IF;
+END//
+
+DELIMITER ;
+
+CALL ensure_index_005(
+  'subject_device_record',
+  'idx_subject_device_record_sn',
+  'CREATE INDEX idx_subject_device_record_sn ON subject_device_record (sn)'
+);
+CALL ensure_index_005(
+  'subject_device_record',
+  'idx_subject_device_record_type',
+  'CREATE INDEX idx_subject_device_record_type ON subject_device_record (type)'
+);
+CALL ensure_index_005(
+  'subject_device_record',
+  'idx_subject_device_record_city',
+  'CREATE INDEX idx_subject_device_record_city ON subject_device_record (city, county)'
+);
+
+DROP PROCEDURE IF EXISTS ensure_index_005;
