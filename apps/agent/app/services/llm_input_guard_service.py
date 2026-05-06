@@ -1,4 +1,12 @@
-"""LLM fallback guard for low-confidence non-business inputs in chat-v2."""
+"""LLM fallback guard for low-confidence inputs in chat-v2.
+
+When rule-based InputGuardService cannot confidently classify an input,
+this service makes a bounded LLM call that returns one of four categories:
+  greeting           → fixed greeting template
+  capability_question → fixed capability template
+  out_of_domain      → fixed invalid/boundary template
+  allow              → proceed to business flow
+"""
 
 from __future__ import annotations
 
@@ -11,38 +19,39 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
-你是土壤墒情问答系统的输入守卫，只输出 JSON，不解释。
+你是土壤墒情问答系统的输入分类器，只输出 JSON，不解释。
 
-任务：判断当前输入是否应该继续进入墒情业务问答。
-- allow：看起来像墒情业务问题，或存在明显业务意图
-- intercept：看起来是废话、闲聊、离题内容、生活问题、商品名词、支付消费问题等，不应进入墒情业务问答
+任务：判断当前用户输入属于哪种类型：
+- greeting：问候语或寒暄（你好、在吗、嗨、早上好、哈哈等）
+- capability_question：询问系统功能或能力范围（你能做什么、有哪些功能、你支持什么等）
+- out_of_domain：与土壤墒情无关的废话、闲聊、离题内容、生活问题、商品问题等
+- allow：看起来像墒情业务问题，或存在明显墒情查询意图，应继续处理
 
 严格输出：
 {
-  "decision": "allow|intercept",
-  "reason": "noise|off_topic",
+  "category": "greeting|capability_question|out_of_domain|allow",
   "confidence": 0.0
 }
 
 规则：
-- 如果输入明显涉及墒情、预警、异常、设备、点位、地区、时间范围查询，返回 allow
-- 如果输入像“上岛咖啡京东卡”“今天午饭吃什么”“京东卡可以提现吗”这类非墒情内容，返回 intercept
-- confidence 取 0 到 1 之间的小数
+- 明显涉及墒情、预警、异常、设备、点位、地区、时间范围查询 → allow
+- 问候语、寒暄短句 → greeting
+- 询问系统功能或支持范围 → capability_question
+- 其余与墒情无关的输入 → out_of_domain
+- confidence 取 0 到 1 之间的小数，对把握度高的情况给出接近 1 的值
 """
 
-_VALID_DECISIONS = {"allow", "intercept"}
-_VALID_REASONS = {"noise", "off_topic"}
+_VALID_CATEGORIES = {"greeting", "capability_question", "out_of_domain", "allow"}
 
 
 @dataclass(frozen=True)
 class LlmInputGuardResult:
-    decision: str = "allow"
-    reason: str = "noise"
+    category: str = "allow"
     confidence: float = 0.0
 
 
 class LlmInputGuardService:
-    """Use a bounded LLM call to classify low-confidence non-business inputs."""
+    """Use a bounded LLM call to classify low-confidence inputs into 4 categories."""
 
     def __init__(self, qwen_client: Any = None, timeout_seconds: float = 3.0) -> None:
         self._client = qwen_client
@@ -73,8 +82,7 @@ class LlmInputGuardService:
             logger.debug("LLM input guard fallback (non-dict payload)")
             return LlmInputGuardResult()
 
-        decision = str(raw.get("decision") or "").strip()
-        reason = str(raw.get("reason") or "").strip()
+        category = str(raw.get("category") or "").strip()
         confidence_raw = raw.get("confidence")
         try:
             confidence = float(confidence_raw)
@@ -82,15 +90,13 @@ class LlmInputGuardService:
             logger.debug("LLM input guard fallback (invalid confidence): %r", confidence_raw)
             return LlmInputGuardResult()
 
-        if decision not in _VALID_DECISIONS or reason not in _VALID_REASONS:
-            logger.debug("LLM input guard fallback (invalid decision payload): %r", raw)
+        if category not in _VALID_CATEGORIES:
+            logger.debug("LLM input guard fallback (invalid category): %r", raw)
             return LlmInputGuardResult()
 
-        bounded_confidence = max(0.0, min(1.0, confidence))
         return LlmInputGuardResult(
-            decision=decision,
-            reason=reason,
-            confidence=bounded_confidence,
+            category=category,
+            confidence=max(0.0, min(1.0, confidence)),
         )
 
 

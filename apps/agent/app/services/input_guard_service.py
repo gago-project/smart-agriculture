@@ -361,4 +361,14 @@ class InputGuardService:
         )
 
 
-__all__ = ["InputGuardResult", "InputGuardService"]
+__all__ = [
+    "InputGuardResult",
+    "InputGuardService",
+    "GREETING_ANSWER",
+    "CAPABILITY_ANSWER",
+    "INVALID_ANSWER",
+]
+
+GREETING_ANSWER = _GREETING_ANSWER
+CAPABILITY_ANSWER = _CAPABILITY_ANSWER
+INVALID_ANSWER = _INVALID_ANSWER

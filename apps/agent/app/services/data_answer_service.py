@@ -21,7 +21,12 @@ from app.services.follow_up_intent_resolver_service import (
     FollowUpIntentResult,
 )
 from app.services.follow_up_action_resolver_service import FollowUpActionResolverService
-from app.services.input_guard_service import InputGuardService
+from app.services.input_guard_service import (
+    CAPABILITY_ANSWER,
+    GREETING_ANSWER,
+    INVALID_ANSWER,
+    InputGuardService,
+)
 from app.services.llm_follow_up_resolver_service import LlmFollowUpResolution, LlmFollowUpResolverService
 from app.services.llm_input_guard_service import LlmInputGuardService
 from app.services.parameter_resolver_service import (
@@ -1335,23 +1340,38 @@ class DataAnswerService:
             return None
 
         result = await self.llm_input_guard.classify(text)
-        if result.decision != "intercept" or result.confidence < LLM_GUARD_CONFIDENCE_THRESHOLD:
+        if result.category == "allow" or result.confidence < LLM_GUARD_CONFIDENCE_THRESHOLD:
             return None
 
         logger.info(
-            "LLM input guard intercepted session_id=%s turn_id=%s decision=%s reason=%s confidence=%.2f input_preview=%r",
+            "LLM input guard intercepted session_id=%s turn_id=%s category=%s confidence=%.2f input_preview=%r",
             session_id,
             turn_id,
-            result.decision,
-            result.reason,
+            result.category,
             result.confidence,
             text[:40],
         )
+
+        if result.category == "greeting":
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=GREETING_ANSWER,
+                current_context=context,
+                guidance_reason="safe_hint",
+            )
+        if result.category == "capability_question":
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=CAPABILITY_ANSWER,
+                current_context=context,
+                guidance_reason="safe_hint",
+            )
+        # out_of_domain
         return self._build_guidance_response(
             turn_id=turn_id,
-            text=SAFE_HINT_TEXT,
+            text=INVALID_ANSWER,
             current_context=context,
-            guidance_reason="safe_hint",
+            guidance_reason="boundary",
         )
 
     async def _should_use_llm_input_guard(self, text: str, context: dict[str, Any]) -> bool:

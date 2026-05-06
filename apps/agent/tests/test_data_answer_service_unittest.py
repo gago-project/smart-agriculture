@@ -17,8 +17,8 @@ class FakeLlmInputGuard:
 
         self.calls.append(text)
         if text in self.intercepted_inputs:
-            return LlmInputGuardResult(decision="intercept", reason="noise", confidence=0.95)
-        return LlmInputGuardResult(decision="allow", reason="noise", confidence=0.0)
+            return LlmInputGuardResult(category="out_of_domain", confidence=0.95)
+        return LlmInputGuardResult(category="allow", confidence=0.0)
 
 
 class FakeLlmFollowUpResolver:
@@ -891,7 +891,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(reply["answer_kind"], "guidance")
         self.assertEqual(reply["capability"], "none")
-        self.assertEqual(reply["blocks"][0]["guidance_reason"], "safe_hint")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "boundary")
         self.assertNotIn("你想查看的时间段是", reply["final_text"])
         self.assertIn("墒情", reply["final_text"])
 
@@ -906,7 +906,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             )
 
             self.assertEqual(reply["answer_kind"], "guidance")
-            self.assertEqual(reply["blocks"][0]["guidance_reason"], "safe_hint")
+            self.assertEqual(reply["blocks"][0]["guidance_reason"], "boundary")
             self.assertNotIn("你想查看的时间段是", reply["final_text"])
 
     async def test_province_summary_keeps_jiangsu_scope_label(self) -> None:
