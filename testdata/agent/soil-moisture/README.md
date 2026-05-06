@@ -20,8 +20,8 @@
 
 ## 正式规模
 
-- 正式 Case 总数：`56`
-- 测试方式：**每次全量跑完 56 条**
+- 正式 Case 总数：`81`
+- 测试方式：**每次全量跑完 81 条**
 - 测试定位：**单元测试导向**
 - 当前回答样例：**保留完整长文本**
 - 数据真实性：**每条业务 Case 都必须带数据库校验断言，并标记 `是否符合事实`**
@@ -30,25 +30,26 @@
 
 | 章节 | 数量 | CaseID |
 |---|---:|---|
-| Guidance Cases | 15 | `SM-CONV-001 ~ SM-CONV-015` |
+| Guidance Cases | 33 | `SM-CONV-001 ~ SM-CONV-033` |
 | Summary Cases | 10 | `SM-SUM-001 ~ SM-SUM-010` |
 | Ranking Cases | 8 | `SM-RANK-001 ~ SM-RANK-008` |
 | Detail Cases | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
 | Fallback Cases | 10 | `SM-FB-001 ~ SM-FB-010` |
+| Device Registry Cases | 7 | `SM-DEV-001 ~ SM-DEV-007` |
 
 ## 维护原则
 
 - 只维护这一套正式 Case 主库
-- 正式 Case 总数固定为 `56`
+- 正式 Case 总数当前为 `81`
 - 正式 Case 编号统一使用 `SM-*` 体系
 - 正式 Case 的新增、删减、修订只改 `case-library.md`
-- 真实问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，而不是直接扩正式 56 条
-- 真实用户问法和失败回归单独沉淀到 `real-conversations/`，不要挤进正式 56 条
+- 真实问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，而不是直接扩正式主库
+- 真实用户问法和失败回归单独沉淀到 `real-conversations/`，不要挤进正式库
 - 60 条真实问答已单独落到 `real-conversations/cases/real-60-case-library.md`
 
 ## 推荐的三层 QA 模型
 
-- `core-gate`：56 条正式 Case，负责硬门禁
+- `core-gate`：81 条正式 Case，负责硬门禁
 - `real-conversations`：真实问答资产，负责覆盖自然问法和追问链
 - `failure-regressions`：失败样本回归，负责锁住已知翻车点
 
@@ -99,4 +100,5 @@
 - 当前正式库已覆盖 `最近13天 / 近2周 / 近3月 / 过去21天 / 两周 / 三个月` 等相对时间，以及 `这几天 / 最近400天 / 开始时间晚于结束时间` 的统一澄清口径
 - 当前 deterministic `/chat-v2` 顶层查询路由由 `TurnRouteDecisionService` 的中心 `QueryShape` 分类层负责；新增问法时先补该层与路由矩阵
 - 当前 deterministic `/chat-v2` 的真正执行真相由 `QueryProfile` 统一承载；多轮继承、`warning_only` 数据焦点、`count/field/latest_record/compare` 等能力回归优先补到 `test_query_profile_governance_unittest.py`
+- 设备台账查询（`device_registry_count`）从 `subject_device_record` 表读取，不受时间窗过滤，当前只支持全省总数
 - 如未来确实需要结构化导出，再考虑新增 `json/csv/xlsx` 副本；当前仍以 Markdown 主库为准

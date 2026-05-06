@@ -3,8 +3,9 @@ name: db-sync
 description: >
   Use when the Docker MySQL or Redis state is out of sync with local development —
   e.g. after adding columns/tables in 001_init_tables.sql, updating seed data in
-  002_insert_data.sql, adding auth users, switching modes, or wanting to save/restore
-  key table row data (fact_soil_moisture, auth_user, region_alias).
+  002_insert_data.sql, adding auth users, switching modes, wanting to save/restore
+  key table row data (fact_soil_moisture, auth_user, region_alias), or importing
+  the device ledger (subject_device_record) from Excel.
 ---
 
 # Smart Agriculture — Docker 数据库同步 Skill
@@ -66,7 +67,8 @@ snapshot_counts() {
           COALESCE((SELECT COUNT(*) FROM region_alias),0),
           COALESCE((SELECT COUNT(*) FROM metric_rule),0),
           COALESCE((SELECT COUNT(*) FROM warning_template),0),
-          COALESCE((SELECT COUNT(*) FROM auth_session),0);"
+          COALESCE((SELECT COUNT(*) FROM auth_session),0),
+          COALESCE((SELECT COUNT(*) FROM subject_device_record),0);"
 }
 
 print_summary() {
@@ -74,8 +76,8 @@ print_summary() {
   local before="$2"   # tab-separated values from snapshot_counts
   local after="$3"
 
-  IFS=$'\t' read -r b_soil b_user b_alias b_rule b_tmpl b_sess <<< "$before"
-  IFS=$'\t' read -r a_soil a_user a_alias a_rule a_tmpl a_sess <<< "$after"
+  IFS=$'\t' read -r b_soil b_user b_alias b_rule b_tmpl b_sess b_dev <<< "$before"
+  IFS=$'\t' read -r a_soil a_user a_alias a_rule a_tmpl a_sess a_dev <<< "$after"
 
   # Format: "1234 → 1236  (+2 行)" or "1234" if no change
   row() {
@@ -91,12 +93,13 @@ print_summary() {
   echo "════════════════════════════════════════"
   echo "  同步 Summary — ${label}"
   echo "────────────────────────────────────────"
-  printf "  %-22s %s\n" "fact_soil_moisture"  "$(row $b_soil  $a_soil)"
-  printf "  %-22s %s\n" "auth_user"           "$(row $b_user  $a_user)"
-  printf "  %-22s %s\n" "region_alias"        "$(row $b_alias $a_alias)"
-  printf "  %-22s %s\n" "metric_rule"         "$(row $b_rule  $a_rule)"
-  printf "  %-22s %s\n" "warning_template"    "$(row $b_tmpl  $a_tmpl)"
-  printf "  %-22s %s\n" "auth_session"        "$(row $b_sess  $a_sess)"
+  printf "  %-26s %s\n" "fact_soil_moisture"    "$(row $b_soil  $a_soil)"
+  printf "  %-26s %s\n" "auth_user"             "$(row $b_user  $a_user)"
+  printf "  %-26s %s\n" "region_alias"          "$(row $b_alias $a_alias)"
+  printf "  %-26s %s\n" "metric_rule"           "$(row $b_rule  $a_rule)"
+  printf "  %-26s %s\n" "warning_template"      "$(row $b_tmpl  $a_tmpl)"
+  printf "  %-26s %s\n" "auth_session"          "$(row $b_sess  $a_sess)"
+  printf "  %-26s %s\n" "subject_device_record" "$(row $b_dev   $a_dev)"
   echo "════════════════════════════════════════"
 }
 ```
@@ -289,6 +292,26 @@ print_summary "清除登录会话" "$BEFORE" "$AFTER"
 
 ---
 
+## 场景九：设备台账导入（subject_device_record）
+
+将 Excel 台账导入 `subject_device_record` 表（幂等，`ON DUPLICATE KEY UPDATE`）：
+
+```bash
+BEFORE=$(snapshot_counts)
+
+# 默认路径：infra/mysql/local/device_ledger.local.xlsx
+# 也可通过 DEVICE_LEDGER_EXCEL_SOURCE 指定其他路径
+node apps/web/scripts/import-device-ledger.mjs
+
+AFTER=$(snapshot_counts)
+print_summary "设备台账导入 (subject_device_record)" "$BEFORE" "$AFTER"
+```
+
+> 脚本完成后会打印 JSON，包含 `loaded_rows` 与 `type_distribution`（按 `type` 统计各类设备数量）。  
+> `subject_device_record` 行数变化会体现在 Summary 中。
+
+---
+
 ## 常用组合
 
 | 场景 | 执行 |
@@ -298,3 +321,4 @@ print_summary "清除登录会话" "$BEFORE" "$AFTER"
 | Docker 重建后恢复 | 场景一 + 二 + 三 + 五 |
 | 切换部署模式后对话上下文混乱 | 场景七 |
 | 完整重置（不含土壤基线） | 场景一~三 + 七 + 八 |
+| 导入设备台账 Excel | 场景九 |

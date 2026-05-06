@@ -293,6 +293,37 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertFalse(Svc._is_device_registry_count_request("最近7天南通市涉及多少个点位"))
         self.assertFalse(Svc._is_device_registry_count_request("南京最近一个月的数据"))
 
+    def test_device_registry_count_ledger_keyword(self) -> None:
+        """SM-DEV-005: 「设备台账总量」关键词路由到 device_registry_count"""
+        result = self.service.decide(
+            message="设备台账总量是多少",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_count")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+
+    def test_device_registry_count_non_soil_device_excluded(self) -> None:
+        """SM-DEV-006: 非土壤设备类型（虫情）不路由到 device_registry_count"""
+        from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc
+        self.assertFalse(Svc._is_device_registry_count_request("接入了多少台虫情监测设备"))
+        self.assertFalse(Svc._is_device_registry_count_request("平台有多少台摄像头"))
+        self.assertFalse(Svc._is_device_registry_count_request("监控摄像头总共多少个"))
+
+    def test_device_registry_count_regional_query_routes_to_registry(self) -> None:
+        """SM-DEV-007: 带城市名的设备数量查询仍路由到 device_registry_count（当前限制：返回全省总数）"""
+        result = self.service.decide(
+            message="南京接入了多少台土壤墒情仪",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_count")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+
 
 if __name__ == "__main__":
     unittest.main()

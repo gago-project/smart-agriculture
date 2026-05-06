@@ -1,15 +1,15 @@
-# 墒情 Agent Case Library（77 条正式验收 Case）
+# 墒情 Agent Case Library（81 条正式验收 Case）
 
 > **架构版本**：deterministic `/chat-v2` 数据回答链路（`InputGuard → RouteDecision → QueryProfile/ParameterResolver → DataAnswerService → QueryLog`）。
 >  
 > **唯一正式入口**：本文件是当前 `soil-moisture` Agent 的唯一正式验收库。所有正式 Case 的新增、删减、修订都只改这里。
 >
 > **测试原则**：
-> - 每次验收都全量跑完全部 `77` 条 Case。
+> - 每次验收都全量跑完全部 `81` 条 Case。
 > - 每条 Case 都保留完整的 `当前回答` 长文本样例。
 > - 每条业务 Case 都必须带 `数据库校验断言` 与 `是否符合事实`。
 > - 正式通过的业务 Case，`是否符合事实` 必须为 `是`。
-> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 74 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
+> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 81 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
 >
 > **业务时间锚点**：
 > - 全库统一以 `2026-04-13 23:59:59` 作为"数据库最新业务时间（latest_business_time）"。
@@ -45,7 +45,7 @@
 | Ranking Cases | `SM-RANK-001 ~ SM-RANK-008` | 8 | 全部 `soil_ranking_answer` |
 | Detail Cases | `SM-DETAIL-001 ~ SM-DETAIL-013` | 13 | 全部 `soil_detail_answer` |
 | Fallback Cases | `SM-FB-001 ~ SM-FB-010` | 10 | 全部 `fallback_answer` |
-| Device Registry Cases | `SM-DEV-001 ~ SM-DEV-003` | 3 | 全部 `device_registry_answer` |
+| Device Registry Cases | `SM-DEV-001 ~ SM-DEV-007` | 7 | 6 条 `device_registry_answer` + 1 条 `guidance_answer`（SM-DEV-006）|
 
 ### 按一级 `answer_type` 维度
 
@@ -56,7 +56,7 @@
 | `soil_ranking_answer` | 排名对比（区域风险排行） | 8 |
 | `soil_detail_answer` | 地区 / 设备详情及异常分析 | 13 |
 | `fallback_answer` | 无数据 / 找不到对象 / 兜底 | 10 |
-| `device_registry_answer` | 设备台账信息查询（接入设备总数，来自 subject_device_record） | 3 |
+| `device_registry_answer` | 设备台账信息查询（接入设备总数，来自 subject_device_record） | 6 |
 
 ### 按 `output_mode` 覆盖
 
@@ -1865,7 +1865,7 @@
 - `是否符合事实`：`是`
 - `备注`：SQL 注入风格输入安全样例（与 SM-FB-005 entity_confidence=low 阻断互补，专门测拒绝特殊字符）
 
-## Device Registry Cases（3）
+## Device Registry Cases（7）
 
 ### SM-DEV-001
 
@@ -1944,3 +1944,107 @@
 - `禁止事实`：`时间范围`、`最近N天`（不应包含时间窗说明）
 - `是否符合事实`：`是`
 - `备注`：「全省有多少台」变体验证；同时验证不误触 count 路由
+
+### SM-DEV-004
+
+- `CaseID`：`SM-DEV-004`
+- `用户问题`：目前平台接入了多少台土壤墒情仪？
+- `当前回答`：抱歉，当前设备台账暂时不可用，无法查询接入设备数量，请稍后重试。
+- `上下文`：无（模拟 subject_device_record 表不可用 / DB 故障场景）
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`fallback_guard`
+- `预期 answer_type`：`fallback_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`no_data`
+- `是否写查询日志`：是（即使 DB 不可用也应记录到 agent_query_log，capability=device_registry_count）
+- `关键断言`：`total_soil_device_count_async()` 返回 `None` 时触发 fallback；`capability=device_registry_count`；`fallback_reason=no_data`
+- `结构化证据断言`：`answer_kind=fallback`；`capability=device_registry_count`；`fallback_reason=no_data`
+- `数据库校验断言`：不适用（DB 不可用场景）
+- `预期实体`：`无`
+- `预期时间窗`：不适用
+- `必含事实`：`设备台账暂时不可用`（或同义表达）
+- `禁止事实`：任何具体数字（不得回答"528台"或任何固定数值）
+- `是否符合事实`：`是`
+- `备注`：台账 DB 不可用时的 fallback 路径验证；`total_soil_device_count_async()` 返回 None 即触发
+
+### SM-DEV-005
+
+- `CaseID`：`SM-DEV-005`
+- `用户问题`：设备台账总量是多少
+- `当前回答`：截至当前，苏农云指挥调度中心已接入 528 套土壤墒情仪设备。
+- `上下文`：无
+- `预期 input_type`：`business_colloquial`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：「台账总量」关键词也路由到 `device_registry_count`；回答包含「截至当前」固定前缀
+- `结构化证据断言`：`capability=device_registry_count`；`answer_kind=business`
+- `数据库校验断言`：`SELECT COUNT(*) FROM subject_device_record WHERE type='土壤墒情仪'` 与回答数字一致
+- `预期实体`：`无`
+- `预期时间窗`：不适用
+- `必含事实`：`截至当前`、`套土壤墒情仪设备`
+- `禁止事实`：无
+- `是否符合事实`：`是`
+- `备注`：「台账总量」台账关键词变体验证
+
+### SM-DEV-006
+
+- `CaseID`：`SM-DEV-006`
+- `用户问题`：接入了多少台虫情监测设备
+- `当前回答`：您好，很抱歉，当前系统主要支持土壤墒情相关数据的查询，暂不支持虫情监测设备的数量统计。如您需要了解土壤墒情仪的接入总数，欢迎直接提问。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：否（虫情设备不在土壤墒情 Agent 服务范围内）
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`guidance_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`safe_hint`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：否（非域内业务问题，不查库不写日志）
+- `关键断言`：非土壤设备类型词（「虫情」）触发排除规则，不路由到 `device_registry_count`；返回引导回答
+- `结构化证据断言`：`answer_kind=guidance`；`guidance_reason=safe_hint`
+- `数据库校验断言`：不适用（不查库）
+- `预期实体`：`无`
+- `预期时间窗`：不适用
+- `必含事实`：`暂不支持`（或同义表达）、引导用户查询土壤墒情仪总数
+- `禁止事实`：任何虫情设备数量（不得返回 1098 或任何虫情设备统计值）；不得路由到 `device_registry_count`
+- `是否符合事实`：`是`
+- `备注`：非土壤设备类型的排除边界验证；`_NON_SOIL_DEVICE_TOKENS` 排除规则生效
+
+### SM-DEV-007
+
+- `CaseID`：`SM-DEV-007`
+- `用户问题`：南京接入了多少台土壤墒情仪
+- `当前回答`：截至当前，苏农云指挥调度中心已接入 528 套土壤墒情仪设备。（注：当前版本暂不支持按城市过滤，返回全省总数）
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：带城市名的问法仍路由到 `device_registry_count`；系统返回全省总数（当前限制：不支持按城市过滤）；回答中无城市级别分类数据
+- `结构化证据断言`：`capability=device_registry_count`；`blocks[0].total_count` = 全省总数（不是南京分数）
+- `数据库校验断言`：`SELECT COUNT(*) FROM subject_device_record WHERE type='土壤墒情仪'` = 回答中数字（全省总数，非南京子集）
+- `预期实体`：`南京`（识别城市，但当前不支持过滤）
+- `预期时间窗`：不适用
+- `必含事实`：`截至当前`、`套土壤墒情仪设备`
+- `禁止事实`：南京专属分类统计数字（不得回答"南京有X台"）；`时间范围`、`最近N天`
+- `是否符合事实`：`是`（已知限制：返回全省总数，与预期行为一致）
+- `备注`：区域过滤能力边界验证；当前架构不支持按 city 过滤 subject_device_record，文档化已知限制

@@ -17,4 +17,4 @@
 - `apps/agent/README.md`：当前服务总入口
 - `infra/mysql/docs/README.md`：数据库表设计入口
 - `infra/mysql/docs/region-alias-resolution.md`：地区别名解析设计
-- `testdata/agent/soil-moisture/README.md`：56 条正式验收入口
+- `testdata/agent/soil-moisture/README.md`：81 条正式验收入口

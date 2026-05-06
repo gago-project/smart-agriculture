@@ -50,3 +50,23 @@ cp infra/mysql/local/seed_auth_users.local.sql.example infra/mysql/local/seed_au
 2. 在执行 `db:init:local` 前设置 `SOIL_EXCEL_SOURCE=/your/path/to/file.xlsx`
 
 脚本只会把文件名写入数据库，不会把你的本机绝对路径写进表里。
+
+## 本地设备台账 Excel 怎么处理
+
+`subject_device_record` 表存储设备台账，需要从 Excel 手动导入。
+
+将设备台账 Excel 放到 `infra/mysql/local/device_ledger.local.xlsx`（已被 `.gitignore` 忽略），
+然后执行：
+
+```bash
+node apps/web/scripts/import-device-ledger.mjs
+```
+
+也可以通过环境变量指定其他路径：
+
+```bash
+DEVICE_LEDGER_EXCEL_SOURCE=/your/path/to/device_ledger.xlsx \
+  node apps/web/scripts/import-device-ledger.mjs
+```
+
+脚本幂等（`ON DUPLICATE KEY UPDATE`），可重复执行。执行后输出 JSON，包含导入行数与 `type` 分布。

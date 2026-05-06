@@ -42,6 +42,7 @@ TEMPLATE_TOKENS = ("模板", "模版")
 RANKING_MARKERS = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
 _DEVICE_REGISTRY_COUNT_TOKENS = ("墒情仪", "墒情监测设备", "台账")
 _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS = ("多少", "总数", "总量", "总计", "数量")
+_NON_SOIL_DEVICE_TOKENS = ("虫情", "摄像头", "监控摄像", "病害监测", "流行性病害")
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
@@ -393,6 +394,8 @@ class TurnRouteDecisionService:
     @staticmethod
     def _is_device_registry_count_request(text: str) -> bool:
         if not any(t in text for t in _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS):
+            return False
+        if any(t in text for t in _NON_SOIL_DEVICE_TOKENS):
             return False
         if "接入" in text:
             return True
