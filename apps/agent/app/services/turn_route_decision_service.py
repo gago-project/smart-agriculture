@@ -42,7 +42,40 @@ TEMPLATE_TOKENS = ("模板", "模版")
 RANKING_MARKERS = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
 _DEVICE_REGISTRY_COUNT_TOKENS = ("墒情仪", "墒情监测设备", "台账")
 _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS = ("多少", "总数", "总量", "总计", "数量")
+_DEVICE_REGISTRY_DISTRIBUTION_TOKENS = ("分布", "哪些地方", "哪些城市", "各地市", "各城市", "各市")
+_DEVICE_REGISTRY_COUNTY_TOKENS = ("分布情况", "县区分布", "各县区", "各区县")
 _NON_SOIL_DEVICE_TOKENS = ("虫情", "摄像头", "监控摄像", "病害监测", "流行性病害")
+_WARNING_RULE_QUERY_TOKENS = (
+    "预警规则",
+    "预警标准",
+    "预警条件",
+    "预警阈值",
+    "什么情况下预警",
+    "什么情况下会触发",
+    "怎么判断预警",
+    "重旱标准",
+    "涝渍标准",
+    "会触发重旱预警",
+    "会触发涝渍预警",
+    "会触发设备故障预警",
+    "预警等级",
+    "警戒线",
+)
+_WARNING_RECORD_QUERY_TOKENS = ("预警", "报警", "告警")
+_WARNING_RECORD_INTENT_TOKENS = (
+    "哪些点位",
+    "多少条",
+    "多少个",
+    "哪些设备",
+    "发生了",
+    "触发了",
+    "出现了",
+    "有哪些",
+    "查看预警",
+    "预警记录",
+    "预警情况",
+    "预警数据",
+)
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
@@ -74,6 +107,8 @@ class TurnRouteDecision:
     route_source: str = "direct"
     query_shape: QueryShape = field(default_factory=QueryShape)
     reason_codes: tuple[str, ...] = field(default_factory=tuple)
+    entities: dict[str, Any] | None = None
+    extra: dict[str, Any] | None = None
 
 
 class TurnRouteDecisionService:
@@ -92,8 +127,15 @@ class TurnRouteDecisionService:
         extracted_entities = entities if isinstance(entities, dict) else {}
         normalized_text = self._normalize_text(message)
         normalized_changed = normalized_text != str(message or "").strip()
+        city_entities = extracted_entities.get("city", [])
+        has_city_entity = len(city_entities) > 0
+        has_time_signal = bool(getattr(time_evidence, "has_time_signal", False))
 
-        subject = self._classify_subject(normalized_text)
+        subject = self._classify_subject(
+            normalized_text,
+            has_city_entity=has_city_entity,
+            has_time_signal=has_time_signal,
+        )
         if subject == "rule":
             return self._decision(
                 route="rule",
@@ -101,6 +143,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="rule", action="guidance", grain="none", mode="standalone"),
                 reason_codes=("rule_request",),
+                entities=extracted_entities,
             )
         if subject == "template":
             return self._decision(
@@ -109,6 +152,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="template", action="guidance", grain="none", mode="standalone"),
                 reason_codes=("template_request",),
+                entities=extracted_entities,
             )
         if subject == "unsupported_derived":
             return self._decision(
@@ -117,6 +161,52 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="unsupported_derived", action="guidance", grain="none", mode="standalone"),
                 reason_codes=("unsupported_derived",),
+                entities=extracted_entities,
+            )
+        if subject == "warning_rule":
+            return self._decision(
+                route="warning_rule_description",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="warning_rule", action="describe", grain="none", mode="standalone"),
+                reason_codes=("warning_rule_query",),
+                entities=extracted_entities,
+            )
+        if subject == "warning_record":
+            count_tokens = ("多少条", "多少个", "多少台", "数量", "总计", "总共")
+            route = "warning_count" if any(token in normalized_text for token in count_tokens) else "warning_list"
+            action = "count" if route == "warning_count" else "list"
+            return self._decision(
+                route=route,
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="warning", action=action, grain="record", mode="standalone"),
+                reason_codes=("warning_record_query",),
+                entities=extracted_entities,
+                extra={
+                    "time_start": getattr(time_evidence, "start_time", None),
+                    "time_end": getattr(time_evidence, "end_time", None),
+                },
+            )
+        if subject == "device_registry_county_detail":
+            city = city_entities[0] if city_entities else None
+            return self._decision(
+                route="device_registry_county_detail",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="device_registry", action="distribution", grain="county", mode="standalone"),
+                reason_codes=("device_registry_county_detail",),
+                entities=extracted_entities,
+                extra={"target_city": city},
+            )
+        if subject == "device_registry_distribution":
+            return self._decision(
+                route="device_registry_distribution",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="device_registry", action="distribution", grain="city", mode="standalone"),
+                reason_codes=("device_registry_distribution",),
+                entities=extracted_entities,
             )
         if subject == "device_registry":
             return self._decision(
@@ -125,6 +215,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="device_registry", action="count", grain="total", mode="standalone"),
                 reason_codes=("device_registry_count",),
+                entities=extracted_entities,
             )
 
         has_explicit_detail = self._has_explicit_detail(normalized_text, extracted_entities)
@@ -184,6 +275,7 @@ class TurnRouteDecisionService:
                 group_by=group_by or "region",
                 query_shape=QueryShape(subject="soil", action="group", grain="region", mode="standalone"),
                 reason_codes=("group_request", "standalone_signals"),
+                entities=extracted_entities,
             )
 
         if list_target and should_list_standalone:
@@ -194,6 +286,7 @@ class TurnRouteDecisionService:
                 list_target=list_target,
                 query_shape=QueryShape(subject="soil", action="list", grain=self._grain_for_list_target(list_target), mode="standalone"),
                 reason_codes=("list_request", "standalone_signals"),
+                entities=extracted_entities,
             )
 
         if is_count_request:
@@ -208,6 +301,7 @@ class TurnRouteDecisionService:
                     mode="standalone",
                 ),
                 reason_codes=("count_request",),
+                entities=extracted_entities,
             )
 
         if is_field_request:
@@ -217,6 +311,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="soil", action="field", grain="entity", mode="standalone"),
                 reason_codes=("field_request",),
+                entities=extracted_entities,
             )
 
         if is_compare_request:
@@ -226,6 +321,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="soil", action="compare", grain="entity", mode="standalone"),
                 reason_codes=("compare_request",),
+                entities=extracted_entities,
             )
 
         if is_latest_record_request:
@@ -235,6 +331,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="standalone"),
                 reason_codes=("latest_record_request",),
+                entities=extracted_entities,
             )
 
         if has_explicit_detail:
@@ -244,6 +341,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="explicit_detail"),
                 reason_codes=("explicit_detail",),
+                entities=extracted_entities,
             )
 
         if action_operation == "clarify" and not list_target and not is_plain_group_follow_up:
@@ -254,6 +352,7 @@ class TurnRouteDecisionService:
                 route_source="action_target",
                 query_shape=QueryShape(subject="soil", action="guidance", grain="none", mode="action_target"),
                 reason_codes=("action_target_clarify",),
+                entities=extracted_entities,
             )
 
         if action_operation == "expand_target":
@@ -276,6 +375,7 @@ class TurnRouteDecisionService:
                     mode="action_target",
                 ),
                 reason_codes=("action_target_expand",),
+                entities=extracted_entities,
             )
 
         if list_target:
@@ -287,6 +387,7 @@ class TurnRouteDecisionService:
                 list_target=list_target,
                 query_shape=QueryShape(subject="soil", action="list", grain=self._grain_for_list_target(list_target), mode="contextual"),
                 reason_codes=("list_request", "context_follow_up"),
+                entities=extracted_entities,
             )
 
         if is_group_request:
@@ -298,6 +399,7 @@ class TurnRouteDecisionService:
                 group_by=group_by or "region",
                 query_shape=QueryShape(subject="soil", action="group", grain="region", mode="contextual"),
                 reason_codes=("group_request", "context_follow_up"),
+                entities=extracted_entities,
             )
 
         if should_follow_up_detail:
@@ -308,6 +410,7 @@ class TurnRouteDecisionService:
                 route_source="context",
                 query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="contextual"),
                 reason_codes=("detail_context", "context_follow_up"),
+                entities=extracted_entities,
             )
 
         if should_follow_up_count:
@@ -318,6 +421,7 @@ class TurnRouteDecisionService:
                 route_source="context",
                 query_shape=QueryShape(subject="soil", action="count", grain="entity", mode="contextual"),
                 reason_codes=("count_context", "context_follow_up"),
+                entities=extracted_entities,
             )
 
         if is_detail_request:
@@ -327,6 +431,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="soil", action="detail", grain="entity", mode="standalone"),
                 reason_codes=("detail_request",),
+                entities=extracted_entities,
             )
 
         if should_safe_hint:
@@ -336,6 +441,7 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="soil", action="guidance", grain="none", mode="safe_hint"),
                 reason_codes=("safe_hint",),
+                entities=extracted_entities,
             )
 
         return self._decision(
@@ -344,6 +450,7 @@ class TurnRouteDecisionService:
             normalized_changed=normalized_changed,
             query_shape=QueryShape(subject="soil", action="summary", grain="none", mode="standalone"),
             reason_codes=("summary_default",),
+            entities=extracted_entities,
         )
 
     @staticmethod
@@ -357,6 +464,8 @@ class TurnRouteDecisionService:
         list_target: str | None = None,
         group_by: str | None = None,
         route_source: str = "direct",
+        entities: dict[str, Any] | None = None,
+        extra: dict[str, Any] | None = None,
     ) -> TurnRouteDecision:
         final_source = route_source
         if final_source == "direct" and normalized_changed:
@@ -369,6 +478,8 @@ class TurnRouteDecisionService:
             route_source=final_source,
             query_shape=query_shape,
             reason_codes=reason_codes,
+            entities=entities,
+            extra=extra,
         )
 
     def _normalize_text(self, text: str) -> str:
@@ -380,9 +491,17 @@ class TurnRouteDecisionService:
         return normalized
 
     @staticmethod
-    def _classify_subject(text: str) -> str:
+    def _classify_subject(text: str, has_city_entity: bool = False, has_time_signal: bool = False) -> str:
         if any(token in text for token in TEMPLATE_TOKENS):
             return "template"
+        if TurnRouteDecisionService._is_warning_rule_query(text):
+            return "warning_rule"
+        if TurnRouteDecisionService._is_warning_record_query(text, has_time_signal):
+            return "warning_record"
+        if TurnRouteDecisionService._is_device_registry_county_detail_request(text, has_city_entity):
+            return "device_registry_county_detail"
+        if TurnRouteDecisionService._is_device_registry_distribution_request(text):
+            return "device_registry_distribution"
         if "规则" in text:
             return "rule"
         if TurnRouteDecisionService._is_unsupported_derived_analysis_request(text):
@@ -390,6 +509,35 @@ class TurnRouteDecisionService:
         if TurnRouteDecisionService._is_device_registry_count_request(text):
             return "device_registry"
         return "soil"
+
+    @staticmethod
+    def _is_warning_rule_query(text: str) -> bool:
+        return any(token in text for token in _WARNING_RULE_QUERY_TOKENS)
+
+    @staticmethod
+    def _is_warning_record_query(text: str, has_time_signal: bool) -> bool:
+        has_warning_word = any(token in text for token in _WARNING_RECORD_QUERY_TOKENS)
+        has_record_intent = any(token in text for token in _WARNING_RECORD_INTENT_TOKENS)
+        has_rule_word = any(token in text for token in _WARNING_RULE_QUERY_TOKENS)
+        if has_rule_word:
+            return False
+        if "点位是哪些" in text or "设备是哪些" in text:
+            return False
+        return has_warning_word and (has_record_intent or has_time_signal)
+
+    @staticmethod
+    def _is_device_registry_distribution_request(text: str) -> bool:
+        has_distribution = any(token in text for token in _DEVICE_REGISTRY_DISTRIBUTION_TOKENS)
+        has_device = any(token in text for token in _DEVICE_REGISTRY_COUNT_TOKENS)
+        return has_distribution and has_device
+
+    @staticmethod
+    def _is_device_registry_county_detail_request(text: str, has_city_entity: bool) -> bool:
+        has_distribution_word = any(token in text for token in _DEVICE_REGISTRY_COUNTY_TOKENS) or (
+            any(token in text for token in _DEVICE_REGISTRY_DISTRIBUTION_TOKENS) and has_city_entity
+        )
+        has_device_word = any(token in text for token in _DEVICE_REGISTRY_COUNT_TOKENS)
+        return has_city_entity and has_distribution_word and has_device_word
 
     @staticmethod
     def _is_device_registry_count_request(text: str) -> bool:

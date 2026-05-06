@@ -1815,3 +1815,92 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(log_entries), 1)
         self.assertIn("subject_device_record", log_entries[0].get("executed_sql_text", ""))
         self.assertEqual(log_entries[0]["executed_result_json"]["total_count"], 528)
+
+    async def test_device_registry_distribution_returns_city_breakdown(self) -> None:
+        result = await self.service.reply(
+            message="土壤墒情仪分布在哪里",
+            session_id="device-registry-distribution",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "device_registry_distribution")
+        self.assertIn("528 台", result["final_text"])
+        self.assertIn("南京市", result["final_text"])
+        self.assertIn("南通市", result["final_text"])
+        self.assertIn("宿迁市", result["final_text"])
+        self.assertIn("subject_device_record", result["query_log_entries"][0]["executed_sql_text"])
+
+    async def test_device_registry_county_detail_returns_county_breakdown(self) -> None:
+        result = await self.service.reply(
+            message="南通市土壤墒情仪分布情况",
+            session_id="device-registry-county-distribution",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "device_registry_county_detail")
+        self.assertIn("南通市", result["final_text"])
+        self.assertIn("42 台", result["final_text"])
+        self.assertIn("如东县", result["final_text"])
+        self.assertIn("启东市", result["final_text"])
+        self.assertIn("subject_device_record", result["query_log_entries"][0]["executed_sql_text"])
+
+    async def test_warning_rule_description_returns_thresholds(self) -> None:
+        result = await self.service.reply(
+            message="土壤墒情的预警规则是什么",
+            session_id="warning-rule-description",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "rule")
+        self.assertIn("soil_warning_v1", result["final_text"])
+        self.assertIn("50", result["final_text"])
+        self.assertIn("150", result["final_text"])
+        self.assertIn("设备故障", result["final_text"])
+        self.assertIn("metric_rule", result["query_log_entries"][0]["executed_sql_text"])
+
+    async def test_warning_list_returns_filtered_records_and_warning_rule_brief(self) -> None:
+        result = await self.service.reply(
+            message="最近7天哪些点位出现了预警",
+            session_id="warning-record-list",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "warning_list")
+        self.assertIn("预警记录", result["final_text"])
+        self.assertIn("当前预警规则", result["final_text"])
+        self.assertIn("water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
+        self.assertGreater(result["query_log_entries"][0]["row_count"], 0)
+
+    async def test_warning_count_supports_warning_type_filter(self) -> None:
+        expected = self.repository.count_warning_records_by_region(
+            start_time="2026-04-07 00:00:00",
+            end_time="2026-04-13 23:59:59",
+            warning_type="heavy_drought",
+        )
+
+        result = await self.service.reply(
+            message="最近7天有多少条重旱预警记录",
+            session_id="warning-record-count",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "warning_count")
+        self.assertIn(str(expected["total"]), result["final_text"])
+        self.assertIn("重旱", result["final_text"])
+        self.assertIn("AND water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
+        self.assertNotIn("AND (water20cm < 50 OR water20cm >= 150", result["query_log_entries"][0]["executed_sql_text"])

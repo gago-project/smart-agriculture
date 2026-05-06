@@ -620,3 +620,323 @@ class SoilRepository:
 
     async def total_soil_device_count_async(self) -> int | None:
         return await asyncio.to_thread(self.total_soil_device_count)
+
+    @staticmethod
+    def _normalize_city_name(city: str | None) -> str | None:
+        if city is None:
+            return None
+        normalized = str(city).strip()
+        if not normalized:
+            return None
+        if normalized.endswith("市") or normalized.endswith("港市"):
+            return normalized
+        return f"{normalized}市"
+
+    @staticmethod
+    def build_soil_device_city_distribution_audit_sql() -> str:
+        return (
+            "SELECT city, COUNT(*) AS device_count\n"
+            "FROM subject_device_record\n"
+            "WHERE type = '土壤墒情仪'\n"
+            "GROUP BY city\n"
+            "ORDER BY FIELD(city, '南京市','无锡市','常州市','苏州市','镇江市',"
+            "'南通市','扬州市','泰州市','徐州市','连云港市','淮安市','盐城市','宿迁市')"
+        )
+
+    def soil_device_city_distribution(self) -> list[dict[str, Any]] | None:
+        city_order = [
+            "南京市",
+            "无锡市",
+            "常州市",
+            "苏州市",
+            "镇江市",
+            "南通市",
+            "扬州市",
+            "泰州市",
+            "徐州市",
+            "连云港市",
+            "淮安市",
+            "盐城市",
+            "宿迁市",
+        ]
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT city, COUNT(*) AS device_count "
+                    "FROM subject_device_record "
+                    "WHERE type = %s "
+                    "GROUP BY city",
+                    ("土壤墒情仪",),
+                )
+                rows = cursor.fetchall()
+            normalized: dict[str, int] = {}
+            for row in rows:
+                city = self._normalize_city_name(row.get("city"))
+                if not city:
+                    continue
+                normalized[city] = normalized.get(city, 0) + int(row.get("device_count") or 0)
+            result = [
+                {"city": city, "device_count": normalized.get(city, 0)}
+                for city in city_order
+                if city in normalized
+            ]
+            return result if result else None
+        except Exception as exc:
+            message = str(exc)
+            if "subject_device_record" in message and ("1146" in message or "doesn't exist" in message):
+                return None
+            raise DatabaseQueryError(f"MySQL 查询设备城市分布失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def soil_device_city_distribution_async(self) -> list[dict[str, Any]] | None:
+        return await asyncio.to_thread(self.soil_device_city_distribution)
+
+    @staticmethod
+    def build_soil_device_county_distribution_audit_sql(city: str) -> str:
+        escaped = city.replace("'", "''")
+        return (
+            "SELECT county, COUNT(*) AS device_count\n"
+            "FROM subject_device_record\n"
+            "WHERE type = '土壤墒情仪' AND city = "
+            f"'{escaped}'\n"
+            "GROUP BY county\n"
+            "ORDER BY device_count DESC"
+        )
+
+    def soil_device_county_distribution(self, city: str) -> list[dict[str, Any]] | None:
+        normalized_city = self._normalize_city_name(city)
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT county, COUNT(*) AS device_count "
+                    "FROM subject_device_record "
+                    "WHERE type = %s AND city = %s "
+                    "GROUP BY county "
+                    "ORDER BY device_count DESC",
+                    ("土壤墒情仪", normalized_city),
+                )
+                rows = cursor.fetchall()
+            if not rows:
+                return None
+            return [
+                {
+                    "county": row.get("county") or "（未知）",
+                    "device_count": int(row.get("device_count") or 0),
+                }
+                for row in rows
+            ]
+        except Exception as exc:
+            message = str(exc)
+            if "subject_device_record" in message and ("1146" in message or "doesn't exist" in message):
+                return None
+            raise DatabaseQueryError(f"MySQL 查询设备县区分布失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def soil_device_county_distribution_async(self, city: str) -> list[dict[str, Any]] | None:
+        return await asyncio.to_thread(self.soil_device_county_distribution, city)
+
+    @staticmethod
+    def _warning_filter_sql(warning_type: str | None = None) -> str:
+        if warning_type == "heavy_drought":
+            return "water20cm < 50"
+        if warning_type == "waterlogging":
+            return "water20cm >= 150"
+        if warning_type == "device_fault":
+            return "(water20cm = 0 AND t20cm = 0)"
+        return "(water20cm < 50 OR water20cm >= 150 OR (water20cm = 0 AND t20cm = 0))"
+
+    @staticmethod
+    def build_warning_records_audit_sql(
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int = 50,
+    ) -> str:
+        clauses: list[str] = []
+        if city:
+            clauses.append(f"city = {SoilRepository._normalize_sql_literal(city)}")
+        if county:
+            clauses.append(f"county = {SoilRepository._normalize_sql_literal(county)}")
+        if sn:
+            clauses.append(f"sn = {SoilRepository._normalize_sql_literal(sn)}")
+        if start_time:
+            clauses.append(f"create_time >= {SoilRepository._normalize_sql_literal(start_time)}")
+        if end_time:
+            clauses.append(f"create_time <= {SoilRepository._normalize_sql_literal(end_time)}")
+        clauses.append(SoilRepository._warning_filter_sql(warning_type))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return (
+            "SELECT sn, city, county, DATE_FORMAT(create_time,'%Y-%m-%d %H:%i:%s') AS create_time,\n"
+            "       water20cm, water40cm,\n"
+            "       CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'\n"
+            "            WHEN water20cm < 50 THEN 'heavy_drought'\n"
+            "            WHEN water20cm >= 150 THEN 'waterlogging'\n"
+            "            ELSE 'normal' END AS warning_level\n"
+            "FROM fact_soil_moisture\n"
+            f"{where}\n"
+            "ORDER BY create_time DESC\n"
+            f"LIMIT {int(limit)}"
+        )
+
+    def query_warning_records(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        for col, op, val in [
+            ("city", "=", city),
+            ("county", "=", county),
+            ("sn", "=", sn),
+            ("create_time", ">=", start_time),
+            ("create_time", "<=", end_time),
+        ]:
+            if val is not None:
+                clauses.append(f"{col} {op} %s")
+                params.append(val)
+
+        clauses.append(self._warning_filter_sql(warning_type))
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql = f"""
+        SELECT sn, city, county,
+               DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
+               water20cm, water40cm,
+               CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'
+                    WHEN water20cm < 50 THEN 'heavy_drought'
+                    WHEN water20cm >= 150 THEN 'waterlogging'
+                    ELSE 'normal' END AS warning_level
+        FROM fact_soil_moisture
+        {where}
+        ORDER BY create_time DESC
+        LIMIT %s
+        """
+        params.append(int(limit))
+
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, tuple(params))
+                rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as exc:
+            raise DatabaseQueryError(f"MySQL 查询预警记录失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def query_warning_records_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self.query_warning_records,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            limit=limit,
+        )
+
+    def count_warning_records_by_region(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+    ) -> dict[str, Any]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        if city:
+            clauses.append("city = %s")
+            params.append(city)
+        if county:
+            clauses.append("county = %s")
+            params.append(county)
+        if sn:
+            clauses.append("sn = %s")
+            params.append(sn)
+        if start_time:
+            clauses.append("create_time >= %s")
+            params.append(start_time)
+        if end_time:
+            clauses.append("create_time <= %s")
+            params.append(end_time)
+        clauses.append(self._warning_filter_sql(warning_type))
+
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        sql_total = f"SELECT COUNT(*) AS cnt FROM fact_soil_moisture {where}"
+        sql_by_level = f"""
+        SELECT
+            CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'
+                 WHEN water20cm < 50 THEN 'heavy_drought'
+                 WHEN water20cm >= 150 THEN 'waterlogging'
+                 ELSE 'normal' END AS warning_level,
+            COUNT(*) AS cnt
+        FROM fact_soil_moisture {where}
+        GROUP BY warning_level
+        """
+        connection = self._connect()
+        try:
+            result: dict[str, Any] = {}
+            with connection.cursor() as cursor:
+                cursor.execute(sql_total, tuple(params))
+                row = cursor.fetchone()
+                result["total"] = int(row.get("cnt") or 0) if row else 0
+
+                cursor.execute(sql_by_level, tuple(params))
+                level_rows = cursor.fetchall()
+                result["by_warning_level"] = {
+                    r["warning_level"]: int(r["cnt"] or 0)
+                    for r in level_rows
+                    if r.get("warning_level") != "normal"
+                }
+            return result
+        except Exception as exc:
+            raise DatabaseQueryError(f"MySQL 统计预警记录失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def count_warning_records_by_region_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.count_warning_records_by_region,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+        )

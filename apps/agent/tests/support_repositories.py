@@ -87,6 +87,33 @@ class SeedSoilRepository(SoilRepository):
         super().__init__()
         self.records = _load_seed_records()
         self.extra_region_aliases: list[dict[str, Any]] = []
+        self.device_city_distribution_rows = [
+            {"city": "南京市", "device_count": 48},
+            {"city": "无锡市", "device_count": 36},
+            {"city": "常州市", "device_count": 28},
+            {"city": "苏州市", "device_count": 74},
+            {"city": "镇江市", "device_count": 22},
+            {"city": "南通市", "device_count": 42},
+            {"city": "扬州市", "device_count": 34},
+            {"city": "泰州市", "device_count": 30},
+            {"city": "徐州市", "device_count": 58},
+            {"city": "连云港市", "device_count": 26},
+            {"city": "淮安市", "device_count": 40},
+            {"city": "盐城市", "device_count": 52},
+            {"city": "宿迁市", "device_count": 38},
+        ]
+        self.device_county_distribution_rows = {
+            "南通市": [
+                {"county": "如东县", "device_count": 9},
+                {"county": "启东市", "device_count": 8},
+                {"county": "如皋市", "device_count": 7},
+                {"county": "海安市", "device_count": 6},
+                {"county": "海门区", "device_count": 5},
+                {"county": "通州区", "device_count": 4},
+                {"county": "崇川区", "device_count": 2},
+                {"county": "开发区", "device_count": 1},
+            ]
+        }
 
     def _connect(self):
         """Return the backing connection used by this repository implementation."""
@@ -273,3 +300,147 @@ class SeedSoilRepository(SoilRepository):
     async def total_soil_device_count_async(self) -> int | None:
         """Async wrapper for seed device count."""
         return self.total_soil_device_count()
+
+    def soil_device_city_distribution(self) -> list[dict[str, Any]] | None:
+        """Return deterministic city-level device distribution for tests."""
+        if not self.device_city_distribution_rows:
+            return None
+        return [dict(row) for row in self.device_city_distribution_rows]
+
+    async def soil_device_city_distribution_async(self) -> list[dict[str, Any]] | None:
+        """Async city-level device distribution for tests."""
+        return self.soil_device_city_distribution()
+
+    def soil_device_county_distribution(self, city: str) -> list[dict[str, Any]] | None:
+        """Return deterministic county-level device distribution for one city."""
+        normalized_city = self._normalize_city_name(city)
+        rows = self.device_county_distribution_rows.get(normalized_city or "")
+        if not rows:
+            return None
+        return [dict(row) for row in rows]
+
+    async def soil_device_county_distribution_async(self, city: str) -> list[dict[str, Any]] | None:
+        """Async county-level device distribution for tests."""
+        return self.soil_device_county_distribution(city)
+
+    @staticmethod
+    def _warning_level_for_record(record: dict[str, Any]) -> str | None:
+        """Evaluate one seed row with the same threshold contract as the SQL path."""
+        water20 = record.get("water20cm")
+        t20 = record.get("t20cm")
+        if water20 == 0 and t20 == 0:
+            return "device_fault"
+        if isinstance(water20, (int, float)) and water20 < 50:
+            return "heavy_drought"
+        if isinstance(water20, (int, float)) and water20 >= 150:
+            return "waterlogging"
+        return None
+
+    def query_warning_records(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Return seed warning rows using the same SQL-threshold semantics."""
+        filtered: list[dict[str, Any]] = []
+        for record in self.filter_records(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            warning_level = self._warning_level_for_record(record)
+            if warning_level is None:
+                continue
+            if warning_type and warning_level != warning_type:
+                continue
+            filtered.append(
+                {
+                    "sn": record.get("sn"),
+                    "city": record.get("city"),
+                    "county": record.get("county"),
+                    "create_time": record.get("create_time"),
+                    "water20cm": record.get("water20cm"),
+                    "water40cm": record.get("water40cm"),
+                    "warning_level": warning_level,
+                }
+            )
+        return filtered[:limit]
+
+    async def query_warning_records_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int = 50,
+    ) -> list[dict[str, Any]]:
+        """Async warning-row query for tests."""
+        return self.query_warning_records(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            limit=limit,
+        )
+
+    def count_warning_records_by_region(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Count seed warning rows with optional warning-type filtering."""
+        rows = self.query_warning_records(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            limit=len(self.records),
+        )
+        by_level: dict[str, int] = {}
+        for row in rows:
+            level = str(row.get("warning_level") or "")
+            by_level[level] = by_level.get(level, 0) + 1
+        return {
+            "total": len(rows),
+            "by_warning_level": by_level,
+        }
+
+    async def count_warning_records_by_region_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+    ) -> dict[str, Any]:
+        """Async warning count for tests."""
+        return self.count_warning_records_by_region(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+        )

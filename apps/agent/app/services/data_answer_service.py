@@ -239,12 +239,47 @@ class DataAnswerService:
             return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "template":
             return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
+        if route_decision.route == "warning_rule_description":
+            return await self._reply_warning_rule_description(
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
+        if route_decision.route == "warning_list":
+            return await self._reply_warning_list(
+                message=text,
+                route_decision=route_decision,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
+        if route_decision.route == "warning_count":
+            return await self._reply_warning_count(
+                message=text,
+                route_decision=route_decision,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
         if route_decision.route == "unsupported_derived":
             return self._build_guidance_response(
                 turn_id=turn_id,
                 text=UNSUPPORTED_DERIVED_ANALYSIS_TEXT,
                 current_context=context,
                 guidance_reason="clarification",
+            )
+        if route_decision.route == "device_registry_distribution":
+            return await self._reply_device_registry_distribution(
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
+        if route_decision.route == "device_registry_county_detail":
+            return await self._reply_device_registry_county_detail(
+                route_decision=route_decision,
+                turn_id=turn_id,
+                session_id=session_id,
+                current_context=context,
             )
         if route_decision.route == "device_registry_count":
             return await self._reply_device_registry_count(session_id=session_id, turn_id=turn_id, current_context=context)
@@ -1952,6 +1987,64 @@ class DataAnswerService:
         if not fragments:
             return f"{rule_name}（{rule_code}）"
         return f"{rule_name}（{rule_code}）：{'；'.join(fragments)}"
+
+    @staticmethod
+    def _warning_type_from_text(text: str) -> str | None:
+        normalized = str(text or "")
+        if "重旱" in normalized:
+            return "heavy_drought"
+        if "涝渍" in normalized:
+            return "waterlogging"
+        if "设备故障" in normalized:
+            return "device_fault"
+        return None
+
+    @staticmethod
+    def _warning_level_label(level: str | None) -> str:
+        return {
+            "heavy_drought": "重旱预警",
+            "waterlogging": "涝渍预警",
+            "device_fault": "设备故障预警",
+        }.get(str(level or ""), str(level or "预警"))
+
+    @classmethod
+    def _warning_level_summary_text(cls, counts: dict[str, int]) -> str:
+        ordered = sorted(
+            ((level, int(count or 0)) for level, count in counts.items() if int(count or 0) > 0),
+            key=lambda item: (-item[1], item[0]),
+        )
+        return "、".join(f"{cls._warning_level_label(level)} {count} 条" for level, count in ordered)
+
+    def _warning_rule_thresholds(self, rule_row: dict[str, Any] | None) -> tuple[list[dict[str, Any]], dict[str, str], str, str]:
+        if rule_row:
+            rule_definition = rule_row.get("rule_definition_json") or {}
+            if isinstance(rule_definition, str):
+                try:
+                    rule_definition = json.loads(rule_definition)
+                except json.JSONDecodeError:
+                    rule_definition = {}
+            rules = list((rule_definition or {}).get("rules") or [])
+            rule_code = str(rule_row.get("rule_code") or "soil_warning_v1")
+            updated_at = str(rule_row.get("updated_at") or "—")
+        else:
+            rules = []
+            rule_code = "soil_warning_v1"
+            updated_at = "—"
+
+        if not rules:
+            rules = [
+                {"rule_name": "表层重旱预警", "condition": "water20cm < 50", "warning_level": "heavy_drought"},
+                {"rule_name": "表层涝渍预警", "condition": "water20cm >= 150", "warning_level": "waterlogging"},
+                {"rule_name": "设备故障预警", "condition": "water20cm = 0 and t20cm = 0", "warning_level": "device_fault"},
+            ]
+
+        thresholds: dict[str, str] = {}
+        for rule in rules:
+            level = str(rule.get("warning_level") or "")
+            condition = str(rule.get("condition") or "")
+            if level and condition:
+                thresholds[level] = condition
+        return rules, thresholds, rule_code, updated_at
 
     @staticmethod
     def _warning_region_preview(rows: list[dict[str, Any]], limit: int = 3) -> str:
@@ -4618,6 +4711,746 @@ class DataAnswerService:
                     filters={"device_type": "土壤墒情仪"},
                     executed_result={"total_count": count},
                     result_digest={"total_count": count},
+                )
+            ],
+        }
+
+    async def _reply_device_registry_distribution(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        rows = await self.repository.soil_device_city_distribution_async()
+        if rows is None:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="device_registry_distribution",
+                text="当前设备台账数据尚未导入，无法查询城市分布。",
+                current_context=current_context,
+            )
+
+        total = sum(int(row.get("device_count") or 0) for row in rows)
+        lines = [f"- {row.get('city') or '（未知）'}：{int(row.get('device_count') or 0)} 台" for row in rows]
+        final_text = (
+            f"目前全省共接入土壤墒情仪 {total} 台，分布在 {len(rows)} 个地市：\n\n"
+            + "\n".join(lines)
+        )
+        block_id = f"block_device_registry_distribution_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "device_registry_distribution_card",
+            "display_mode": "evidence_only",
+            "device_type": "土壤墒情仪",
+            "total_count": total,
+            "city_count": len(rows),
+            "rows": rows,
+        }
+        base_context = {
+            "topic_family": "device_registry",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+        )
+        query_spec = {
+            "spec_id": f"qs_{turn_id}_device_registry_distribution",
+            "dataset": "subject_device_record",
+            "capability": "device_registry_distribution",
+            "grain": "city_distribution",
+            "time_window": {},
+            "entities": {"city": [], "county": [], "sn": []},
+            "filters": {"device_type": "土壤墒情仪"},
+            "sort": {"field": "city", "direction": "asc"},
+            "page": {"page": 1, "page_size": len(rows)},
+            "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "device_registry_distribution",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="device_registry_distribution",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_soil_device_city_distribution_audit_sql(),
+                    row_count=len(rows),
+                    snapshot_id=None,
+                    time_window={},
+                    filters={"device_type": "土壤墒情仪"},
+                    executed_result={"rows": rows, "total_count": total},
+                    result_digest={"total_count": total, "city_count": len(rows)},
+                )
+            ],
+        }
+
+    async def _reply_device_registry_county_detail(
+        self,
+        *,
+        route_decision: Any,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        resolved_entities = self._clarification_resolved_entities(route_decision.entities or {}, current_context)
+        slots = self._slots_from_resolved_entities(resolved_entities)
+        city = slots.get("city") or (route_decision.extra or {}).get("target_city")
+        if not city:
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text="请问您想查询哪个地市的土壤墒情仪分布情况？",
+                current_context=current_context,
+                guidance_reason="clarification",
+            )
+
+        rows = await self.repository.soil_device_county_distribution_async(str(city))
+        if rows is None:
+            return self._build_fallback_response(
+                turn_id=turn_id,
+                capability="device_registry_county_detail",
+                text=f"暂未查到 {city} 的设备分布数据，请确认设备台账已导入。",
+                current_context=current_context,
+            )
+
+        total = sum(int(row.get("device_count") or 0) for row in rows)
+        lines = [f"- {row.get('county') or '（未知）'}：{int(row.get('device_count') or 0)} 台" for row in rows]
+        final_text = (
+            f"{city}共接入土壤墒情仪 {total} 台，分布在 {len(rows)} 个县区：\n\n"
+            + "\n".join(lines)
+        )
+        block_id = f"block_device_registry_county_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "device_registry_county_card",
+            "display_mode": "evidence_only",
+            "city": city,
+            "total_count": total,
+            "county_count": len(rows),
+            "rows": rows,
+        }
+        base_context = {
+            "topic_family": "device_registry",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [{"kind": "city", "canonical_name": str(city)}],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+        )
+        query_spec = {
+            "spec_id": f"qs_{turn_id}_device_registry_county_detail",
+            "dataset": "subject_device_record",
+            "capability": "device_registry_county_detail",
+            "grain": "county_distribution",
+            "time_window": {},
+            "entities": {"city": [city], "county": [], "sn": []},
+            "filters": {"device_type": "土壤墒情仪"},
+            "sort": {"field": "device_count", "direction": "desc"},
+            "page": {"page": 1, "page_size": len(rows)},
+            "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "device_registry_county_detail",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="device_registry_county_detail",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_soil_device_county_distribution_audit_sql(str(city)),
+                    row_count=len(rows),
+                    snapshot_id=None,
+                    time_window={},
+                    filters={"device_type": "土壤墒情仪", "city": city},
+                    executed_result={"rows": rows, "total_count": total, "city": city},
+                    result_digest={"city": city, "total_count": total, "county_count": len(rows)},
+                )
+            ],
+        }
+
+    async def _reply_warning_rule_description(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        rule_row = await self.repository.warning_rule_row_async()
+        rules, thresholds, rule_code, updated_at = self._warning_rule_thresholds(rule_row)
+        lines = []
+        condition_desc = {
+            "water20cm < 50": "表层（20cm）相对含水量低于 50%",
+            "water20cm >= 150": "表层（20cm）相对含水量高于或等于 150%",
+            "water20cm = 0 and t20cm = 0": "表层含水量与温度同时为 0（疑似断电或故障）",
+        }
+        for rule in rules:
+            level = self._warning_level_label(rule.get("warning_level"))
+            condition = str(rule.get("condition") or "")
+            lines.append(f"- {level}：{condition_desc.get(condition, condition)}")
+        final_text = (
+            f"当前预警规则（{rule_code}，更新于 {updated_at}）如下：\n\n"
+            + "\n".join(lines)
+            + "\n\n触发预警后，系统将按模板组织告警信息。"
+        )
+        block_id = f"block_warning_rule_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "rule_card",
+            "display_mode": "evidence_only",
+            "rule_code": rule_code,
+            "rule_name": (rule_row or {}).get("rule_name") or "土壤墒情预警规则",
+            "updated_at": updated_at,
+            "thresholds": thresholds,
+            "rule_definition_json": {"rules": rules},
+        }
+        base_context = {
+            "topic_family": "rule",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": {},
+            "time_window": {},
+            "resolved_entities": [],
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+        )
+        query_spec = {
+            "spec_id": f"qs_{turn_id}_warning_rule_description",
+            "dataset": "metric_rule",
+            "capability": "rule",
+            "grain": "rule_read",
+            "time_window": {},
+            "entities": {"city": [], "county": [], "sn": []},
+            "filters": {"rule_code": rule_code},
+            "sort": {"field": "updated_at", "direction": "desc"},
+            "page": {"page": 1, "page_size": 1},
+            "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+        }
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "rule",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="warning_rule_description",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_warning_rule_audit_sql(),
+                    row_count=1 if rule_row else 0,
+                    snapshot_id=None,
+                    time_window={},
+                    filters={"rule_code": rule_code},
+                    executed_result={"rule_code": rule_code, "rules": rules, "updated_at": updated_at},
+                    result_digest={"rule_code": rule_code, "rule_count": len(rules)},
+                )
+            ],
+        }
+
+    async def _reply_warning_list(
+        self,
+        *,
+        message: str,
+        route_decision: Any,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_detail",
+                current_context=current_context,
+                turn_id=turn_id,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="warning_list",
+                grain="record_list",
+                clarify_text=str(exc),
+            )
+
+        time_window = {
+            "start_time": time_window.get("start_time") or (route_decision.extra or {}).get("time_start"),
+            "end_time": time_window.get("end_time") or (route_decision.extra or {}).get("time_end"),
+            "source": time_window.get("source") or "explicit",
+        }
+        warning_type = self._warning_type_from_text(message)
+        route_metadata = self._query_profile_route_metadata(
+            route="warning_list",
+            action="list",
+            list_target=LIST_TARGET_ALERT_RECORDS,
+        )
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route_metadata=route_metadata,
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=follow_up_mode,
+        )
+        stats = await self.repository.count_warning_records_by_region_async(
+            city=resolved_args.get("city"),
+            county=resolved_args.get("county"),
+            sn=resolved_args.get("sn"),
+            start_time=time_window.get("start_time"),
+            end_time=time_window.get("end_time"),
+            warning_type=warning_type,
+        )
+        total_count = int(stats.get("total") or 0)
+        by_warning_level = {
+            str(level): int(count or 0)
+            for level, count in (stats.get("by_warning_level") or {}).items()
+        }
+        records = await self.repository.query_warning_records_async(
+            city=resolved_args.get("city"),
+            county=resolved_args.get("county"),
+            sn=resolved_args.get("sn"),
+            start_time=time_window.get("start_time"),
+            end_time=time_window.get("end_time"),
+            warning_type=warning_type,
+            limit=max(total_count, LIST_TABLE_PAGE_SIZE),
+        )
+        rule_row = await self.repository.warning_rule_row_async()
+        warning_rule_brief = self._warning_rule_brief(rule_row)
+        rows = [
+            {
+                "create_time": record.get("create_time"),
+                "city": record.get("city"),
+                "county": record.get("county"),
+                "sn": record.get("sn"),
+                "water20cm": record.get("water20cm"),
+                "water40cm": record.get("water40cm"),
+            }
+            for record in records
+        ]
+        block_id = f"block_warning_list_{turn_id}"
+        query_spec = self._build_query_spec(
+            capability="list",
+            grain="record_list",
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=follow_up_mode,
+        )
+        query_spec["filters"]["alert_only"] = True
+        if warning_type:
+            query_spec["filters"]["warning_type"] = warning_type
+        snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec=query_spec,
+            rule_version=str((rule_row or {}).get("rule_code") or ""),
+            rows=rows,
+            snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+        )
+        device_snapshot, device_rows = await self._maybe_create_companion_device_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            list_target=LIST_TARGET_ALERT_RECORDS,
+            base_query_spec=query_spec,
+            source_snapshot_id=snapshot["snapshot_id"],
+            rows=rows,
+        )
+        block = self._build_paginated_table_block(
+            block_id=block_id,
+            block_type="list_table",
+            title="预警记录详情",
+            columns=["create_time", "city", "county", "sn", "water20cm", "water40cm"],
+            rows=rows,
+            snapshot_id=snapshot["snapshot_id"],
+            extra_fields={
+                "warning_rule_brief": warning_rule_brief,
+            },
+        )
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "record_snapshot_id": snapshot["snapshot_id"],
+                "device_snapshot_id": device_snapshot["snapshot_id"] if device_snapshot else None,
+                "region_group_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="list",
+            grain="record_list",
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            action_targets=self._build_list_action_targets(
+                turn_id=turn_id,
+                snapshot_id=snapshot["snapshot_id"],
+                snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                rows=rows,
+                device_snapshot_id=device_snapshot["snapshot_id"] if device_snapshot else None,
+                device_count=len(device_rows) if device_rows else None,
+            ),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        scope_label = self._entity_label(resolved_entities) or "全省"
+        range_label = self._scoped_range_label(scope_label, time_window)
+        warning_scope_label = self._warning_level_label(warning_type) if warning_type else "预警"
+        final_text = (
+            f"{range_label}满足预警规则的{warning_scope_label}记录共有 {total_count} 条。"
+            if total_count > 0
+            else f"{range_label}没有命中{warning_scope_label}记录。"
+        )
+        level_summary = self._warning_level_summary_text(by_warning_level)
+        if level_summary:
+            final_text += f" 其中：{level_summary}。"
+        final_text += f" 当前预警规则：{warning_rule_brief}。"
+        if total_count > 0:
+            final_text += f" 已展示前 {min(len(block['rows']), LIST_TABLE_PAGE_SIZE)} 条记录。"
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "warning_list",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {
+                "has_query": True,
+                "snapshot_ids": [
+                    snapshot_id
+                    for snapshot_id in [snapshot["snapshot_id"], device_snapshot["snapshot_id"] if device_snapshot else None]
+                    if snapshot_id
+                ],
+            },
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="warning_list",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_warning_records_audit_sql(
+                        city=resolved_args.get("city"),
+                        county=resolved_args.get("county"),
+                        sn=resolved_args.get("sn"),
+                        start_time=time_window.get("start_time"),
+                        end_time=time_window.get("end_time"),
+                        warning_type=warning_type,
+                        limit=max(total_count, LIST_TABLE_PAGE_SIZE),
+                    ),
+                    row_count=total_count,
+                    snapshot_id=snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={
+                        "rows": block["rows"],
+                        "total_count": total_count,
+                        "by_warning_level": by_warning_level,
+                        "warning_rule_brief": warning_rule_brief,
+                    },
+                    result_digest={
+                        "total_count": total_count,
+                        "by_warning_level": by_warning_level,
+                    },
+                )
+            ],
+        }
+
+    async def _reply_warning_count(
+        self,
+        *,
+        message: str,
+        route_decision: Any,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+                message=message,
+                tool_name="query_soil_summary",
+                current_context=current_context,
+                turn_id=turn_id,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="warning_count",
+                grain="aggregate",
+                clarify_text=str(exc),
+            )
+
+        time_window = {
+            "start_time": time_window.get("start_time") or (route_decision.extra or {}).get("time_start"),
+            "end_time": time_window.get("end_time") or (route_decision.extra or {}).get("time_end"),
+            "source": time_window.get("source") or "explicit",
+        }
+        warning_type = self._warning_type_from_text(message)
+        route_metadata = self._query_profile_route_metadata(route="warning_count", action="count")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route_metadata=route_metadata,
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=follow_up_mode,
+        )
+        stats = await self.repository.count_warning_records_by_region_async(
+            city=resolved_args.get("city"),
+            county=resolved_args.get("county"),
+            sn=resolved_args.get("sn"),
+            start_time=time_window.get("start_time"),
+            end_time=time_window.get("end_time"),
+            warning_type=warning_type,
+        )
+        total_count = int(stats.get("total") or 0)
+        by_warning_level = {
+            str(level): int(count or 0)
+            for level, count in (stats.get("by_warning_level") or {}).items()
+        }
+        records = await self.repository.query_warning_records_async(
+            city=resolved_args.get("city"),
+            county=resolved_args.get("county"),
+            sn=resolved_args.get("sn"),
+            start_time=time_window.get("start_time"),
+            end_time=time_window.get("end_time"),
+            warning_type=warning_type,
+            limit=max(total_count, LIST_TABLE_PAGE_SIZE),
+        )
+        rows = [
+            {
+                "create_time": record.get("create_time"),
+                "city": record.get("city"),
+                "county": record.get("county"),
+                "sn": record.get("sn"),
+                "water20cm": record.get("water20cm"),
+                "water40cm": record.get("water40cm"),
+            }
+            for record in records
+        ]
+        rule_row = await self.repository.warning_rule_row_async()
+        warning_rule_brief = self._warning_rule_brief(rule_row)
+        block_id = f"block_warning_count_{turn_id}"
+        query_spec = self._build_query_spec(
+            capability="count",
+            grain=str(query_profile.get("result_grain") or "record_list"),
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=follow_up_mode,
+        )
+        query_spec["filters"]["alert_only"] = True
+        if warning_type:
+            query_spec["filters"]["warning_type"] = warning_type
+        device_rows = self._focus_device_rows(rows)
+        device_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "device_list"},
+            rule_version=str((rule_row or {}).get("rule_code") or ""),
+            rows=device_rows,
+        )
+        record_snapshot = await self._create_focus_snapshot(
+            session_id=session_id,
+            turn_id=turn_id,
+            block_id=block_id,
+            query_spec={**query_spec, "capability": "list", "grain": "record_list"},
+            rule_version=str((rule_row or {}).get("rule_code") or ""),
+            rows=rows,
+            snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+        )
+        block = {
+            "block_id": block_id,
+            "block_type": "count_card",
+            "display_mode": "evidence_only",
+            "title": "预警数量统计",
+            "time_window": time_window,
+            "count": total_count,
+            "measure": query_profile.get("measure") or "alert_record_count",
+            "data_focus": "warning_only",
+            "by_warning_level": by_warning_level,
+            "device_snapshot_id": device_snapshot["snapshot_id"],
+            "record_snapshot_id": record_snapshot["snapshot_id"],
+            "warning_rule_brief": warning_rule_brief,
+        }
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {
+                "device_snapshot_id": device_snapshot["snapshot_id"],
+                "record_snapshot_id": record_snapshot["snapshot_id"],
+                "region_group_snapshot_id": None,
+            },
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="count",
+            grain=str(query_profile.get("result_grain") or "record_list"),
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=[],
+            action_targets=self._build_summary_action_targets(
+                turn_id=turn_id,
+                block={
+                    "metrics": {
+                        "record_count": total_count,
+                        "device_count": len(device_rows),
+                        "region_count": len(
+                            {(row.get("city"), row.get("county")) for row in rows if row.get("city") or row.get("county")}
+                        ),
+                    },
+                    "device_snapshot_id": device_snapshot["snapshot_id"],
+                    "record_snapshot_id": record_snapshot["snapshot_id"],
+                },
+            ),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        scope_label = self._entity_label(resolved_entities) or "全省"
+        range_label = self._scoped_range_label(scope_label, time_window)
+        warning_scope_label = self._warning_level_label(warning_type) if warning_type else "预警"
+        final_text = (
+            f"{range_label}共有 {total_count} 条{warning_scope_label}记录。"
+            if total_count > 0
+            else f"{range_label}没有{warning_scope_label}记录。"
+        )
+        level_summary = self._warning_level_summary_text(by_warning_level)
+        if level_summary:
+            final_text += f" 其中：{level_summary}。"
+        final_text += f" 当前预警规则：{warning_rule_brief}。"
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "warning_count",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": [device_snapshot["snapshot_id"], record_snapshot["snapshot_id"]]},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="warning_count",
+                    query_spec=query_spec,
+                    executed_sql_text=self.repository.build_warning_records_audit_sql(
+                        city=resolved_args.get("city"),
+                        county=resolved_args.get("county"),
+                        sn=resolved_args.get("sn"),
+                        start_time=time_window.get("start_time"),
+                        end_time=time_window.get("end_time"),
+                        warning_type=warning_type,
+                        limit=max(total_count, LIST_TABLE_PAGE_SIZE),
+                    ),
+                    row_count=total_count,
+                    snapshot_id=device_snapshot["snapshot_id"],
+                    time_window=time_window,
+                    filters=query_spec["filters"],
+                    executed_result={
+                        "count": total_count,
+                        "by_warning_level": by_warning_level,
+                        "warning_rule_brief": warning_rule_brief,
+                    },
+                    result_digest={"count": total_count, "by_warning_level": by_warning_level},
                 )
             ],
         }

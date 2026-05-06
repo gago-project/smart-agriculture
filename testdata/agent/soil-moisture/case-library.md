@@ -1,15 +1,15 @@
-# 墒情 Agent Case Library（81 条正式验收 Case）
+# 墒情 Agent Case Library（90 条正式验收 Case）
 
 > **架构版本**：deterministic `/chat-v2` 数据回答链路（`InputGuard → RouteDecision → QueryProfile/ParameterResolver → DataAnswerService → QueryLog`）。
 >  
 > **唯一正式入口**：本文件是当前 `soil-moisture` Agent 的唯一正式验收库。所有正式 Case 的新增、删减、修订都只改这里。
 >
 > **测试原则**：
-> - 每次验收都全量跑完全部 `81` 条 Case。
+> - 每次验收都全量跑完全部 `90` 条 Case。
 > - 每条 Case 都保留完整的 `当前回答` 长文本样例。
 > - 每条业务 Case 都必须带 `数据库校验断言` 与 `是否符合事实`。
 > - 正式通过的业务 Case，`是否符合事实` 必须为 `是`。
-> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 81 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
+> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 90 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
 >
 > **业务时间锚点**：
 > - 全库统一以 `2026-04-13 23:59:59` 作为"数据库最新业务时间（latest_business_time）"。
@@ -18,7 +18,7 @@
 >
 > **当前 QA 语义枚举**（用于正式验收分类，不再要求运行时逐字段原样返回）：
 > - `InputType`：`business_direct / business_colloquial / conversation_closing / greeting / capability_question / meaningless_input / ambiguous_low_confidence / out_of_domain`
-> - `AnswerType`：`soil_summary_answer / soil_ranking_answer / soil_detail_answer / guidance_answer / fallback_answer`
+> - `AnswerType`：`soil_summary_answer / soil_ranking_answer / soil_detail_answer / guidance_answer / fallback_answer / device_registry_answer`
 > - `OutputMode`：`normal / anomaly_focus / warning_mode / advice_mode`
 > - `GuidanceReason`：`clarification / safe_hint / boundary / closing`
 > - `FallbackReason`：`no_data / entity_not_found / tool_missing / tool_blocked / fact_check_failed / unknown`
@@ -45,18 +45,19 @@
 | Ranking Cases | `SM-RANK-001 ~ SM-RANK-008` | 8 | 全部 `soil_ranking_answer` |
 | Detail Cases | `SM-DETAIL-001 ~ SM-DETAIL-013` | 13 | 全部 `soil_detail_answer` |
 | Fallback Cases | `SM-FB-001 ~ SM-FB-010` | 10 | 全部 `fallback_answer` |
-| Device Registry Cases | `SM-DEV-001 ~ SM-DEV-007` | 7 | 6 条 `device_registry_answer` + 1 条 `guidance_answer`（SM-DEV-006）|
+| Device Registry Cases | `SM-DEV-001 ~ SM-DEV-011` | 11 | 10 条 `device_registry_answer` + 1 条 `guidance_answer`（SM-DEV-006）|
+| Warning Cases | `SM-WARN-001 ~ SM-WARN-005` | 5 | 2 条 `device_registry_answer`（规则说明复用）+ 3 条 `soil_summary_answer` |
 
 ### 按一级 `answer_type` 维度
 
 | 一级 `answer_type` | 说明 | 数量 |
 |---|---|---:|
-| `guidance_answer` | 引导 / 澄清 / 非业务回复 | 31 |
-| `soil_summary_answer` | 墒情概览（全局或区域汇总，含 `SM-CONV-009 / SM-CONV-011` 两条多轮业务回答） | 12 |
+| `guidance_answer` | 引导 / 澄清 / 非业务回复 | 32 |
+| `soil_summary_answer` | 墒情概览（全局或区域汇总，含 `SM-CONV-009 / SM-CONV-011` 两条多轮业务回答，以及 Warning Cases 中的预警记录查询） | 15 |
 | `soil_ranking_answer` | 排名对比（区域风险排行） | 8 |
 | `soil_detail_answer` | 地区 / 设备详情及异常分析 | 13 |
 | `fallback_answer` | 无数据 / 找不到对象 / 兜底 | 10 |
-| `device_registry_answer` | 设备台账信息查询（接入设备总数，来自 subject_device_record） | 6 |
+| `device_registry_answer` | 设备台账信息查询（接入设备总数、城市/县区分布、预警规则说明） | 12 |
 
 ### 按 `output_mode` 覆盖
 
@@ -64,7 +65,7 @@
 |---|---:|---|
 | `normal` | 30+ | 全库默认 |
 | `anomaly_focus` | 4 | `SM-SUM-004 / SM-DETAIL-006 / SM-DETAIL-009 / SM-DETAIL-010` |
-| `warning_mode` | 2 | `SM-SUM-005 / SM-DETAIL-007` |
+| `warning_mode` | 5 | `SM-SUM-005 / SM-DETAIL-007 / SM-WARN-003 / SM-WARN-004 / SM-WARN-005` |
 | `advice_mode` | 2 | `SM-SUM-006 / SM-DETAIL-008` |
 
 ## Guidance Cases（33）
@@ -2048,3 +2049,239 @@
 - `禁止事实`：南京专属分类统计数字（不得回答"南京有X台"）；`时间范围`、`最近N天`
 - `是否符合事实`：`是`（已知限制：返回全省总数，与预期行为一致）
 - `备注`：区域过滤能力边界验证；当前架构不支持按 city 过滤 subject_device_record，文档化已知限制
+
+### SM-DEV-008
+
+- `CaseID`：`SM-DEV-008`
+- `用户问题`：土壤墒情仪分布在哪里？
+- `当前回答`：目前全省共接入土壤墒情仪 528 台，分布在 13 个地市：南京市、无锡市、常州市、苏州市、镇江市、南通市、扬州市、泰州市、徐州市、连云港市、淮安市、盐城市、宿迁市，并给出各市对应台数。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否（内部 repo 直查 `subject_device_record`）
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `device_registry_distribution`；回答必须包含全省总台数、13 市分布以及各市台数；不得退化成“总数”单句
+- `结构化证据断言`：`answer_kind=business`；`capability=device_registry_distribution`；`query_log_entries[0].executed_sql_text` 包含 `GROUP BY city`
+- `数据库校验断言`：`SELECT city, COUNT(*) AS device_count FROM subject_device_record WHERE type='土壤墒情仪' GROUP BY city`；回答中的城市与台数应与 DB 一致，总数等于各市加总
+- `预期实体`：`无`
+- `预期时间窗`：不适用
+- `必含事实`：`全省共接入`、`13 个地市`
+- `禁止事实`：`最近N天`、`fact_soil_moisture`
+- `是否符合事实`：`是`
+- `备注`：全省设备城市分布标准样例
+
+### SM-DEV-009
+
+- `CaseID`：`SM-DEV-009`
+- `用户问题`：江苏省各地市有多少台墒情仪？
+- `当前回答`：目前全省共接入土壤墒情仪 528 台，分布在 13 个地市，并列出各市对应台数。
+- `上下文`：无
+- `预期 input_type`：`business_colloquial`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：与 `SM-DEV-008` 等价；“各地市”变体词也能命中 `device_registry_distribution`
+- `结构化证据断言`：`capability=device_registry_distribution`
+- `数据库校验断言`：同 `SM-DEV-008`
+- `预期实体`：`江苏省`
+- `预期时间窗`：不适用
+- `必含事实`：`各地市`
+- `禁止事实`：无
+- `是否符合事实`：`是`
+- `备注`：分布类口语变体验证
+
+### SM-DEV-010
+
+- `CaseID`：`SM-DEV-010`
+- `用户问题`：南通市土壤墒情仪分布情况
+- `当前回答`：南通市共接入土壤墒情仪 42 台，分布在多个县区，并列出如东县、启东市、如皋市、海安市等县区台数。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否（内部 repo 直查 `subject_device_record`）
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `device_registry_county_detail`；回答必须包含南通市总台数和各县区分布
+- `结构化证据断言`：`answer_kind=business`；`capability=device_registry_county_detail`；`query_log_entries[0].executed_sql_text` 包含 `GROUP BY county`
+- `数据库校验断言`：`SELECT county, COUNT(*) AS device_count FROM subject_device_record WHERE type='土壤墒情仪' AND city='南通市' GROUP BY county ORDER BY device_count DESC`
+- `预期实体`：`南通市`
+- `预期时间窗`：不适用
+- `必含事实`：`南通市`、`各县区`
+- `禁止事实`：`全省总数替代县区分布`
+- `是否符合事实`：`是`
+- `备注`：指定城市设备县区分布标准样例
+
+### SM-DEV-011
+
+- `CaseID`：`SM-DEV-011`
+- `用户问题`：南通的墒情设备各县区有多少台
+- `当前回答`：南通市共接入土壤墒情仪 42 台，分布在多个县区，并列出各县区对应台数。
+- `上下文`：无（city entity 识别为 `南通市`）
+- `预期 input_type`：`business_colloquial`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：城市别名 `南通` 能补全为 `南通市`；回答结构与 `SM-DEV-010` 一致
+- `结构化证据断言`：`capability=device_registry_county_detail`
+- `数据库校验断言`：同 `SM-DEV-010`
+- `预期实体`：`南通 -> 南通市`
+- `预期时间窗`：不适用
+- `必含事实`：`南通市`
+- `禁止事实`：无
+- `是否符合事实`：`是`
+- `备注`：城市名归一化与口语变体验证
+
+## Warning Cases（5）
+
+### SM-WARN-001
+
+- `CaseID`：`SM-WARN-001`
+- `用户问题`：土壤墒情的预警规则是什么？
+- `当前回答`：当前预警规则（`soil_warning_v1`）应明确说明三条条件：重旱 `water20cm < 50`，涝渍 `water20cm >= 150`，设备故障 `water20cm = 0 and t20cm = 0`。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否（内部读取 `metric_rule`）
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_rule_description`；回答必须包含三条阈值条件；不得去查 `fact_soil_moisture`
+- `结构化证据断言`：`answer_kind=business`；`capability=rule`；`query_log_entries[0].executed_sql_text` 仅涉及 `metric_rule`
+- `数据库校验断言`：`SELECT rule_code, rule_definition_json, updated_at FROM metric_rule WHERE rule_code='soil_warning_v1' AND enabled=1`
+- `预期实体`：`无`
+- `预期时间窗`：不适用
+- `必含事实`：`50`、`150`、`设备故障`
+- `禁止事实`：`fact_soil_moisture`
+- `是否符合事实`：`是`
+- `备注`：预警规则标准说明样例
+
+### SM-WARN-002
+
+- `CaseID`：`SM-WARN-002`
+- `用户问题`：什么情况下会触发重旱预警？
+- `当前回答`：应明确回答“表层（20cm）相对含水量低于 50% 时触发重旱预警”，并可补充当前启用规则编码。
+- `上下文`：无
+- `预期 input_type`：`business_colloquial`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`device_registry_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：虽然只问重旱，也应命中 `warning_rule_description`；回答中必须包含 `50` 或 `water20cm < 50`
+- `结构化证据断言`：`capability=rule`
+- `数据库校验断言`：同 `SM-WARN-001`
+- `预期实体`：`无`
+- `预期时间窗`：不适用
+- `必含事实`：`重旱`、`50`
+- `禁止事实`：无
+- `是否符合事实`：`是`
+- `备注`：规则说明变体问法
+
+### SM-WARN-003
+
+- `CaseID`：`SM-WARN-003`
+- `用户问题`：最近7天哪些点位出现了预警？
+- `当前回答`：`2026-04-07` 至 `2026-04-13` 期间，应列出满足预警规则的记录/点位，并明确说明命中了多少条预警记录、各预警类型分布，以及当前预警规则摘要。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否（内部 repo 直查）
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`warning_mode`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_list`；`WHERE` 必须直接带 `(water20cm < 50 OR water20cm >= 150 OR (water20cm = 0 AND t20cm = 0))`；回答里要带“满足预警规则”
+- `结构化证据断言`：`answer_kind=business`；`capability=warning_list`；`query_log_entries[0].row_count > 0`
+- `数据库校验断言`：`SELECT ... FROM fact_soil_moisture WHERE create_time BETWEEN '2026-04-07 00:00:00' AND '2026-04-13 23:59:59' AND (water20cm < 50 OR water20cm >= 150 OR (water20cm = 0 AND t20cm = 0)) ORDER BY create_time DESC`
+- `预期实体`：`无`
+- `预期时间窗`：`2026-04-07 00:00:00 ~ 2026-04-13 23:59:59`
+- `必含事实`：`满足预警规则`、`当前预警规则`
+- `禁止事实`：`先查全部再由 Python 后过滤`
+- `是否符合事实`：`是`
+- `备注`：预警记录列表标准样例
+
+### SM-WARN-004
+
+- `CaseID`：`SM-WARN-004`
+- `用户问题`：上周全省有多少条重旱预警记录？
+- `当前回答`：`2026-04-07` 至 `2026-04-13` 期间，全省共有若干条重旱预警记录，并可补充“满足当前预警规则的重旱记录共有 X 条”。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`warning_mode`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_count`；过滤条件必须收窄到 `water20cm < 50`；回答中要点明“重旱预警记录”
+- `结构化证据断言`：`answer_kind=business`；`capability=warning_count`
+- `数据库校验断言`：`SELECT COUNT(*) FROM fact_soil_moisture WHERE create_time BETWEEN '2026-04-07 00:00:00' AND '2026-04-13 23:59:59' AND water20cm < 50`
+- `预期实体`：`无`
+- `预期时间窗`：`2026-04-07 00:00:00 ~ 2026-04-13 23:59:59`
+- `必含事实`：`重旱`
+- `禁止事实`：`混入涝渍/设备故障数量`
+- `是否符合事实`：`是`
+- `备注`：按预警类型过滤的数量查询
+
+### SM-WARN-005
+
+- `CaseID`：`SM-WARN-005`
+- `用户问题`：2026-04-01 到 2026-04-07 有没有涝渍预警？
+- `当前回答`：`2026-04-01` 至 `2026-04-07` 期间，应基于 `water20cm >= 150` 判断是否存在涝渍预警，并返回命中条数及当前预警规则摘要。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`warning_mode`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_list` 或 `warning_count` 均可，但 `WHERE` 必须收窄到 `water20cm >= 150`
+- `结构化证据断言`：`capability in {warning_list, warning_count}`
+- `数据库校验断言`：`SELECT COUNT(*) FROM fact_soil_moisture WHERE create_time BETWEEN '2026-04-01 00:00:00' AND '2026-04-07 23:59:59' AND water20cm >= 150`
+- `预期实体`：`无`
+- `预期时间窗`：`2026-04-01 00:00:00 ~ 2026-04-07 23:59:59`
+- `必含事实`：`涝渍预警`
+- `禁止事实`：`重旱条件`
+- `是否符合事实`：`是`
+- `备注`：涝渍预警存在性查询

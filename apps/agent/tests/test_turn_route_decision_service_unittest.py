@@ -324,6 +324,128 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.route, "device_registry_count")
         self.assertEqual(result.query_shape.subject, "device_registry")
 
+    def test_device_registry_distribution_province_query(self) -> None:
+        result = self.service.decide(
+            message="土壤墒情仪分布在哪里",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_distribution")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.action, "distribution")
+        self.assertEqual(result.query_shape.grain, "city")
+
+    def test_device_registry_distribution_city_variant(self) -> None:
+        result = self.service.decide(
+            message="江苏省各地市有多少台墒情仪",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_distribution")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.grain, "city")
+
+    def test_device_registry_county_detail_routes_when_city_entity_present(self) -> None:
+        result = self.service.decide(
+            message="南通市土壤墒情仪分布情况",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.action, "distribution")
+        self.assertEqual(result.query_shape.grain, "county")
+
+    def test_device_registry_county_detail_not_triggered_without_city_entity(self) -> None:
+        result = self.service.decide(
+            message="土壤墒情仪各县区分布",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertNotEqual(result.route, "device_registry_county_detail")
+
+    def test_warning_rule_query_routes_to_warning_rule_description(self) -> None:
+        result = self.service.decide(
+            message="土壤墒情的预警规则是什么",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_rule_description")
+        self.assertEqual(result.query_shape.subject, "warning_rule")
+        self.assertEqual(result.query_shape.action, "describe")
+
+    def test_warning_rule_heavy_drought_variant(self) -> None:
+        result = self.service.decide(
+            message="什么情况下会触发重旱预警",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_rule_description")
+
+    def test_is_warning_rule_query_detection(self) -> None:
+        from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc
+
+        self.assertTrue(Svc._is_warning_rule_query("土壤墒情的预警规则是什么"))
+        self.assertTrue(Svc._is_warning_rule_query("重旱标准是什么"))
+        self.assertTrue(Svc._is_warning_rule_query("预警阈值"))
+        self.assertFalse(Svc._is_warning_rule_query("南通市最近7天有多少预警记录"))
+        self.assertFalse(Svc._is_warning_rule_query("最近7天有哪些预警"))
+
+    def test_warning_list_route_with_time_signal(self) -> None:
+        result = self.service.decide(
+            message="最近7天南通市哪些点位出现了预警",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_list")
+        self.assertEqual(result.query_shape.subject, "warning")
+        self.assertEqual(result.query_shape.action, "list")
+
+    def test_warning_count_route(self) -> None:
+        result = self.service.decide(
+            message="上周南通市有多少条预警记录",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_count")
+        self.assertEqual(result.query_shape.subject, "warning")
+        self.assertEqual(result.query_shape.action, "count")
+
+    def test_warning_rule_query_not_matched_as_warning_record(self) -> None:
+        result = self.service.decide(
+            message="土壤墒情的预警规则是什么",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_rule_description")
+
+    def test_is_warning_record_query_detection(self) -> None:
+        from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc
+
+        self.assertTrue(Svc._is_warning_record_query("最近7天南通市哪些点位出现了预警", has_time_signal=True))
+        self.assertTrue(Svc._is_warning_record_query("上周有多少条预警", has_time_signal=True))
+        self.assertTrue(Svc._is_warning_record_query("有哪些预警记录", has_time_signal=False))
+        self.assertFalse(Svc._is_warning_record_query("预警规则是什么", has_time_signal=False))
+        self.assertFalse(Svc._is_warning_record_query("预警阈值", has_time_signal=False))
+
 
 if __name__ == "__main__":
     unittest.main()
