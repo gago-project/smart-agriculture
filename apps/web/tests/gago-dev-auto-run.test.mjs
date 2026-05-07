@@ -54,6 +54,10 @@ test('frontend app wires gago-dev auto run off login completion and clears local
     new URL('../workspace/hooks/useGagoDevAutoRunner.ts', import.meta.url),
     'utf8',
   );
+  const chatActionsSource = readFileSync(
+    new URL('../workspace/hooks/useChatActions.ts', import.meta.url),
+    'utf8',
+  );
 
   assert.match(appSource, /useGagoDevAutoRunner/);
   assert.match(appSource, /gago-dev 自动真实问答回归/);
@@ -68,5 +72,10 @@ test('frontend app wires gago-dev auto run off login completion and clears local
   assert.match(runnerHookSource, /const switchSessionRef = useRef/);
   assert.match(runnerHookSource, /await sendQuestionRef\.current/);
   assert.match(runnerHookSource, /focusSession: true/);
+  assert.match(runnerHookSource, /propagateError: true/);
+  assert.match(runnerHookSource, /phase: 'error'/);
   assert.doesNotMatch(runnerHookSource, /\[createSession,\s*enabled,\s*isEnabled,\s*lastLoginAt,\s*sendQuestion,\s*switchSession,\s*username\]/);
+  assert.match(chatActionsSource, /resolveSessionTitleAfterSend/);
+  assert.match(chatActionsSource, /session\.title !== DEFAULT_SESSION_TITLE/);
+  assert.match(chatActionsSource, /if \(options\?\.propagateError\)/);
 });

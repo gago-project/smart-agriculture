@@ -3,10 +3,24 @@ import { sendChat } from '../services/chatApi';
 import { useChatStore } from '../store/chatStore';
 import type { ChatResponse, Message, Session } from '../types/chat';
 
+const DEFAULT_SESSION_TITLE = '新会话';
 const SESSION_TITLE_MAX_LENGTH = 20;
 
 function buildSessionTitle(question: string): string {
-  return question.trim().slice(0, SESSION_TITLE_MAX_LENGTH) || '新会话';
+  return question.trim().slice(0, SESSION_TITLE_MAX_LENGTH) || DEFAULT_SESSION_TITLE;
+}
+
+function resolveSessionTitleAfterSend(session: Session | null, question: string): string {
+  if (!session) {
+    return buildSessionTitle(question);
+  }
+  if (session.lastTurnId > 0) {
+    return session.title;
+  }
+  if (session.title.trim() && session.title !== DEFAULT_SESSION_TITLE) {
+    return session.title;
+  }
+  return buildSessionTitle(question);
 }
 
 function responseToAssistantMeta(response: ChatResponse, question: string) {
@@ -64,6 +78,7 @@ interface CreateSessionOptions {
 
 interface SendQuestionOptions {
   focusSession?: boolean;
+  propagateError?: boolean;
 }
 
 export function useChatActions() {
@@ -195,7 +210,7 @@ export function useChatActions() {
         });
         const latestSession = useChatStore.getState().sessions.find((item) => item.id === sessionId) ?? session;
         patchSession(sessionId, {
-          title: latestSession && latestSession.lastTurnId > 0 ? latestSession.title : buildSessionTitle(question),
+          title: resolveSessionTitleAfterSend(latestSession, question),
           updatedAt: Date.now(),
           lastTurnId: result.turn_id,
           currentContext: result.turn_context ?? currentContext,
@@ -211,6 +226,9 @@ export function useChatActions() {
           content: question,
         });
         setError(message);
+        if (options?.propagateError) {
+          throw caughtError instanceof Error ? caughtError : new Error(message);
+        }
       } finally {
         isSendingRef.current = false;
         setIsSending(false);

@@ -22,7 +22,11 @@ interface UseGagoDevAutoRunnerOptions {
   lastLoginAt: number | null;
   enabled: boolean;
   createSession: (title?: string, options?: { activate?: boolean }) => Promise<string>;
-  sendQuestion: (question: string, targetSessionId?: string, options?: { focusSession?: boolean }) => Promise<void>;
+  sendQuestion: (
+    question: string,
+    targetSessionId?: string,
+    options?: { focusSession?: boolean; propagateError?: boolean },
+  ) => Promise<void>;
   switchSession: (sessionId: string | null) => void;
 }
 
@@ -87,6 +91,9 @@ export function useGagoDevAutoRunner({
 
     lastRunMarkerRef.current = lastLoginAt;
     let cancelled = false;
+    let totalCases = 0;
+    let completedCases = 0;
+    let currentLabel: string | null = null;
 
     void (async () => {
       setStatus({
@@ -104,6 +111,7 @@ export function useGagoDevAutoRunner({
       if (cancelled) {
         return;
       }
+      totalCases = library.totalCount;
 
       const singleTurnCases = library.cases.filter((testCase) => testCase.turns.length === 1);
       let singleTurnSessionId: string | null = null;
@@ -111,15 +119,13 @@ export function useGagoDevAutoRunner({
         singleTurnSessionId = await createSessionRef.current(buildSingleTurnSessionTitle(singleTurnCases.length), { activate: true });
       }
 
-      let completedCases = 0;
-
       setStatus({
         enabled: true,
         phase: 'running',
-        totalCases: library.totalCount,
+        totalCases,
         completedCases,
         currentLabel: null,
-        message: `已加载 ${library.totalCount} 条真实问答，正在按顺序逐条发问并展示回答...`,
+        message: `已加载 ${totalCases} 条真实问答，正在按顺序逐条发问并展示回答...`,
       });
 
       for (const testCase of library.cases) {
@@ -144,12 +150,13 @@ export function useGagoDevAutoRunner({
             return;
           }
 
+          currentLabel = buildCurrentLabel(testCase, turnIndex);
           setStatus({
             enabled: true,
             phase: 'running',
-            totalCases: library.totalCount,
+            totalCases,
             completedCases,
-            currentLabel: buildCurrentLabel(testCase, turnIndex),
+            currentLabel,
             message:
               turns.length === 1
                 ? '单轮真实问答会在当前会话里逐条展示，便于直接观察上下文和回答效果。'
@@ -158,6 +165,7 @@ export function useGagoDevAutoRunner({
 
           await sendQuestionRef.current(turns[turnIndex], sessionId, {
             focusSession: true,
+            propagateError: true,
           });
         }
 
@@ -165,17 +173,17 @@ export function useGagoDevAutoRunner({
         setStatus({
           enabled: true,
           phase: 'running',
-          totalCases: library.totalCount,
+          totalCases,
           completedCases,
           currentLabel: turns[turns.length - 1] ?? testCase.question,
-          message: `已完成 ${completedCases}/${library.totalCount} 条真实问答。`,
+          message: `已完成 ${completedCases}/${totalCases} 条真实问答。`,
         });
       }
 
       setStatus({
         enabled: true,
         phase: 'done',
-        totalCases: library.totalCount,
+        totalCases,
         completedCases,
         currentLabel: null,
         message: `自动回归已完成，共执行 ${completedCases} 条真实问答。`,
@@ -187,9 +195,9 @@ export function useGagoDevAutoRunner({
       setStatus({
         enabled: true,
         phase: 'error',
-        totalCases: 0,
-        completedCases: 0,
-        currentLabel: null,
+        totalCases,
+        completedCases,
+        currentLabel,
         message: error instanceof Error ? error.message : '真实问答自动回归失败',
       });
     });
