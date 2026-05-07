@@ -577,7 +577,17 @@ class TurnRouteDecisionService:
 
     @staticmethod
     def _is_warning_rule_query(text: str) -> bool:
-        return any(token in text for token in _WARNING_RULE_QUERY_TOKENS)
+        normalized = str(text or "")
+        if any(token in normalized for token in _WARNING_RULE_QUERY_TOKENS):
+            return True
+        if any(token in normalized for token in ("为什么", "为何")) and any(
+            token in normalized for token in ("涝渍预警", "重旱预警", "设备故障预警")
+        ):
+            return any(
+                token in normalized
+                for token in ("6月", "10月", "6到10月", "6月到10月", "6-10月", "夏季", "汛期", "暂停")
+            )
+        return False
 
     @staticmethod
     def _is_warning_record_query(text: str, has_time_signal: bool) -> bool:

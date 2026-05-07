@@ -2005,6 +2005,55 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["warning_type"], "waterlogging")
         self.assertIn("涝渍预警", follow_up["final_text"])
 
+    async def test_warning_group_follow_up_can_switch_to_warning_disposal_and_status_focus(self) -> None:
+        async def _fake_warning_disposal_stats_async(**_: object) -> dict[str, int]:
+            return {
+                "total": 12,
+                "已处理": 5,
+                "待处理": 4,
+                "超时已处理": 2,
+                "超时待处理": 1,
+            }
+
+        self.repository.query_warning_disposal_stats_async = _fake_warning_disposal_stats_async  # type: ignore[assignment]
+        self.repository.build_warning_disposal_audit_sql = lambda **_: "SELECT 1 /* warning_disposal_mock */"  # type: ignore[assignment]
+
+        grouped = await self.service.reply(
+            message="2026年4月1日到4月13日哪些区域出现了预警信息",
+            session_id="warning-group-follow-up-disposal",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        disposal = await self.service.reply(
+            message="那这些预警处置情况呢",
+            session_id="warning-group-follow-up-disposal",
+            turn_id=2,
+            current_context=grouped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(disposal["answer_kind"], "business")
+        self.assertEqual(disposal["capability"], "warning_disposal")
+        self.assertEqual(disposal["turn_context"]["time_window"]["source"], "history_inherited")
+        self.assertEqual(disposal["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+
+        pending = await self.service.reply(
+            message="那待处理多少条呢",
+            session_id="warning-group-follow-up-disposal",
+            turn_id=3,
+            current_context=disposal["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(pending["answer_kind"], "business")
+        self.assertEqual(pending["capability"], "warning_disposal")
+        self.assertEqual(pending["turn_context"]["time_window"]["source"], "history_inherited")
+        self.assertEqual(pending["turn_context"]["query_state"]["query_profile"]["status_focus"], "pending")
+        self.assertEqual(pending["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertIn("待处理", pending["final_text"])
+
     async def test_device_registry_count_follow_up_can_expand_to_distribution(self) -> None:
         count = await self.service.reply(
             message="目前平台接入了多少台土壤墒情仪",
