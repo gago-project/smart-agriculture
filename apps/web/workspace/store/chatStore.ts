@@ -42,9 +42,11 @@ interface ChatState {
   addMessage: (sessionId: string, input: AddMessageInput) => string;
   updateMessage: (sessionId: string, messageId: string, patch: UpdateMessageInput) => void;
   selectAssistantMessage: (sessionId: string, messageId: string | null) => void;
+  resetState: () => void;
 }
 
 const STORAGE_KEY = 'doc-frontend-chat-v4';
+const LEGACY_STORAGE_KEYS = ['doc-frontend-chat-v1', 'doc-frontend-chat-v2', 'doc-frontend-chat-v3', STORAGE_KEY];
 const STORAGE_VERSION = 3;
 
 function id() {
@@ -206,6 +208,15 @@ const initialState = {
   selectedAssistantMessageIds: {} as Record<string, string>,
 };
 
+export function clearChatLocalState() {
+  if (typeof window !== 'undefined') {
+    for (const storageKey of LEGACY_STORAGE_KEYS) {
+      window.localStorage.removeItem(storageKey);
+    }
+  }
+  useChatStore.setState(initialState);
+}
+
 export const useChatStore = create<ChatState>()(
   persist(
     (set) => ({
@@ -314,6 +325,9 @@ export const useChatStore = create<ChatState>()(
                 Object.entries(state.selectedAssistantMessageIds).filter(([key]) => key !== sessionId),
               ),
         }));
+      },
+      resetState: () => {
+        set(initialState);
       },
     }),
     {
