@@ -1721,6 +1721,8 @@ class DataAnswerService:
             ("list", "record_list"),
             ("group", "region_group"),
             ("group", "aggregate"),
+            ("warning_group", "region_group"),
+            ("warning_disposal", "aggregate"),
         }
 
     def _inherited_time_window_from_target(
@@ -1864,6 +1866,19 @@ class DataAnswerService:
                 if recovered_scope and inherited_time_window:
                     resolved_args = {
                         **recovered_scope,
+                        "start_time": str(inherited_time_window.get("start_time") or ""),
+                        "end_time": str(inherited_time_window.get("end_time") or ""),
+                    }
+                    entity_confidence = CONFIDENCE_HIGH
+                    time_confidence = CONFIDENCE_HIGH
+                    time_source = "history_inherited"
+                elif (
+                    inherited_time_window
+                    and not any(raw_args.get(key) for key in ("province", "city", "county", "sn"))
+                    and follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"}
+                    and self._target_supports_scope_free_follow_up(latest_target)
+                ):
+                    resolved_args = {
                         "start_time": str(inherited_time_window.get("start_time") or ""),
                         "end_time": str(inherited_time_window.get("end_time") or ""),
                     }

@@ -487,6 +487,17 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         )
         self.assertEqual(result.route, "warning_rule_description")
 
+    def test_warning_rule_seasonal_why_query_routes_to_warning_rule_description(self) -> None:
+        result = self.service.decide(
+            message="为什么6月到10月没有涝渍预警",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_rule_description")
+        self.assertEqual(result.query_shape.subject, "warning_rule")
+
     def test_warning_disposal_route_basic_query(self) -> None:
         result = self.service.decide(
             message="最近30天全省预警处置情况怎么样",
@@ -567,6 +578,16 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
             action_result=FollowUpActionResult(),
         )
         self.assertEqual(result.route, "warning_group")
+
+    def test_warning_group_follow_up_disposal_request_switches_to_disposal_route(self) -> None:
+        result = self.service.decide(
+            message="那这些预警处置情况呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_disposal")
 
     def test_warning_disposal_follow_up_status_focus_keeps_disposal_route(self) -> None:
         result = self.service.decide(
