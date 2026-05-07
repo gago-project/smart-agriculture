@@ -200,7 +200,7 @@ class TurnRouteQueryShapeMatrixTest(unittest.TestCase):
                 "time_evidence": _time_window(matched=True, has_signal=True),
                 "action_result": FollowUpActionResult(),
                 "route": "warning_disposal",
-                "action": "stats",
+                "action": "disposal",
                 "grain": "aggregate",
             },
             {

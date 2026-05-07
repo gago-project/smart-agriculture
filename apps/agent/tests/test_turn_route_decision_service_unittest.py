@@ -496,8 +496,8 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
             action_result=FollowUpActionResult(),
         )
         self.assertEqual(result.route, "warning_disposal")
-        self.assertEqual(result.query_shape.subject, "warning_disposal")
-        self.assertEqual(result.query_shape.action, "stats")
+        self.assertEqual(result.query_shape.subject, "warning")
+        self.assertEqual(result.query_shape.action, "disposal")
 
     def test_warning_disposal_route_with_city_entity(self) -> None:
         result = self.service.decide(

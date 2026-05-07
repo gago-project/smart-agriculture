@@ -192,8 +192,8 @@ class TurnRouteDecisionService:
                 normalized_text=normalized_text,
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(
-                    subject="warning_disposal",
-                    action="stats",
+                    subject="warning",
+                    action="disposal",
                     grain="aggregate",
                     mode=subject_mode,
                 ),
