@@ -36,7 +36,7 @@
 | Detail Cases | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
 | Fallback Cases | 10 | `SM-FB-001 ~ SM-FB-010` |
 | Device Registry Cases | 11 | `SM-DEV-001 ~ SM-DEV-011` |
-| Warning Cases | 5 | `SM-WARN-001 ~ SM-WARN-005` |
+| Warning Cases | 9 | `SM-WARN-001 ~ SM-WARN-009` |
 
 ## 维护原则
 

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import type { Message, Session } from '../types/chat';
 import { TurnRenderer } from './TurnRenderer';
 
@@ -18,6 +20,64 @@ function findPreviousUserMessage(messages: Message[], index: number): Message | 
   return null;
 }
 
+function renderInlineMarkdown(text: string): ReactNode[] {
+  return text
+    .split(/(\*\*[^*]+\*\*)/g)
+    .filter(Boolean)
+    .map((part, index) =>
+      part.startsWith('**') && part.endsWith('**') ? (
+        <strong key={`strong-${index}`}>{part.slice(2, -2)}</strong>
+      ) : (
+        <span key={`text-${index}`}>{part}</span>
+      ),
+    );
+}
+
+function MessageContent({ message }: { message: Message }) {
+  const text = message.content || (message.status === 'streaming' ? '...' : '');
+  if (!text) {
+    return null;
+  }
+
+  const blocks: ReactNode[] = [];
+  const listItems: string[] = [];
+
+  const flushList = () => {
+    if (!listItems.length) {
+      return;
+    }
+    blocks.push(
+      <ul key={`list-${blocks.length}`} className="message-content-list">
+        {listItems.map((item, index) => (
+          <li key={`item-${index}`}>{renderInlineMarkdown(item)}</li>
+        ))}
+      </ul>,
+    );
+    listItems.length = 0;
+  };
+
+  for (const line of text.split('\n')) {
+    const trimmedLine = line.trim();
+    if (!trimmedLine) {
+      flushList();
+      continue;
+    }
+    if (line.startsWith('- ') || trimmedLine.startsWith('- ')) {
+      listItems.push(trimmedLine.slice(2));
+      continue;
+    }
+    flushList();
+    blocks.push(
+      <p key={`paragraph-${blocks.length}`} className="message-content-paragraph">
+        {renderInlineMarkdown(trimmedLine)}
+      </p>,
+    );
+  }
+  flushList();
+
+  return <div className="message-content">{blocks}</div>;
+}
+
 export function ChatPanel({
   session,
   error,
@@ -29,7 +89,7 @@ export function ChatPanel({
     return (
       <section className="chat-panel empty">
         <div className="empty-shell">
-          <h2>AI 农情工作台</h2>
+          <h2>苏农云指挥调度智能</h2>
           <div className="suggestion-grid">
             <article className="suggestion-card">
               <strong>最近墒情怎么样？</strong>
@@ -75,7 +135,7 @@ export function ChatPanel({
                   }
                 }}
               >
-                <p>{message.content || (message.status === 'streaming' ? '...' : '')}</p>
+                <MessageContent message={message} />
                 {message.role === 'assistant' ? <TurnRenderer turn={message.meta?.turn ?? null} /> : null}
                 {message.status === 'error' && retryMessage ? (
                   <button className="retry" onClick={() => onRetry(retryMessage)}>

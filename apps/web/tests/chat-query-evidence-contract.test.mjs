@@ -29,7 +29,9 @@ test('assistant text replies are not duplicated by plain-text turn blocks', () =
   const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
   const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
 
-  assert.match(chatPanelSource, /<p>\{message\.content \|\| \(message\.status === 'streaming' \? '\.\.\.' : ''\)\}<\/p>/);
+  assert.match(chatPanelSource, /function MessageContent/);
+  assert.match(chatPanelSource, /line\.startsWith\('- '\)/);
+  assert.match(chatPanelSource, /part\.startsWith\('\*\*'\)/);
   assert.match(turnRendererSource, /block\.display_mode === 'evidence_only'/);
   assert.match(turnRendererSource, /block\.block_type === 'guidance_card' \|\| block\.block_type === 'fallback_card'/);
   assert.match(turnRendererSource, /return null;/);
@@ -52,6 +54,13 @@ test('template cards stay in evidence only and are not rendered as mock cards in
   assert.match(turnRendererSource, /return null;/);
   assert.doesNotMatch(turnRendererSource, /mock/i);
   assert.doesNotMatch(turnRendererSource, /非真实数据/);
+});
+
+test('rule cards stay available in turn data but are hidden from the main chat body', () => {
+  const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+
+  assert.match(turnRendererSource, /block\.block_type === 'rule_card'/);
+  assert.match(turnRendererSource, /return null;/);
 });
 
 test('count cards stay available for evidence but are not rendered in the main chat body', () => {

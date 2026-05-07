@@ -14,7 +14,7 @@ export function LoginPage({ onSubmit, isSubmitting, error }: LoginPageProps) {
   return (
     <div className="auth-shell">
       <div className="auth-card">
-        <div className="auth-brand">AI 农情工作台</div>
+        <div className="auth-brand">苏农云指挥调度智能</div>
         <h1 className="auth-title">账号登录</h1>
         <p className="auth-subtitle">使用数据库账号进入工作台</p>
         <form

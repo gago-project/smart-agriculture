@@ -61,6 +61,8 @@ run_sql "infra/mysql/init/002_insert_data.sql"
 run_sql "infra/mysql/init/003_insert_soil_data.sql"
 run_sql "infra/mysql/init/004_add_audit_columns.sql"
 run_sql "infra/mysql/init/005_add_subject_device_record.sql"
+run_sql "infra/mysql/init/006_add_sys_region.sql"
+run_sql "infra/mysql/init/007_add_warning_disposal.sql"
 
 LOCAL_AUTH_USERS_JSON_PATH=${LOCAL_AUTH_USERS_JSON:-infra/mysql/local/auth_users.local.json}
 if [ -n "${LOCAL_AUTH_USERS_JSON:-}" ] || [ -f "$LOCAL_AUTH_USERS_JSON_PATH" ]; then

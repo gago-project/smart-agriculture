@@ -219,19 +219,6 @@ function CompareBlock({ block }: { block: ChatBlock }) {
   );
 }
 
-function RuleBlock({ block }: { block: ChatBlock }) {
-  return (
-    <section className="turn-block">
-      <header className="turn-block-header">
-        <strong>{block.title || toLabelValue(block.rule_name || '配置详情')}</strong>
-      </header>
-      {'thresholds' in block && block.thresholds ? (
-        <pre className="turn-block-pre">{JSON.stringify(block.thresholds, null, 2)}</pre>
-      ) : null}
-    </section>
-  );
-}
-
 function DeviceRegistryCountBlock({ block }: { block: ChatBlock }) {
   return (
     <section className="turn-block">
@@ -310,7 +297,10 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
   }
 
   const visibleBlocks = turn.blocks.filter(
-    (block) => block?.display_mode !== 'evidence_only' && block?.block_type !== 'count_card',
+    (block) =>
+      block?.display_mode !== 'evidence_only' &&
+      block?.block_type !== 'count_card' &&
+      block?.block_type !== 'rule_card',
   );
   if (visibleBlocks.length === 0) {
     return null;
@@ -341,7 +331,7 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
           return <CompareBlock key={block.block_id} block={block} />;
         }
         if (block.block_type === 'rule_card') {
-          return <RuleBlock key={block.block_id} block={block} />;
+          return null;
         }
         if (block.block_type === 'device_registry_count_card') {
           return <DeviceRegistryCountBlock key={block.block_id} block={block} />;

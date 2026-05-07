@@ -19,6 +19,8 @@ test('docker mysql init contains only schema and business insert sql files', () 
     '003_insert_soil_data.sql',
     '004_add_audit_columns.sql',
     '005_add_subject_device_record.sql',
+    '006_add_sys_region.sql',
+    '007_add_warning_disposal.sql',
   ]);
 });
 
@@ -82,6 +84,8 @@ test('local init script exists and reads mysql credentials from environment', ()
   assert.match(script, /003_insert_soil_data\.sql/);
   assert.match(script, /004_add_audit_columns\.sql/);
   assert.match(script, /005_add_subject_device_record\.sql/);
+  assert.match(script, /006_add_sys_region\.sql/);
+  assert.match(script, /007_add_warning_disposal\.sql/);
 });
 
 test('local init script can optionally import external soil excel into localhost mysql', () => {

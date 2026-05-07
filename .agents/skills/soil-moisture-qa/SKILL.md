@@ -2,7 +2,7 @@
 name: soil-moisture-qa
 description: >
   Use when running QA, regression testing, or business review for the
-  soil-moisture Agent. Single source of truth is the 90-case formal
+  soil-moisture Agent. Single source of truth is the 94-case formal
   acceptance library at testdata/agent/soil-moisture/case-library.md.
 ---
 
@@ -211,7 +211,7 @@ npm run qa:soil:formal
 
 #### 报告范围
 
-- 必须逐条覆盖全部 **90** 条正式 Case
+- 必须逐条覆盖全部 **94** 条正式 Case
 - 不允许抽样
 - 每条业务 Case 都必须包含数据库回查与事实校验
 - 每条业务 Case 都必须明确给出 `是否符合事实`

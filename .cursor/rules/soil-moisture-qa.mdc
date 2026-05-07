@@ -1,7 +1,7 @@
 ---
 description: >
   Use when testing, regression-checking, or preparing business review for the
-  soil-moisture Agent. Single source of truth is the 56-case formal acceptance
+  soil-moisture Agent. Single source of truth is the 94-case formal acceptance
   library at testdata/agent/soil-moisture/case-library.md.
 globs: []
 alwaysApply: false
@@ -27,13 +27,14 @@ Follow this rule when the task involves testing, regression, or business review 
 
 > 空结果由系统在 `query_soil_*` 返回空时自动产出 `empty_result_path`，不再调用独立诊断工具。
 
-### 5 answer_types
+### 6 answer_types
 
 - `soil_summary_answer`
 - `soil_ranking_answer`
 - `soil_detail_answer`
 - `guidance_answer`
 - `fallback_answer`
+- `device_registry_answer`
 
 ### 6 fallback_reason（必须全覆盖）
 
@@ -53,9 +54,9 @@ Follow this rule when the task involves testing, regression, or business review 
 
 ## 正式库口径
 
-- 正式 Case 总数固定为 `56`
-- 每次都全跑 56 条
-- 顶层问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，不直接扩正式 56 条
+- 正式 Case 总数固定为 `94`
+- 每次都全跑 94 条
+- 顶层问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，不直接扩正式 94 条
 - 每条 Case 都保留 `当前回答`
 - 每条业务 Case 都必须有：
   - `数据库校验断言`
@@ -65,20 +66,22 @@ Follow this rule when the task involves testing, regression, or business review 
 
 | 章节 | 数量 |
 |------|----:|
-| Guidance Cases | 15 |
+| Guidance Cases | 33 |
 | Summary Cases | 10 |
 | Ranking Cases | 8 |
 | Detail Cases | 13 |
 | Fallback Cases | 10 |
+| Device Registry Cases | 11 |
+| Warning Cases | 9 |
 
 ## 执行要求
 
 - 优先验证答案是否被真实数据支撑，而不是只看文案是否像样
-- 只允许使用当前正式库中的 56 条 Case 与当前 `SM-*` CaseID 体系
+- 只允许使用当前正式库中的 94 条 Case 与当前 `SM-*` CaseID 体系
 - 快速回归可先运行：
   - `PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m unittest apps.agent.tests.test_turn_route_decision_service_unittest apps.agent.tests.test_turn_route_query_shape_matrix_unittest -v`
 - 新增或修订 Case 时，只改 `case-library.md`
-- 当用户要求"正式测试报告""逐条详细报告""56 条 Case 全量验收报告"时，必须逐条覆盖 56 条 Case，并为每条业务 Case 输出：
+- 当用户要求"正式测试报告""逐条详细报告""94 条 Case 全量验收报告"时，必须逐条覆盖 94 条 Case，并为每条业务 Case 输出：
   - 实际输入 / 输出
   - 实际 Tool 与参数
   - `tool_trace / query_result / answer_facts / query_log_entries`

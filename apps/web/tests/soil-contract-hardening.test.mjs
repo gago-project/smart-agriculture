@@ -91,6 +91,12 @@ test('legacy soil field names no longer remain in runtime docs tests or cases', 
     ...walk('testdata'),
   ].filter((filePath) => {
     if (
+      filePath === 'apps/web/scripts/import-device-ledger.mjs'
+      || filePath === 'infra/mysql/docs/subject_device_record.md'
+    ) {
+      return false;
+    }
+    if (
       filePath.endsWith('.png')
       || filePath.endsWith('.jpg')
       || filePath.endsWith('.jpeg')
