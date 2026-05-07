@@ -93,7 +93,7 @@ Expected: current text/evidence assertions fail on the warning-focused cases.
 
 **Files:**
 - Modify: `testdata/agent/soil-moisture/real-conversations/analysis-60.md`
-- Modify: `testdata/agent/soil-moisture/real-conversations/cases/real-case-library.md` if needed
+- Modify: `testdata/agent/soil-moisture/real-conversations/cases/real-conversation-library.md` if needed
 
 **Step 1: Remove case 54 from the failure list**
 
@@ -128,6 +128,6 @@ pytest apps/agent/tests/test_data_answer_service_unittest.py -v
 **Step 3: Commit the result**
 
 ```bash
-git add apps/agent/app/services/data_answer_service.py apps/agent/tests/test_query_profile_governance_unittest.py apps/agent/tests/test_data_answer_service_unittest.py testdata/agent/soil-moisture/real-conversations/analysis-60.md testdata/agent/soil-moisture/real-conversations/cases/real-case-library.md docs/plans/2026-05-02-soil-warning-rule-unification.md
+git add apps/agent/app/services/data_answer_service.py apps/agent/tests/test_query_profile_governance_unittest.py apps/agent/tests/test_data_answer_service_unittest.py testdata/agent/soil-moisture/real-conversations/analysis-60.md testdata/agent/soil-moisture/real-conversations/cases/real-conversation-library.md docs/plans/2026-05-02-soil-warning-rule-unification.md
 git commit -m "fix: unify warning-rule soil answers"
 ```

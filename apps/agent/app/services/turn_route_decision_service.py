@@ -748,6 +748,8 @@ class TurnRouteDecisionService:
         normalized = str(text or "").strip()
         if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
             return True
+        if has_explicit_scope and normalized.startswith("不是") and "是" in normalized:
+            return True
         if has_explicit_scope and (normalized.startswith(("那", "换成", "改成", "还是")) or normalized.endswith("呢")):
             return True
         if re.search(r"[\u4e00-\u9fa5]{2,8}(市|县|区)(?:呢)?$", normalized):

@@ -3,7 +3,7 @@ name: soil-moisture-qa
 description: >
   Use when running QA, regression testing, or business review for the
   soil-moisture Agent. Single source of truth is the 94-case formal
-  acceptance library at testdata/agent/soil-moisture/case-library.md.
+  acceptance library at testdata/agent/soil-moisture/formal-acceptance-library.md.
 ---
 
 # Smart Agriculture — 墒情 Agent QA Skill
@@ -15,7 +15,7 @@ description: >
 
 | 资产 | 路径 | 说明 |
 |------|------|------|
-| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/case-library.md` | 94 条正式验收 Case，每次全量执行 |
+| **正式 Case 主库（唯一入口）** | `testdata/agent/soil-moisture/formal-acceptance-library.md` | 94 条正式验收 Case，每次全量执行 |
 | Agent 能力方案 | `apps/agent/plans/1/1.plan.md` | 5 节点 Flow、4 Tool、5 answer_type |
 | Flow 风险契约 | `apps/agent/plans/1/8.flow-risk-contract.md` | 风险边界、失败路径、降级口径 |
 

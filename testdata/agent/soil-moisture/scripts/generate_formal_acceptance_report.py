@@ -24,7 +24,7 @@ import pymysql
 
 
 ROOT = Path(__file__).resolve().parents[4]
-CASE_LIBRARY = ROOT / "testdata/agent/soil-moisture/case-library.md"
+CASE_LIBRARY = ROOT / "testdata/agent/soil-moisture/formal-acceptance-library.md"
 REPORT_PATH = ROOT / "testdata/agent/soil-moisture/outputs/formal-acceptance-report.md"
 AGENT_URL = os.environ.get("FORMAL_AGENT_URL", "http://localhost:18010/chat-v2")
 RUN_ID = datetime.now().strftime("%Y%m%d-%H%M%S")

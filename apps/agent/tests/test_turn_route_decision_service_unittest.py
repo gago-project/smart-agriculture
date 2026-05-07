@@ -600,6 +600,19 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         )
         self.assertEqual(result.route, "warning_group")
 
+    def test_warning_group_follow_up_correction_keeps_group_route(self) -> None:
+        result = self.service.decide(
+            message="不是徐州，是南通",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
+        self.assertEqual(result.route_source, "context")
+        self.assertEqual(result.query_shape.action, "group")
+        self.assertEqual(result.query_shape.mode, "contextual")
+
     def test_warning_group_follow_up_disposal_request_switches_to_disposal_route(self) -> None:
         result = self.service.decide(
             message="那这些预警处置情况呢",

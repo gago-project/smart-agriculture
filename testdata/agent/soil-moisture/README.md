@@ -1,15 +1,15 @@
 # 墒情 Agent 测试数据目录
 
-本目录存放 `soil-moisture` Agent 的**唯一正式验收库**与对应维护说明。
+本目录存放 `soil-moisture` Agent 的正式验收库、真实对话库与对应维护说明。
 
 ## 正式入口
 
-- `testdata/agent/soil-moisture/case-library.md`
+- `testdata/agent/soil-moisture/formal-acceptance-library.md`
 
 ## 真实问答资产
 
 - `testdata/agent/soil-moisture/real-conversations/README.md`
-- `testdata/agent/soil-moisture/real-conversations/cases/real-case-library.md`
+- `testdata/agent/soil-moisture/real-conversations/cases/real-conversation-library.md`
 - `testdata/agent/soil-moisture/real-conversations/analysis-60.md`
 
 ## 快速回归入口
@@ -43,10 +43,15 @@
 - 只维护这一套正式 Case 主库
 - 正式 Case 总数当前为 `94`
 - 正式 Case 编号统一使用 `SM-*` 体系
-- 正式 Case 的新增、删减、修订只改 `case-library.md`
+- 正式 Case 的新增、删减、修订只改 `formal-acceptance-library.md`
 - 真实问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，而不是直接扩正式主库
 - 真实用户问法和失败回归单独沉淀到 `real-conversations/`，不要挤进正式库
-- 当前真实问答主库已落到 `real-conversations/cases/real-case-library.md`
+- 当前真实问答主库已落到 `real-conversations/cases/real-conversation-library.md`
+
+## 命名约定
+
+- `formal-acceptance-library.md`：正式验收库，只用于 94 条硬门禁验收
+- `real-conversation-library.md`：真实对话库，用于沉淀自然问法、多轮追问和失败回归样本
 
 ## 推荐的三层 QA 模型
 

@@ -327,13 +327,13 @@ test('agent plans directory keeps only the current deterministic query-governanc
   assert.doesNotMatch(readmeSource, /受限 Flow|Function Calling|系统设计图|风险契约/);
 });
 
-test('soil moisture testing docs use testdata case library as the single formal case source', () => {
+test('soil moisture testing docs use the formal acceptance library as the single formal case source', () => {
   const testdataReadmeSource = readFileSync(
     new URL('../../../testdata/agent/soil-moisture/README.md', import.meta.url),
     'utf8',
   );
   const caseLibrarySource = readFileSync(
-    new URL('../../../testdata/agent/soil-moisture/case-library.md', import.meta.url),
+    new URL('../../../testdata/agent/soil-moisture/formal-acceptance-library.md', import.meta.url),
     'utf8',
   );
   const claudeSkillSource = readFileSync(
@@ -345,7 +345,7 @@ test('soil moisture testing docs use testdata case library as the single formal 
     'utf8',
   );
 
-  assert.match(testdataReadmeSource, /case-library\.md/);
+  assert.match(testdataReadmeSource, /formal-acceptance-library\.md/);
   assert.match(testdataReadmeSource, /正式 Case 总数：`94`/);
   assert.match(testdataReadmeSource, /每次全量跑完 94 条/);
   assert.doesNotMatch(testdataReadmeSource, /当前正式规模为 `130` 个 Case/);

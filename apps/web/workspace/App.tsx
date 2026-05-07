@@ -13,6 +13,8 @@ import { WorkspaceUserMenu } from './components/WorkspaceUserMenu';
 import { useChatActions } from './hooks/useChatActions';
 import { useAuthStore } from './store/authStore';
 
+const SHOW_ADMIN_QUERY_EVIDENCE = false;
+
 export default function App() {
   const pathname = usePathname();
   const router = useRouter();
@@ -40,7 +42,8 @@ export default function App() {
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmittingLogin, setIsSubmittingLogin] = useState(false);
   const canManageSoilAdmin = authUser?.role === 'admin';
-  const canViewChatEvidence = authUser?.role === 'admin';
+  const canAccessChatEvidence = authUser?.role === 'admin';
+  const showChatEvidence = canAccessChatEvidence && SHOW_ADMIN_QUERY_EVIDENCE;
   const canViewAgentLogs = authUser?.role === 'admin' || authUser?.role === 'developer';
   const isRedirectingWorkspaceRoute =
     authStatus === 'authenticated' &&
@@ -143,18 +146,19 @@ export default function App() {
         ) : currentView === 'agent-logs' ? (
           <AgentLogPage />
         ) : (
-          <div className={`chat-workspace ${canViewChatEvidence ? 'with-query-evidence' : ''}`}>
+          <div className={`chat-workspace ${showChatEvidence ? 'with-query-evidence' : ''}`}>
             <div className="chat-column">
               <ChatPanel
                 session={activeSession}
                 error={error}
-                selectedAssistantMessageId={selectedAssistantMessageId}
-                onSelectAssistantMessage={selectAssistantMessage}
+                evidenceSelectionEnabled={showChatEvidence}
+                selectedAssistantMessageId={showChatEvidence ? selectedAssistantMessageId : null}
+                onSelectAssistantMessage={showChatEvidence ? selectAssistantMessage : undefined}
                 onRetry={async (message) => retryForMessage(activeSessionId!, message)}
               />
               <Composer isSending={isSending} onSend={sendQuestion} />
             </div>
-            {canViewChatEvidence ? <AdminQueryEvidenceSidebar message={selectedAssistantMessage} /> : null}
+            {showChatEvidence ? <AdminQueryEvidenceSidebar message={selectedAssistantMessage} /> : null}
           </div>
         )}
       </main>

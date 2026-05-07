@@ -2,19 +2,23 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 
-test('workspace chat renders an admin-only query evidence sidebar', () => {
+test('workspace chat keeps admin query evidence capability hidden behind a ui flag', () => {
   const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
 
   assert.match(appSource, /AdminQueryEvidenceSidebar/);
-  assert.match(appSource, /canViewChatEvidence/);
+  assert.match(appSource, /SHOW_ADMIN_QUERY_EVIDENCE = false/);
+  assert.match(appSource, /canAccessChatEvidence/);
+  assert.match(appSource, /showChatEvidence/);
   assert.match(appSource, /authUser\?\.role === 'admin'/);
 });
 
-test('chat panel supports selecting assistant replies for evidence review', () => {
+test('chat panel only enables assistant reply selection when evidence ui is enabled', () => {
   const chatPanelSource = readFileSync(new URL('../workspace/components/ChatPanel.tsx', import.meta.url), 'utf8');
 
+  assert.match(chatPanelSource, /evidenceSelectionEnabled/);
   assert.match(chatPanelSource, /selectedAssistantMessageId/);
   assert.match(chatPanelSource, /onSelectAssistantMessage/);
+  assert.match(chatPanelSource, /evidenceSelectionEnabled && message\.role === 'assistant'/);
   assert.match(chatPanelSource, /message\.role === 'assistant'/);
 });
 

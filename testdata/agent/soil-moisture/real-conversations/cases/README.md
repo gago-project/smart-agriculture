@@ -4,7 +4,7 @@
 
 当前已落库的主文件：
 
-- [`real-case-library.md`](./real-case-library.md)
+- [`real-conversation-library.md`](./real-conversation-library.md)
 
 ## 单条样本建议字段
 

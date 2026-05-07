@@ -576,6 +576,10 @@ class DataAnswerService:
 
     def _slots_from_context(self, context: dict[str, Any]) -> dict[str, Any]:
         query_state = context.get("query_state") or {}
+        if str(query_state.get("capability") or "") == "compare":
+            winner_slots = self._slots_from_entity_name(context.get("compare_winner_entity"))
+            if any(winner_slots.values()):
+                return winner_slots
         if query_state.get("slots"):
             slots = dict(query_state.get("slots") or {})
             return {
@@ -594,6 +598,42 @@ class DataAnswerService:
         }
         if not any(slots.values()):
             return self._slots_from_resolved_entities(context.get("resolved_entities") or [])
+        return slots
+
+    @staticmethod
+    def _resolved_entity_from_name(name: str | None) -> dict[str, Any] | None:
+        canonical_name = str(name or "").strip()
+        if not canonical_name:
+            return None
+        if canonical_name.startswith("SNS"):
+            return {"kind": "device", "canonical_name": canonical_name}
+        if canonical_name.endswith("市"):
+            return {"kind": "city", "canonical_name": canonical_name}
+        if canonical_name.endswith(("县", "区")):
+            return {"kind": "county", "canonical_name": canonical_name}
+        return None
+
+    @classmethod
+    def _resolved_entities_from_names(cls, names: list[str]) -> list[dict[str, Any]]:
+        resolved_entities: list[dict[str, Any]] = []
+        for name in names:
+            entity = cls._resolved_entity_from_name(name)
+            if entity:
+                resolved_entities.append(entity)
+        return resolved_entities
+
+    @classmethod
+    def _slots_from_entity_name(cls, name: str | None) -> dict[str, Any]:
+        slots = {"province": None, "city": None, "county": None, "sn": None}
+        entity = cls._resolved_entity_from_name(name)
+        if not entity:
+            return slots
+        if entity["kind"] == "city":
+            slots["city"] = entity["canonical_name"]
+        elif entity["kind"] == "county":
+            slots["county"] = entity["canonical_name"]
+        elif entity["kind"] == "device":
+            slots["sn"] = entity["canonical_name"]
         return slots
 
     @staticmethod
@@ -709,7 +749,24 @@ class DataAnswerService:
             return targets
 
         if capability == "compare" and focus_snapshot_id:
-            return [
+            compare_targets: list[dict[str, Any]] = []
+            if alert_snapshot_id:
+                compare_targets.append(
+                    self._action_target(
+                        target_key=f"target_{source_turn_id}_winner_alert_records",
+                        capability="list",
+                        grain="record_list",
+                        subject_kind="record",
+                        source_snapshot_id=alert_snapshot_id,
+                        source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                        group_by=None,
+                        count=None,
+                        label="记录",
+                        source_turn_id=source_turn_id,
+                        last_active_turn_id=source_turn_id,
+                    )
+                )
+            compare_targets.append(
                 self._action_target(
                     target_key=f"target_{source_turn_id}_winner_focus_devices",
                     capability="list",
@@ -723,7 +780,8 @@ class DataAnswerService:
                     source_turn_id=source_turn_id,
                     last_active_turn_id=source_turn_id,
                 )
-            ]
+            )
+            return compare_targets
 
         if capability == "list" or grain in {"record_list", "device_list"}:
             if grain == "record_list" and alert_snapshot_id:
@@ -1126,24 +1184,45 @@ class DataAnswerService:
         self,
         *,
         turn_id: int,
-        snapshot_id: str | None,
-        count: int,
+        device_snapshot_id: str | None,
+        device_count: int | None,
+        record_snapshot_id: str | None = None,
+        record_count: int | None = None,
     ) -> list[dict[str, Any]]:
-        return [
-            self._action_target(
-                target_key=f"target_{turn_id}_devices",
-                capability="list",
-                grain="device_list",
-                subject_kind="device",
-                source_snapshot_id=snapshot_id,
-                source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
-                group_by=None,
-                count=count,
-                label=f"{count}个点位",
-                source_turn_id=turn_id,
-                last_active_turn_id=turn_id,
+        targets: list[dict[str, Any]] = []
+        if record_snapshot_id:
+            targets.append(
+                self._action_target(
+                    target_key=f"target_{turn_id}_records",
+                    capability="list",
+                    grain="record_list",
+                    subject_kind="record",
+                    source_snapshot_id=record_snapshot_id,
+                    source_snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+                    group_by=None,
+                    count=record_count,
+                    label=f"{record_count}条记录" if record_count is not None else "记录",
+                    source_turn_id=turn_id,
+                    last_active_turn_id=turn_id,
+                )
             )
-        ]
+        if device_snapshot_id:
+            targets.append(
+                self._action_target(
+                    target_key=f"target_{turn_id}_devices",
+                    capability="list",
+                    grain="device_list",
+                    subject_kind="device",
+                    source_snapshot_id=device_snapshot_id,
+                    source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+                    group_by=None,
+                    count=device_count,
+                    label=f"{device_count}个点位" if device_count is not None else "点位",
+                    source_turn_id=turn_id,
+                    last_active_turn_id=turn_id,
+                )
+            )
+        return targets
 
     def _build_device_registry_action_targets(
         self,
@@ -1632,6 +1711,18 @@ class DataAnswerService:
             and any(token in normalized for token in DOMAIN_INTENT_TOKENS)
         )
 
+    @staticmethod
+    def _should_inherit_compare_winner_scope(message: str, current_context: dict[str, Any]) -> bool:
+        query_state = current_context.get("query_state") or {}
+        if str(query_state.get("capability") or "") != "compare":
+            return False
+        if not current_context.get("compare_winner_entity"):
+            return False
+        normalized = str(message or "").strip()
+        if not normalized:
+            return False
+        return any(token in normalized for token in ("那边", "这边", "更差那边", "更好那边", "赢家"))
+
     async def _resolve_follow_up_intent(
         self,
         *,
@@ -1807,6 +1898,14 @@ class DataAnswerService:
                 raw_args["city"] = payload["city"]
             if any(payload.get(key) for key in ("city", "county", "sn")):
                 raw_args["trusted_scope"] = True
+        if (
+            not any(raw_args.get(key) for key in ("province", "city", "county", "sn"))
+            and self._should_inherit_compare_winner_scope(message, current_context)
+        ):
+            winner_slots = self._slots_from_entity_name(current_context.get("compare_winner_entity"))
+            for key in ("city", "county", "sn"):
+                if winner_slots.get(key):
+                    raw_args[key] = winner_slots[key]
         if (
             not any(raw_args.get(key) for key in ("province", "city", "county", "sn"))
             and self._topic_supports_structured_follow_up(current_context.get("topic_family"))
@@ -2594,10 +2693,19 @@ class DataAnswerService:
         if not start_time or not end_time:
             return None
 
+        query_state = current_context.get("query_state") or {}
+        slots = query_state.get("slots") or {}
+        city = slots.get("city")
+        county = slots.get("county")
+        sn = slots.get("sn")
+
         entities = primary_query_spec.get("entities") or {}
-        city = next(iter(entities.get("city") or []), None)
-        county = next(iter(entities.get("county") or []), None)
-        sn = next(iter(entities.get("sn") or []), None)
+        if not city:
+            city = next(iter(entities.get("city") or []), None)
+        if not county:
+            county = next(iter(entities.get("county") or []), None)
+        if not sn:
+            sn = next(iter(entities.get("sn") or []), None)
 
         if not city and not county and not sn:
             for entity in current_context.get("resolved_entities") or []:
@@ -4680,6 +4788,7 @@ class DataAnswerService:
         right_value: float | int | None = None
         resolved_entities: list[dict[str, Any]] = []
         warning_rule_row: dict[str, Any] | None = None
+        records_by_entity: dict[str, list[dict[str, Any]]] = {}
 
         if compare_mode == "time_compare":
             entity_name = names[0] if names else (context_slots.get("sn") or context_slots.get("county") or context_slots.get("city"))
@@ -4713,6 +4822,7 @@ class DataAnswerService:
                 if query_profile.get("data_focus") == "warning_only":
                     records, current_rule_row = await self._warning_filtered_records(records)
                     warning_rule_row = warning_rule_row or current_rule_row
+                records_by_entity[label] = list(records)
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
@@ -4752,6 +4862,7 @@ class DataAnswerService:
                 if query_profile.get("data_focus") == "warning_only":
                     records, current_rule_row = await self._warning_filtered_records(records)
                     warning_rule_row = warning_rule_row or current_rule_row
+                records_by_entity[name] = list(records)
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
@@ -4766,12 +4877,7 @@ class DataAnswerService:
                         "metric_value": metric_value,
                     }
                 )
-            resolved_entities = [
-                {"kind": "device", "canonical_name": name} if name.startswith("SNS")
-                else {"kind": "city", "canonical_name": name} if name.endswith("市")
-                else {"kind": "county", "canonical_name": name}
-                for name in names
-            ]
+            resolved_entities = self._resolved_entities_from_names(names)
             if len(compared) == 2:
                 left_value = compared[0].get("metric_value")
                 right_value = compared[1].get("metric_value")
@@ -4810,6 +4916,55 @@ class DataAnswerService:
             "right_value": right_value,
             "rows": compared,
         }
+        winner_slots = self._slots_from_entity_name(winner)
+        if not any(winner_slots.values()):
+            winner_slots = {
+                "province": None,
+                "city": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "city"), None),
+                "county": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "county"), None),
+                "sn": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "device"), None),
+            }
+        winner_records = list(records_by_entity.get(str(winner or ""), [])) if winner else []
+        winner_device_rows = self._focus_device_rows(winner_records) if winner_records else []
+        winner_record_rows = self._alert_record_rows(winner_records) if winner_records else []
+        winner_resolved_args = {
+            "city": winner_slots.get("city"),
+            "county": winner_slots.get("county"),
+            "sn": winner_slots.get("sn"),
+            "start_time": time_window.get("start_time"),
+            "end_time": time_window.get("end_time"),
+        }
+        winner_device_snapshot = None
+        winner_record_snapshot = None
+        if winner_records:
+            winner_list_query_spec = self._build_query_spec(
+                capability="list",
+                grain="device_list",
+                time_window=time_window,
+                resolved_args=winner_resolved_args,
+                source_turn_id=turn_id,
+                follow_up_mode=follow_up_mode,
+            )
+            if query_profile.get("data_focus") == "warning_only":
+                winner_list_query_spec["filters"]["alert_only"] = True
+            winner_device_snapshot = await self._create_focus_snapshot(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                query_spec=winner_list_query_spec,
+                rule_version=str((warning_rule_row or {}).get("rule_code") or "") or None,
+                rows=winner_device_rows,
+                snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
+            )
+            winner_record_snapshot = await self._create_focus_snapshot(
+                session_id=session_id,
+                turn_id=turn_id,
+                block_id=block_id,
+                query_spec={**winner_list_query_spec, "grain": "record_list"},
+                rule_version=str((warning_rule_row or {}).get("rule_code") or "") or None,
+                rows=winner_record_rows,
+                snapshot_kind=LIST_TARGET_ALERT_RECORDS,
+            )
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -4817,16 +4972,15 @@ class DataAnswerService:
             "primary_query_spec": query_spec,
             "time_window": time_window,
             "resolved_entities": resolved_entities,
-            "derived_sets": {},
+            "derived_sets": {
+                "device_snapshot_id": winner_device_snapshot["snapshot_id"] if winner_device_snapshot else None,
+                "record_snapshot_id": winner_record_snapshot["snapshot_id"] if winner_record_snapshot else None,
+                "region_group_snapshot_id": None,
+            },
             "compare_winner_entity": winner,
             "closed": False,
         }
-        slots = {
-            "province": None,
-            "city": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "city"), None),
-            "county": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "county"), None),
-            "sn": next((item["canonical_name"] for item in resolved_entities if item.get("kind") == "device"), None),
-        }
+        slots = winner_slots
         query_profile = self._resolve_query_profile(
             message=message,
             route_metadata=route_metadata,
@@ -4863,7 +5017,13 @@ class DataAnswerService:
             query_state=query_state,
             parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
-            action_targets=[],
+            action_targets=self._build_compare_action_targets(
+                turn_id=turn_id,
+                device_snapshot_id=winner_device_snapshot["snapshot_id"] if winner_device_snapshot else None,
+                device_count=len(winner_device_rows) if winner_device_rows else None,
+                record_snapshot_id=winner_record_snapshot["snapshot_id"] if winner_record_snapshot else None,
+                record_count=len(winner_record_rows) if winner_record_rows else None,
+            ),
         )
         warning_rule_brief = (
             self._warning_rule_brief(warning_rule_row)
@@ -4898,7 +5058,17 @@ class DataAnswerService:
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
             "turn_context": turn_context,
-            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "query_ref": {
+                "has_query": True,
+                "snapshot_ids": [
+                    snapshot_id
+                    for snapshot_id in (
+                        winner_device_snapshot["snapshot_id"] if winner_device_snapshot else None,
+                        winner_record_snapshot["snapshot_id"] if winner_record_snapshot else None,
+                    )
+                    if snapshot_id
+                ],
+            },
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [
@@ -5095,13 +5265,12 @@ class DataAnswerService:
             )
 
         total = sum(int(row.get("device_count") or 0) for row in rows)
-        lines = [
-            f"{index}. {row.get('city') or '（未知）'}：{int(row.get('device_count') or 0)} 套"
-            for index, row in enumerate(rows, 1)
-        ]
-        final_text = (
-            f"全省 {total} 套土壤墒情仪分布在 {len(rows)} 个设区市，具体分布信息如下：\n"
-            + "\n".join(lines)
+        final_text = self._render_device_distribution_text(
+            lead=f"全省 {total} 套土壤墒情仪分布在 {len(rows)} 个设区市。",
+            heading="具体分布信息如下：",
+            rows=rows,
+            label_key="city",
+            note="以上按固定设区市顺序展示。",
         )
         follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
         query_spec = {
@@ -5214,13 +5383,12 @@ class DataAnswerService:
             )
 
         total = sum(int(row.get("device_count") or 0) for row in rows)
-        lines = [
-            f"{index}. {row.get('county') or '（未知）'}：{int(row.get('device_count') or 0)} 套"
-            for index, row in enumerate(rows, 1)
-        ]
-        final_text = (
-            f"{city}共接入了 {total} 套土壤墒情仪，具体区县分布信息如下：\n"
-            + "\n".join(lines)
+        final_text = self._render_device_distribution_text(
+            lead=f"{city}共接入了 {total} 套土壤墒情仪。",
+            heading="具体区县分布信息如下：",
+            rows=rows,
+            label_key="county",
+            note="仅展示当前已部署土壤墒情仪的区县。",
         )
         follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
         query_spec = {
@@ -5639,10 +5807,20 @@ class DataAnswerService:
             region_preview = "、".join(region_labels[:5])
             device_total = len(device_rows)
             if device_total > 0:
-                final_text = (
-                    f"{range_label}按当前预警规则筛选后，共有 {device_total} 个{warning_scope_label}点位，"
-                    f"涉及 {region_count} 个区域"
-                    + (f"，包括：{region_preview} 等。" if region_count > 5 else f"：{region_preview}。")
+                detail_lines = []
+                if region_preview:
+                    suffix = "等" if region_count > 5 else ""
+                    detail_lines.append(f"覆盖区域：{region_preview}{suffix}")
+                level_summary = self._warning_level_summary_text(by_warning_level)
+                if level_summary:
+                    detail_lines.append(f"预警类型分布：{level_summary}")
+                final_text = self._render_markdown_answer(
+                    lead=(
+                        f"{range_label}按当前预警规则筛选后，共筛出 {device_total} 个满足条件的"
+                        f"{warning_scope_label}点位，涉及 {region_count} 个区域。"
+                    ),
+                    bullet_lines=detail_lines,
+                    note="以上结果均按当前预警规则筛选，详细内容见下方列表。",
                 )
             else:
                 final_text = f"{range_label}按当前预警规则筛选后，没有查询到满足条件的{warning_scope_label}点位。"
@@ -5659,17 +5837,27 @@ class DataAnswerService:
                         region_labels.append(label)
                 region_count = len(region_labels)
                 region_preview = "、".join(region_labels[:5])
-                final_text = (
-                    f"{range_label}按当前预警规则筛选后，共有 {total_count} 条满足条件的{warning_scope_label}记录，"
-                    f"涉及 {region_count} 个区域"
-                    + (f"，包括：{region_preview} 等。" if region_count > 5 else f"：{region_preview}。")
-                )
+                detail_lines = []
+                if region_preview:
+                    suffix = "等" if region_count > 5 else ""
+                    detail_lines.append(f"覆盖区域：{region_preview}{suffix}")
                 level_summary = self._warning_level_summary_text(by_warning_level)
                 if level_summary:
-                    final_text += f" 其中：{level_summary}。"
+                    detail_lines.append(f"预警类型分布：{level_summary}")
+                final_text = self._render_markdown_answer(
+                    lead=(
+                        f"{range_label}按当前预警规则筛选后，共筛出 {total_count} 条满足条件的"
+                        f"{warning_scope_label}记录，涉及 {region_count} 个区域。"
+                    ),
+                    bullet_lines=detail_lines,
+                    note="以上结果均按当前预警规则筛选，详细内容见下方列表。",
+                )
             else:
                 final_text = f"{range_label}按当前预警规则筛选后，没有查询到满足条件的{warning_scope_label}记录。"
-        final_text += f" 当前预警规则：{warning_rule_brief}。"
+        if total_count > 0 or (warning_list_target == LIST_TARGET_FOCUS_DEVICES and len(device_rows) > 0):
+            final_text += f"\n- 规则摘要：{warning_rule_brief}。"
+        else:
+            final_text += f" 当前预警规则：{warning_rule_brief}。"
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -5974,28 +6162,14 @@ class DataAnswerService:
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
 
-        detail_lines: list[str] = []
-        for index, row in enumerate(table_rows, 1):
-            label = f"{row.get('city') or ''}{row.get('county') or ''}".strip()
-            if not label:
-                continue
-            type_parts: list[str] = []
-            if int(row.get("heavy_drought_count") or 0) > 0:
-                type_parts.append(f"重旱预警 {int(row.get('heavy_drought_count') or 0)} 条")
-            if int(row.get("waterlogging_count") or 0) > 0:
-                type_parts.append(f"涝渍预警 {int(row.get('waterlogging_count') or 0)} 条")
-            if int(row.get("device_fault_count") or 0) > 0:
-                type_parts.append(f"设备故障预警 {int(row.get('device_fault_count') or 0)} 条")
-            if not type_parts:
-                continue
-            detail_lines.append(f"{index}. {label}：{'，'.join(type_parts)}")
-
         scope_label = self._entity_label(resolved_entities) or "全省"
         range_label = self._scoped_range_label(scope_label, time_window)
-        final_text = (
-            f"{range_label}内共出现 {total_count} 条墒情预警信息，具体分布信息如下：\n"
+        final_text = self._render_warning_group_text(
+            lead=(
+                f"{range_label}内共出现 {total_count} 条满足当前预警规则的墒情预警信息。"
+            ),
+            rows=table_rows,
         )
-        final_text += "\n".join(detail_lines)
 
         return {
             "turn_id": turn_id,
@@ -6238,17 +6412,25 @@ class DataAnswerService:
             "alert_region_count": "预警地区",
         }.get(str(query_profile.get("measure") or ""), "预警记录")
         unit = "个" if "点位" in measure_label or "地区" in measure_label else "条"
+        level_summary = self._warning_level_summary_text(by_warning_level)
         if count_value > 0:
-            final_text = f"{range_label}按当前预警规则筛选后，共有 {count_value}{unit}{measure_label}。"
+            bullet_lines = []
+            if level_summary:
+                bullet_lines.append(f"预警类型分布：{level_summary}")
+            final_text = self._render_markdown_answer(
+                lead=f"{range_label}按当前预警规则筛选后，共有 {count_value}{unit}{measure_label}。",
+                bullet_lines=bullet_lines,
+                note="以上结果均按当前预警规则筛选。",
+            )
         else:
             final_text = (
                 f"{range_label}按当前预警规则筛选后，共有 0{unit}{measure_label}。"
                 f" 当前没有命中预警规则。"
             )
-        level_summary = self._warning_level_summary_text(by_warning_level)
-        if level_summary:
-            final_text += f" 其中：{level_summary}。"
-        final_text += f" 当前预警规则：{warning_rule_brief}。"
+        if count_value > 0:
+            final_text += f"\n- 规则摘要：{warning_rule_brief}。"
+        else:
+            final_text += f" 当前预警规则：{warning_rule_brief}。"
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -6346,10 +6528,10 @@ class DataAnswerService:
         if total == 0:
             final_text = f"{range_label}内未查询到有效墒情预警信息，无对应处置数据。"
         else:
-            status_lines = "，".join(f"{name} {int(stats.get(name) or 0)} 条" for name in status_order)
-            final_text = (
-                f"{range_label}内共出现 {total} 条墒情预警信息，处置情况如下：\n"
-                f"{status_lines}。"
+            final_text = self._render_warning_disposal_text(
+                lead=f"{range_label}内共出现 {total} 条墒情预警信息。",
+                stats=stats,
+                status_order=status_order,
             )
 
         block_id = f"block_warning_disposal_{turn_id}"
@@ -6384,11 +6566,13 @@ class DataAnswerService:
         )
         status_focus_label = self._warning_status_focus_label(query_profile.get("status_focus"))
         if total > 0 and status_focus_label:
-            final_text = (
-                f"{range_label}内共出现 {total} 条墒情预警信息，"
-                f"其中{status_focus_label} {int(stats.get(status_focus_label) or 0)} 条。"
-                f" 完整处置情况如下："
-                f"\n{status_lines}。"
+            final_text = self._render_warning_disposal_text(
+                lead=(
+                    f"{range_label}内共出现 {total} 条墒情预警信息，"
+                    f"其中{status_focus_label} {int(stats.get(status_focus_label) or 0)} 条。"
+                ),
+                stats=stats,
+                status_order=status_order,
             )
         query_spec = {
             "spec_id": f"qs_{turn_id}_warning_disposal",
@@ -6671,8 +6855,19 @@ class DataAnswerService:
         entities = await self._extract_entities(message)
         if any(entities.get(key) for key in ("province", "city", "county", "sn")):
             return True
+        if not self._is_contextual_template_output_request(message):
+            return False
         query_state = current_context.get("query_state") or {}
-        return current_context.get("topic_family") == "data" and str(query_state.get("capability") or "") == "detail"
+        return current_context.get("topic_family") == "data" and str(query_state.get("capability") or "") in {
+            "detail",
+            "summary",
+            "count",
+            "list",
+            "group",
+            "warning_group",
+            "compare",
+            "field",
+        }
 
     @staticmethod
     def _is_global_template_warning_query(message: str) -> bool:
@@ -6682,6 +6877,15 @@ class DataAnswerService:
             and "预警" in text
             and any(marker in text for marker in GLOBAL_TEMPLATE_WARNING_ANY_MARKERS)
         )
+
+    @staticmethod
+    def _is_contextual_template_output_request(message: str) -> bool:
+        text = str(message or "")
+        if not any(token in text for token in TEMPLATE_TOKENS):
+            return False
+        if "预警" not in text:
+            return False
+        return any(token in text for token in ("输出", "生成", "套用", "按模板"))
 
     @staticmethod
     def _resolved_entities_from_record(record: dict[str, Any]) -> list[dict[str, Any]]:
@@ -6772,33 +6976,55 @@ class DataAnswerService:
                     turn_id=turn_id,
                 )
             except ValueError as exc:
-                return await self._build_filter_clarification_response(
-                    message=message,
-                    turn_id=turn_id,
-                    current_context=current_context,
-                    capability="template",
-                    grain="template_output",
-                    clarify_text=str(exc),
+                inherited = None
+                if current_context.get("topic_family") == "data" and self._is_contextual_template_output_request(message):
+                    inherited = self._inherit_resolution_from_context(current_context=current_context)
+                if inherited:
+                    resolved_args, time_window, resolved_entities, resolution_meta = inherited
+                    latest_only = False
+                    query_filters = {
+                        "city": resolved_args.get("city"),
+                        "county": resolved_args.get("county"),
+                        "sn": resolved_args.get("sn"),
+                        "start_time": time_window.get("start_time"),
+                        "end_time": time_window.get("end_time"),
+                    }
+                    candidate_records = await self.repository.filter_records_async(
+                        city=query_filters["city"],
+                        county=query_filters["county"],
+                        sn=query_filters["sn"],
+                        start_time=query_filters["start_time"],
+                        end_time=query_filters["end_time"],
+                        limit=None,
+                    )
+                else:
+                    return await self._build_filter_clarification_response(
+                        message=message,
+                        turn_id=turn_id,
+                        current_context=current_context,
+                        capability="template",
+                        grain="template_output",
+                        clarify_text=str(exc),
+                    )
+            else:
+                latest_business_time = await self._latest_business_time()
+                time_evidence = self.time_window_service.resolve(message, latest_business_time)
+                latest_only = "最新" in message and not getattr(time_evidence, "has_time_signal", False)
+                query_filters = {
+                    "city": resolved_args.get("city"),
+                    "county": resolved_args.get("county"),
+                    "sn": resolved_args.get("sn"),
+                    "start_time": None if latest_only else resolved_args.get("start_time"),
+                    "end_time": None if latest_only else resolved_args.get("end_time"),
+                }
+                candidate_records = await self.repository.filter_records_async(
+                    city=query_filters["city"],
+                    county=query_filters["county"],
+                    sn=query_filters["sn"],
+                    start_time=query_filters["start_time"],
+                    end_time=query_filters["end_time"],
+                    limit=None,
                 )
-
-            latest_business_time = await self._latest_business_time()
-            time_evidence = self.time_window_service.resolve(message, latest_business_time)
-            latest_only = "最新" in message and not getattr(time_evidence, "has_time_signal", False)
-            query_filters = {
-                "city": resolved_args.get("city"),
-                "county": resolved_args.get("county"),
-                "sn": resolved_args.get("sn"),
-                "start_time": None if latest_only else resolved_args.get("start_time"),
-                "end_time": None if latest_only else resolved_args.get("end_time"),
-            }
-            candidate_records = await self.repository.filter_records_async(
-                city=query_filters["city"],
-                county=query_filters["county"],
-                sn=query_filters["sn"],
-                start_time=query_filters["start_time"],
-                end_time=query_filters["end_time"],
-                limit=None,
-            )
         if not candidate_records:
             label = (
                 "当前范围"
@@ -7238,6 +7464,33 @@ class DataAnswerService:
         return "".join(ordered)
 
     @staticmethod
+    def _render_markdown_bullets(lines: list[str]) -> list[str]:
+        return [f"- {line}" for line in lines if str(line).strip()]
+
+    @classmethod
+    def _render_markdown_answer(
+        cls,
+        *,
+        lead: str,
+        heading: str | None = None,
+        bullet_lines: list[str] | None = None,
+        note: str | None = None,
+    ) -> str:
+        parts = [lead.strip()]
+        normalized_bullets = [line.strip() for line in (bullet_lines or []) if str(line).strip()]
+        if heading and normalized_bullets:
+            parts.extend(["", f"**{heading}**"])
+            parts.extend(cls._render_markdown_bullets(normalized_bullets))
+        elif normalized_bullets:
+            parts.extend(["", *cls._render_markdown_bullets(normalized_bullets)])
+        if note:
+            note_text = note if note.startswith("说明：") else f"说明：{note}"
+            if not normalized_bullets:
+                parts.append("")
+            parts.append(f"- {note_text}")
+        return "\n".join(parts)
+
+    @staticmethod
     def _render_summary_text(
         *,
         label: str,
@@ -7475,6 +7728,71 @@ class DataAnswerService:
         return (
             f"{prefix}当前没有符合预警条件的记录，当前不输出预警模板。"
             f"最近一条记录时间为 {latest_time}，20cm含水量 {water20}%。"
+        )
+
+    @classmethod
+    def _render_device_distribution_text(
+        cls,
+        *,
+        lead: str,
+        heading: str,
+        rows: list[dict[str, Any]],
+        label_key: str,
+        note: str,
+    ) -> str:
+        bullet_lines = [
+            f"{row.get(label_key) or '（未知）'}：{int(row.get('device_count') or 0)} 套"
+            for row in rows
+        ]
+        return cls._render_markdown_answer(
+            lead=lead,
+            heading=heading,
+            bullet_lines=bullet_lines,
+            note=note,
+        )
+
+    @classmethod
+    def _render_warning_group_text(
+        cls,
+        *,
+        lead: str,
+        rows: list[dict[str, Any]],
+    ) -> str:
+        bullet_lines: list[str] = []
+        for row in rows:
+            label = f"{row.get('city') or ''}{row.get('county') or ''}".strip()
+            if not label:
+                continue
+            type_parts: list[str] = []
+            if int(row.get("heavy_drought_count") or 0) > 0:
+                type_parts.append(f"重旱预警 {int(row.get('heavy_drought_count') or 0)} 条")
+            if int(row.get("waterlogging_count") or 0) > 0:
+                type_parts.append(f"涝渍预警 {int(row.get('waterlogging_count') or 0)} 条")
+            if int(row.get("device_fault_count") or 0) > 0:
+                type_parts.append(f"设备故障预警 {int(row.get('device_fault_count') or 0)} 条")
+            if type_parts:
+                bullet_lines.append(f"{label}：{'，'.join(type_parts)}")
+        return cls._render_markdown_answer(
+            lead=lead,
+            heading="具体分布信息如下：",
+            bullet_lines=bullet_lines,
+            note="单区县多类型预警已合并展示，以上结果均按当前预警规则筛选。",
+        )
+
+    @classmethod
+    def _render_warning_disposal_text(
+        cls,
+        *,
+        lead: str,
+        stats: dict[str, Any],
+        status_order: list[str],
+    ) -> str:
+        bullet_lines = [f"{name}：{int(stats.get(name) or 0)} 条" for name in status_order]
+        return cls._render_markdown_answer(
+            lead=lead,
+            heading="处置情况如下：",
+            bullet_lines=bullet_lines,
+            note="展示顺序固定为已处理、待处理、超时已处理、超时待处理。",
         )
 
     @staticmethod
