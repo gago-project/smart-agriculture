@@ -98,6 +98,13 @@ class InputGuardServiceTest(unittest.TestCase):
         self.assertEqual(result.input_type, "conversation_closing")
         self.assertEqual(result.terminal_action, "closing_end")
 
+    def test_closing_variant_with_okay_prefix_should_end_conversation(self) -> None:
+        result = self.service.classify("行，先这样吧")
+
+        self.assertFalse(result.allow_business_flow)
+        self.assertEqual(result.input_type, "conversation_closing")
+        self.assertEqual(result.terminal_action, "closing_end")
+
     def test_thanks_with_business_signal_should_continue(self) -> None:
         result = self.service.classify("谢谢，南京呢？")
 

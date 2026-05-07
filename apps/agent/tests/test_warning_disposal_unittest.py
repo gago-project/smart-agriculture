@@ -163,10 +163,12 @@ class TestWarningDisposalAnswer(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["answer_kind"], "business")
         self.assertEqual(result["capability"], "warning_disposal")
-        self.assertIn("内共出现 10 条墒情预警信息，处置情况如下", result["final_text"])
-        self.assertIn("已处理 7 条，待处理 1 条，超时已处理 1 条，超时待处理 1 条。", result["final_text"])
+        self.assertIn("内共出现 10 条墒情预警信息。", result["final_text"])
+        self.assertIn("**处置情况如下：**", result["final_text"])
+        self.assertIn("- 已处理：7 条", result["final_text"])
+        self.assertIn("- 待处理：1 条", result["final_text"])
         self.assertEqual(result["blocks"][0]["block_type"], "warning_disposal_card")
-        self.assertNotEqual(result["blocks"][0].get("display_mode"), "evidence_only")
+        self.assertEqual(result["blocks"][0].get("display_mode"), "evidence_only")
         self.assertEqual(result["blocks"][0]["stats"], {"已处理": 7, "待处理": 1, "超时已处理": 1, "超时待处理": 1})
         self.assertEqual(result["query_log_entries"][0]["query_type"], "warning_disposal")
         self.assertIn("FROM warning_disposal_record", result["query_log_entries"][0]["executed_sql_text"])
@@ -229,7 +231,11 @@ class TestWarningDisposalAnswer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["capability"], "warning_disposal")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["status_focus"], "done")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
-        self.assertIn("已处理", follow_up["final_text"])
+        self.assertIn("已处理 7 条", follow_up["final_text"])
+        self.assertNotIn("待处理 1 条", follow_up["final_text"])
+        self.assertNotIn("超时已处理 1 条", follow_up["final_text"])
+        self.assertNotIn("超时待处理 1 条", follow_up["final_text"])
+        self.assertEqual(follow_up["blocks"][0].get("display_mode"), "evidence_only")
 
 
 if __name__ == "__main__":
