@@ -34,7 +34,7 @@ _CHINESE_NUMERALS = {
 
 _SUBJECT_ALIASES = {
     "record": ("预警记录", "异常记录", "记录"),
-    "device": ("重点关注点位", "点位", "设备"),
+    "device": ("重点关注点位", "点位", "墒情仪", "设备"),
     "region": ("地区", "区域", "地方"),
 }
 
@@ -115,7 +115,7 @@ class FollowUpActionResolverService:
                     subject_kind=subject_kind,
                     parsed_count=parsed_count,
                     clarify_reason="ambiguous_target",
-                    clarify_message="我还不能确定你要展开哪一类结果，请直接说要看地区、点位还是记录。",
+                    clarify_message="我还不能确定你要展开哪一类结果，请直接说要看地区、墒情仪还是记录。",
                     rejected_candidates=[str(target.get("label") or "") for target in exact],
                 )
             return FollowUpActionResult(
@@ -140,7 +140,7 @@ class FollowUpActionResolverService:
             subject_kind=subject_kind,
             parsed_count=None,
             clarify_reason="ambiguous_target",
-            clarify_message="你这次要展开的结果对象还不够明确，请直接说地区、点位或记录。",
+            clarify_message="你这次要展开的结果对象还不够明确，请直接说地区、墒情仪或记录。",
             rejected_candidates=[str(target.get("label") or "") for target in live_candidates],
         )
 
@@ -178,7 +178,7 @@ class FollowUpActionResolverService:
     def _count_mismatch_message(*, subject_kind: str, candidates: list[dict[str, Any]]) -> str:
         label = {
             "region": "地区",
-            "device": "点位",
+            "device": "墒情仪",
             "record": "记录",
         }.get(subject_kind, "结果")
         counts = [count for count in (FollowUpActionResolverService._target_count(item) for item in candidates) if count is not None]

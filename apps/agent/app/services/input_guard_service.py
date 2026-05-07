@@ -89,8 +89,12 @@ class InputGuardService:
         "多谢",
         "好的不用了",
         "好的先这样",
+        "好的先这样吧",
         "不用了",
         "先这样",
+        "先这样吧",
+        "行先这样",
+        "行先这样吧",
         "先到这",
         "结束",
         "结束当前话题",
@@ -264,7 +268,8 @@ class InputGuardService:
     def _is_pure_closing(self, text: str) -> bool:
         """仅在无业务信号时，将结束语判定为关闭会话。"""
         compact = text.replace(" ", "").replace("，", "").replace(",", "").replace("。", "").replace(".", "")
-        if compact not in self.pure_closing_texts:
+        normalized = compact[:-1] if compact.endswith("吧") else compact
+        if compact not in self.pure_closing_texts and normalized not in self.pure_closing_texts:
             return False
         return not self._contains_business_signal(text)
 

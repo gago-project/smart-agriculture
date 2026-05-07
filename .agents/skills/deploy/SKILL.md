@@ -85,10 +85,12 @@ smoke_test() {
     -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
   [ -z "$AUTH_TOKEN" ] && echo "❌ 登录失败" && return 1
+  SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+  CLIENT_MESSAGE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
   curl -fsS -X POST "$base_web/api/agent/chat" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $AUTH_TOKEN" \
-    -d '{"question":"最近墒情怎么样","thread_id":"health-check","history":[]}' \
+    -d "{\"session_id\":\"$SESSION_ID\",\"turn_id\":1,\"client_message_id\":\"$CLIENT_MESSAGE_ID\",\"message\":\"最近墒情怎么样\"}" \
     | python3 -m json.tool
   echo "  ✓ ${label} 验活通过"
 }

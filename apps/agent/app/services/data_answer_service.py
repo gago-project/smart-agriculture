@@ -103,7 +103,7 @@ TIME_ONLY_FOLLOW_UP_PATTERNS = (
 CONTEXTUAL_FOLLOW_UP_MARKERS = ("这些", "这里", "这里的", "上面的", "刚才", "那个情况", "这种情况", "那边", "这边")
 GLOBAL_SCOPE_RESET_MARKERS = ("整体", "全省", "整个", "全部", "哪里", "哪个地方", "最严重", "排名", "排行", "top", "Top", "哪些地方", "哪些地区")
 LLM_GUARD_CONFIDENCE_THRESHOLD = 0.8
-SAFE_HINT_TEXT = "我可以帮你查墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。你可以直接说地区、设备或时间范围，例如：南京最近7天墒情怎么样，或最近30天按地区汇总墒情数据。"
+SAFE_HINT_TEXT = "我可以帮你查墒情概况、地区/墒情仪/记录明细、按地区汇总，以及查看预警规则和模板。你可以直接说地区、设备或时间范围，例如：南京最近7天墒情怎么样，或最近30天按地区汇总墒情数据。"
 NON_SOIL_DEVICE_HINT_TEXT = "您好，很抱歉，当前系统主要支持土壤墒情相关数据的查询，暂不支持虫情监测设备的数量统计。如您需要了解土壤墒情仪的接入总数，欢迎直接提问。"
 UNSUPPORTED_DERIVED_ANALYSIS_TEXT = "当前查询只支持原始墒情数据和直接统计，不支持“异常最多、风险最高、预警排序”这类衍生判断。你可以改问：最近30天按地区汇总墒情数据，或直接查看当前预警规则。"
 LLM_GUARD_DOMAIN_TOKENS = DOMAIN_INTENT_TOKENS + ("土壤", "含水量")
@@ -122,6 +122,15 @@ LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
 GLOBAL_TEMPLATE_WARNING_ANY_MARKERS = ("任何一条", "任意一条", "任一条", "随便一条")
 LIST_TABLE_PAGE_SIZE = 10
+TEXT_FIRST_BLOCK_TYPES = {
+    "field_card",
+    "group_table",
+    "rule_card",
+    "warning_disposal_card",
+    "device_registry_count_card",
+    "device_registry_distribution_card",
+    "device_registry_county_card",
+}
 
 
 @dataclass(frozen=True)
@@ -727,7 +736,7 @@ class DataAnswerService:
                             source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                             group_by=None,
                             count=None,
-                            label="点位",
+                            label=self._soil_device_label(),
                             source_turn_id=source_turn_id,
                             last_active_turn_id=source_turn_id,
                         ),
@@ -776,7 +785,7 @@ class DataAnswerService:
                     source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                     group_by=None,
                     count=None,
-                    label="点位",
+                    label=self._soil_device_label(),
                     source_turn_id=source_turn_id,
                     last_active_turn_id=source_turn_id,
                 )
@@ -1050,6 +1059,50 @@ class DataAnswerService:
             "pagination": self._build_table_pagination(snapshot_id=snapshot_id, total_count=len(rows)),
         }
 
+    @staticmethod
+    def _apply_block_display_policy(block: dict[str, Any]) -> dict[str, Any]:
+        if block.get("block_type") in TEXT_FIRST_BLOCK_TYPES:
+            block["display_mode"] = "evidence_only"
+        return block
+
+    @staticmethod
+    def _soil_device_label() -> str:
+        return "墒情仪"
+
+    @classmethod
+    def _soil_device_count_text(cls, count: int | None, *, warning: bool = False) -> str:
+        count_value = int(count or 0)
+        if warning:
+            return f"{count_value}套预警{cls._soil_device_label()}"
+        return f"{count_value}套{cls._soil_device_label()}"
+
+    @classmethod
+    def _count_measure_phrase(
+        cls,
+        *,
+        measure: str | None,
+        count_value: int | float,
+        warning_type_label: str | None = None,
+    ) -> str:
+        count_text = int(count_value or 0)
+        if measure == "device_count":
+            return cls._soil_device_count_text(count_text)
+        if measure == "alert_device_count":
+            if warning_type_label and warning_type_label != "预警":
+                return f"{count_text}套出现{warning_type_label}的{cls._soil_device_label()}"
+            return f"{count_text}套出现预警的{cls._soil_device_label()}"
+        if measure == "record_count":
+            return f"{count_text}条记录"
+        if measure == "alert_record_count":
+            if warning_type_label and warning_type_label != "预警":
+                return f"{count_text}条{warning_type_label}记录"
+            return f"{count_text}条预警记录"
+        if measure == "region_count":
+            return f"{count_text}个地区"
+        if measure == "alert_region_count":
+            return f"{count_text}个预警地区"
+        return str(count_value)
+
     def _build_summary_action_targets(
         self,
         *,
@@ -1080,7 +1133,7 @@ class DataAnswerService:
                 source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                 group_by=None,
                 count=int(metrics.get("device_count") or 0),
-                label=f"{int(metrics.get('device_count') or 0)}个点位",
+                label=self._soil_device_count_text(int(metrics.get("device_count") or 0)),
                 source_turn_id=turn_id,
                 last_active_turn_id=turn_id,
             ),
@@ -1142,7 +1195,7 @@ class DataAnswerService:
                         source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                         group_by=None,
                         count=int(device_count or 0),
-                        label=f"{int(device_count or 0)}个点位",
+                        label=self._soil_device_count_text(int(device_count or 0)),
                         source_turn_id=turn_id,
                         last_active_turn_id=turn_id,
                     )
@@ -1158,7 +1211,7 @@ class DataAnswerService:
                     source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                     group_by=None,
                     count=len(rows),
-                    label=f"{len(rows)}个点位",
+                    label=self._soil_device_count_text(len(rows)),
                     source_turn_id=turn_id,
                     last_active_turn_id=turn_id,
                 )
@@ -1217,7 +1270,7 @@ class DataAnswerService:
                     source_snapshot_kind=LIST_TARGET_FOCUS_DEVICES,
                     group_by=None,
                     count=device_count,
-                    label=f"{device_count}个点位" if device_count is not None else "点位",
+                    label=self._soil_device_count_text(device_count) if device_count is not None else self._soil_device_label(),
                     source_turn_id=turn_id,
                     last_active_turn_id=turn_id,
                 )
@@ -1878,6 +1931,7 @@ class DataAnswerService:
             raise ValueError(follow_up.clarify_message or self._scope_clarification_message(follow_up.clarify_reason))
         raw_args: dict[str, Any] = {}
         recovered_scope: dict[str, str] = {}
+        effective_operation = follow_up.operation
         if entities["sn"]:
             raw_args["sn"] = entities["sn"][-1]
         if entities["province"]:
@@ -1906,10 +1960,12 @@ class DataAnswerService:
             for key in ("city", "county", "sn"):
                 if winner_slots.get(key):
                     raw_args[key] = winner_slots[key]
+            if any(raw_args.get(key) for key in ("city", "county", "sn")) and effective_operation == "none":
+                effective_operation = "inherit"
         if (
             not any(raw_args.get(key) for key in ("province", "city", "county", "sn"))
             and self._topic_supports_structured_follow_up(current_context.get("topic_family"))
-            and follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"}
+            and effective_operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"}
         ):
             recovered_scope = await self._recover_explicit_scope_from_follow_up_text(message)
             for key in ("city", "county"):
@@ -1921,10 +1977,10 @@ class DataAnswerService:
             not has_explicit_scope
             and allow_inherit_entities
             and current_context.get("topic_family") == "data"
-            and follow_up.operation in {"inherit", "switch_capability", "drilldown_ref"}
+            and effective_operation in {"inherit", "switch_capability", "drilldown_ref"}
         ):
             if not self._inherit_scope_from_target(raw_args=raw_args, target=latest_target):
-                if follow_up.operation == "inherit" and self._target_supports_scope_free_follow_up(latest_target):
+                if effective_operation == "inherit" and self._target_supports_scope_free_follow_up(latest_target):
                     pass
                 else:
                     raise ValueError("这轮要查询的对象还不够明确，请直接告诉我地区、设备或时间范围。")
@@ -1932,7 +1988,7 @@ class DataAnswerService:
             not has_explicit_scope
             and allow_inherit_entities
             and current_context.get("topic_family") == "data"
-            and follow_up.operation == "replace_slot"
+            and effective_operation == "replace_slot"
             and self._should_inherit_entities_from_context(message, time_evidence)
         ):
             if not self._inherit_scope_from_target(raw_args=raw_args, target=latest_target):
@@ -1944,7 +2000,7 @@ class DataAnswerService:
                 current_context=current_context,
                 target=latest_target,
             )
-            if require_time and follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"} and inherited_time_window is None:
+            if require_time and effective_operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"} and inherited_time_window is None:
                 raise ValueError("这轮缺少可继承的时间范围，请直接补充具体时间段，例如最近7天或最近1个月。")
 
         resolved_args: dict[str, Any]
@@ -1974,7 +2030,7 @@ class DataAnswerService:
                 elif (
                     inherited_time_window
                     and not any(raw_args.get(key) for key in ("province", "city", "county", "sn"))
-                    and follow_up.operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"}
+                    and effective_operation in {"inherit", "replace_slot", "correct_slot", "switch_capability", "drilldown_ref"}
                     and self._target_supports_scope_free_follow_up(latest_target)
                 ):
                     resolved_args = {
@@ -2023,7 +2079,7 @@ class DataAnswerService:
             key for key in ("province", "city", "county", "sn")
             if slots.get(key) and key not in explicit_slots
         }
-        corrected_slots = set(explicit_slots) if follow_up.operation == "correct_slot" else set()
+        corrected_slots = set(explicit_slots) if effective_operation == "correct_slot" else set()
         context_meta = {
             "slots": slots,
             "entity_confidence": entity_confidence,
@@ -2034,14 +2090,14 @@ class DataAnswerService:
                 inherited_slots=inherited_slots,
                 corrected_slots=corrected_slots,
                 time_source=time_window.get("source", ""),
-                operation=follow_up.operation,
+                operation=effective_operation,
             ),
             "slot_confidence": self._slot_confidence_map(
                 slots=slots,
                 entity_confidence=entity_confidence,
                 time_confidence=time_confidence,
             ),
-            "operation": follow_up.operation,
+            "operation": effective_operation,
             "parent_target_key": (latest_target or {}).get("target_key"),
             "selected_ref": follow_up.selected_ref,
             "rejected_candidates": follow_up.rejected_candidates,
@@ -2050,7 +2106,7 @@ class DataAnswerService:
             "follow-up resolution session_context_version=%s turn_id=%s operation=%s chosen_target_key=%s inherited_slots=%s clarify_reason=%s rejected_candidates=%s",
             current_context.get("context_version"),
             turn_id,
-            follow_up.operation,
+            effective_operation,
             context_meta["parent_target_key"],
             sorted(inherited_slots),
             follow_up.clarify_reason,
@@ -2304,8 +2360,8 @@ class DataAnswerService:
                 thresholds[level] = condition
         return rules, thresholds, rule_code, updated_at
 
-    @staticmethod
-    def _warning_region_preview(rows: list[dict[str, Any]], limit: int = 3) -> str:
+    @classmethod
+    def _warning_region_preview(cls, rows: list[dict[str, Any]], limit: int = 3) -> str:
         preview: list[str] = []
         for row in rows[:limit]:
             city = str(row.get("city") or "").strip()
@@ -2318,7 +2374,7 @@ class DataAnswerService:
             latest_time = str(row.get("latest_alert_time") or "").strip()
             details: list[str] = []
             if device_count is not None:
-                details.append(f"{int(device_count)}个点位")
+                details.append(cls._soil_device_count_text(int(device_count)))
             if record_count is not None:
                 details.append(f"{int(record_count)}条记录")
             if latest_time:
@@ -2498,11 +2554,11 @@ class DataAnswerService:
     @staticmethod
     def _compare_measure_label(metric: str | None) -> str:
         if metric == "alert_device_count":
-            return "预警点位数"
+            return "预警墒情仪数量"
         if metric == "alert_record_count":
             return "预警记录数"
         if metric == "device_count":
-            return "点位数"
+            return "墒情仪数量"
         if metric == "record_count":
             return "记录数"
         if metric in {"region_count", "alert_region_count"}:
@@ -2520,7 +2576,9 @@ class DataAnswerService:
 
     @staticmethod
     def _compare_measure_unit(metric: str | None) -> str:
-        if metric in {"alert_device_count", "device_count", "region_count", "alert_region_count"}:
+        if metric in {"alert_device_count", "device_count"}:
+            return "套"
+        if metric in {"region_count", "alert_region_count"}:
             return "个"
         if metric in {"alert_record_count", "record_count"}:
             return "条"
@@ -2535,7 +2593,7 @@ class DataAnswerService:
         if value is None:
             return "暂无"
         unit = cls._compare_measure_unit(metric)
-        if unit in {"个", "条"}:
+        if unit in {"个", "条", "套"}:
             return f"{value} {unit}"
         return f"{value}{unit}"
 
@@ -2562,21 +2620,29 @@ class DataAnswerService:
         left_value_text = cls._compare_value_text(metric, left.get("metric_value"))
         right_value_text = cls._compare_value_text(metric, right.get("metric_value"))
         prefix = f"在{cls._time_window_range_label(time_window)}时间范围内，"
-        if warning_rule_brief:
-            prefix += "按当前预警规则筛选后，"
         if winner:
-            text = (
-                f"{prefix}按{measure_label}对比，{winner}{predicate}，"
-                f"{left.get('entity')}为 {left_value_text}，{right.get('entity')}为 {right_value_text}。"
+            lead = (
+                f"{prefix}按{measure_label}对比，{winner}{predicate}。"
             )
         else:
-            text = (
-                f"{prefix}按{measure_label}对比，"
-                f"{left.get('entity')}和{right.get('entity')}持平，均为 {left_value_text}。"
+            lead = (
+                f"{prefix}按{measure_label}对比，{left.get('entity')}和{right.get('entity')}持平。"
             )
-        if warning_rule_brief:
-            text += f" 当前预警规则：{warning_rule_brief}。"
-        return text
+        bullet_lines = [
+            (
+                f"{left.get('entity')}：{left_value_text}；"
+                f"{int(left.get('record_count') or 0)}条记录，"
+                f"{cls._soil_device_count_text(int(left.get('device_count') or 0))}，"
+                f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', left.get('avg_water20cm'))}"
+            ),
+            (
+                f"{right.get('entity')}：{right_value_text}；"
+                f"{int(right.get('record_count') or 0)}条记录，"
+                f"{cls._soil_device_count_text(int(right.get('device_count') or 0))}，"
+                f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', right.get('avg_water20cm'))}"
+            ),
+        ]
+        return cls._render_markdown_answer(lead=lead, bullet_lines=bullet_lines)
 
     @classmethod
     def _render_time_compare_text(
@@ -2593,14 +2659,19 @@ class DataAnswerService:
         prior_window = cls._time_window_range_label(prior_row.get("window") or {})
         current_avg = current_row.get("avg_water20cm")
         prior_avg = prior_row.get("avg_water20cm")
-        text = (
-            f"{entity_label or '当前对象'}在{current_window}共有 {int(current_row.get('record_count') or 0)} 条记录，"
-            f"涉及 {int(current_row.get('device_count') or 0)} 个点位，"
-            f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', current_avg)}；"
-            f"前一时间窗{prior_window}共有 {int(prior_row.get('record_count') or 0)} 条记录，"
-            f"涉及 {int(prior_row.get('device_count') or 0)} 个点位，"
-            f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', prior_avg)}。"
-        )
+        bullet_lines = [
+            (
+                f"{current_window}：{int(current_row.get('record_count') or 0)} 条记录，"
+                f"{cls._soil_device_count_text(int(current_row.get('device_count') or 0))}，"
+                f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', current_avg)}"
+            ),
+            (
+                f"{prior_window}：{int(prior_row.get('record_count') or 0)} 条记录，"
+                f"{cls._soil_device_count_text(int(prior_row.get('device_count') or 0))}，"
+                f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', prior_avg)}"
+            ),
+        ]
+        lead = f"{entity_label or '当前对象'}已完成时间窗对比。"
         if current_avg is not None and prior_avg is not None:
             diff = round(float(current_avg) - float(prior_avg), 2)
             if diff > 0:
@@ -2609,8 +2680,8 @@ class DataAnswerService:
                 trend = f"下降 {abs(diff)} 个百分点"
             else:
                 trend = "持平"
-            text += f" 相比前一时间窗，20cm平均相对含水量{trend}。"
-        return text
+            lead += f" 相比前一时间窗，20cm平均相对含水量{trend}。"
+        return cls._render_markdown_answer(lead=lead, bullet_lines=bullet_lines)
 
     @staticmethod
     def _prior_time_window(time_window: dict[str, Any]) -> dict[str, str]:
@@ -3232,30 +3303,22 @@ class DataAnswerService:
             ),
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
-        measure_label = {
-            "device_count": "点位",
-            "alert_device_count": "点位",
-            "record_count": "记录",
-            "alert_record_count": "预警记录",
-            "region_count": "地区",
-            "alert_region_count": "预警地区",
-        }.get(str(query_profile.get("measure") or ""), "结果")
-        warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
         scope_label = self._entity_label(resolved_entities) or "当前查询范围"
-        unit = "个" if "点位" in measure_label or "地区" in measure_label else "条"
+        measure_phrase = self._count_measure_phrase(
+            measure=str(query_profile.get("measure") or ""),
+            count_value=count_value,
+        )
         if warning_only:
             final_text = (
                 f"{scope_label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
-                f"按当前预警规则筛选后，共有 {count_value}{unit}{measure_label}。"
+                f"共有 {measure_phrase}。"
             )
             if count_value == 0:
-                final_text += " 当前没有命中预警规则。"
-            if warning_rule_brief:
-                final_text += f" 当前预警规则：{warning_rule_brief}。"
+                final_text += " 当前没有命中预警条件。"
         else:
             final_text = (
                 f"{scope_label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
-                f"共有 {count_value}{unit}{measure_label}。"
+                f"共有 {measure_phrase}。"
             )
         audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
         if warning_only:
@@ -3286,9 +3349,8 @@ class DataAnswerService:
                     executed_result={
                         "count": count_value,
                         "measure": query_profile.get("measure"),
-                        **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
                     },
-                    result_digest={"count": count_value, **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {})},
+                    result_digest={"count": count_value},
                 )
             ],
         }
@@ -3547,6 +3609,7 @@ class DataAnswerService:
                 "value": value,
                 "time_window": time_window,
             }
+            block = self._apply_block_display_policy(block)
             final_text = f"{self._entity_label(resolved_entities) or '当前查询范围'}{metric} 的{aggregation}结果为 {value}。"
             query_log_result = {"field": metric, "aggregation": aggregation, "value": value}
             action_targets: list[dict[str, Any]] = []
@@ -3583,12 +3646,12 @@ class DataAnswerService:
             block = self._build_paginated_table_block(
                 block_id=block_id,
                 block_type="list_table",
-                title="字段异常点位",
+                title="字段异常墒情仪",
                 columns=["city", "county", "sn", "create_time", metric],
                 rows=abnormal_rows,
                 snapshot_id=snapshot["snapshot_id"],
             )
-            final_text = f"当前条件下共有 {len(abnormal_rows)} 个点位的 {metric} 不正常。"
+            final_text = f"当前条件下共有 {len(abnormal_rows)} 套墒情仪的 {metric} 不正常。"
             query_log_result = {"rows": block["rows"], "field": metric, "total_count": len(abnormal_rows)}
             action_targets = self._build_list_action_targets(
                 turn_id=turn_id,
@@ -3610,6 +3673,7 @@ class DataAnswerService:
                 "values": values,
                 "time_window": time_window,
             }
+            block = self._apply_block_display_policy(block)
             joined_values = "，".join(f"{field}={values.get(field)}" for field in fields)
             final_text = f"{self._entity_label(resolved_entities) or '当前对象'}的最新字段结果：{joined_values}。"
             query_log_result = {"fields": fields, "values": values}
@@ -3679,7 +3743,7 @@ class DataAnswerService:
         if current_context.get("topic_family") != "data":
             return self._build_guidance_response(
                 turn_id=turn_id,
-                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再追问这些点位。",
+                text="当前没有可继承的数据查询上下文，请先查询一轮墒情数据，再追问这些墒情仪。",
                 current_context=current_context,
                 guidance_reason="clarification",
             )
@@ -3849,15 +3913,15 @@ class DataAnswerService:
         )
         if warning_only:
             final_text = (
-                f"已列出上一轮按预警规则筛出的 {len(rows)} 条预警记录。"
+                f"已列出上一轮筛出的 {len(rows)} 条预警记录。"
                 if list_target == LIST_TARGET_ALERT_RECORDS
-                else f"已列出上一轮按预警规则筛出的 {len(rows)} 个预警点位。"
+                else f"已列出上一轮筛出的 {len(rows)} 套预警墒情仪。"
             )
         else:
             final_text = (
                 f"已列出当前条件下的 {len(rows)} 条记录。"
                 if list_target == LIST_TARGET_ALERT_RECORDS
-                else f"已列出当前条件下的 {len(rows)} 个点位。"
+                else f"已列出当前条件下的 {len(rows)} 套墒情仪。"
             )
         return {
             "turn_id": turn_id,
@@ -4038,17 +4102,15 @@ class DataAnswerService:
         )
         if warning_only:
             final_text = (
-                f"按当前预警规则筛选后，已列出当前条件下的 {len(rows)} 条预警记录。"
+                f"已列出当前条件下的 {len(rows)} 条预警记录。"
                 if list_target == LIST_TARGET_ALERT_RECORDS
-                else f"按当前预警规则筛选后，已列出当前条件下的 {len(rows)} 个预警点位。"
+                else f"已列出当前条件下的 {len(rows)} 套预警墒情仪。"
             )
-            if warning_rule_brief:
-                final_text += f" 当前预警规则：{warning_rule_brief}。"
         else:
             final_text = (
                 f"已列出当前条件下的 {len(rows)} 条记录。"
                 if list_target == LIST_TARGET_ALERT_RECORDS
-                else f"已列出当前条件下的 {len(rows)} 个点位。"
+                else f"已列出当前条件下的 {len(rows)} 套墒情仪。"
             )
         audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
         if warning_only:
@@ -4181,6 +4243,7 @@ class DataAnswerService:
             snapshot_id=snapshot_id,
             extra_fields={"group_by": group_by},
         )
+        block = self._apply_block_display_policy(block)
         base_context = {
             **current_context,
             "active_topic_turn_id": turn_id,
@@ -4397,6 +4460,7 @@ class DataAnswerService:
             snapshot_id=group_snapshot["snapshot_id"],
             extra_fields={"group_by": group_by},
         )
+        block = self._apply_block_display_policy(block)
         warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
         if warning_rule_brief:
             block["warning_rule_brief"] = warning_rule_brief
@@ -4448,40 +4512,38 @@ class DataAnswerService:
             group_label = self._group_label(group_by)
             top_n = int(query_profile.get("top_n") or 0)
             final_text = (
-                f"{label}{range_label}按当前预警规则筛选后，再按{group_label}汇总。"
+                f"{label}{range_label}已按{group_label}汇总预警信息。"
                 if range_label
-                else f"{label}按当前预警规则筛选后，再按{group_label}汇总。"
+                else f"{label}已按{group_label}汇总预警信息。"
             )
             if top_n > 0:
-                final_text += f" 在命中预警规则的 {total_group_count} 个{group_label}中，"
+                final_text += f" 在命中预警的 {total_group_count} 个{group_label}中，"
             else:
-                final_text += f" 共 {total_group_count} 个{group_label}命中预警规则。"
+                final_text += f" 共 {total_group_count} 个{group_label}出现预警。"
             if rows:
                 lead = rows[0]
                 lead_label = f"{lead.get('city') or ''}{lead.get('county') or ''}".strip() or "当前首位地区"
                 if top_n == 1:
                     final_text += (
-                        f" 最需要关注的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                        f" 最需要关注的是 {lead_label}，涉及 {self._soil_device_count_text(int(lead.get('alert_device_count') or 0), warning=True)}、"
                         f"{int(lead.get('alert_record_count') or 0)} 条预警记录，"
                         f"最近预警时间为 {lead.get('latest_alert_time') or '暂无'}。"
                     )
                 elif top_n > 1:
                     final_text += f" 当前返回前 {top_n} 个重点{group_label}。"
                     final_text += (
-                        f" 排名第一的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                        f" 排名第一的是 {lead_label}，涉及 {self._soil_device_count_text(int(lead.get('alert_device_count') or 0), warning=True)}、"
                         f"{int(lead.get('alert_record_count') or 0)} 条预警记录，"
                         f"最近预警时间为 {lead.get('latest_alert_time') or '暂无'}。"
                     )
                 else:
                     final_text += (
-                        f" 最需要关注的是 {lead_label}，涉及 {int(lead.get('alert_device_count') or 0)} 个预警点位、"
+                        f" 最需要关注的是 {lead_label}，涉及 {self._soil_device_count_text(int(lead.get('alert_device_count') or 0), warning=True)}、"
                         f"{int(lead.get('alert_record_count') or 0)} 条预警记录，"
                         f"最近预警时间为 {lead.get('latest_alert_time') or '暂无'}。"
                     )
             if top_preview:
                 final_text += f" 当前重点地区：{top_preview}。"
-            if warning_rule_brief:
-                final_text += f" 当前预警规则：{warning_rule_brief}。"
         else:
             final_text = (
                 f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
@@ -4782,6 +4844,11 @@ class DataAnswerService:
             follow_up_mode=follow_up_mode,
         )
         compare_mode = str(query_profile.get("compare_mode") or compare_mode)
+        if compare_mode == "entity_compare" and not query_profile.get("measure"):
+            query_profile = {
+                **query_profile,
+                "measure": "record_count",
+            }
         compared: list[dict[str, Any]] = []
         winner: str | None = None
         left_value: float | int | None = None
@@ -5163,13 +5230,13 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "device_registry_count_card",
-            "display_mode": "chat",
             "title": "设备接入总数",
             "total_count": count,
             "device_type": "土壤墒情仪",
             "city": city,
             "county": county,
         }
+        block = self._apply_block_display_policy(block)
         base_context = {
             "topic_family": "device_registry",
             "active_topic_turn_id": turn_id,
@@ -5270,7 +5337,6 @@ class DataAnswerService:
             heading="具体分布信息如下：",
             rows=rows,
             label_key="city",
-            note="以上按固定设区市顺序展示。",
         )
         follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
         query_spec = {
@@ -5289,13 +5355,13 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "device_registry_distribution_card",
-            "display_mode": "chat",
             "title": "设备城市分布",
             "device_type": "土壤墒情仪",
             "total_count": total,
             "city_count": len(rows),
             "rows": rows,
         }
+        block = self._apply_block_display_policy(block)
         base_context = {
             "topic_family": "device_registry",
             "active_topic_turn_id": turn_id,
@@ -5388,7 +5454,6 @@ class DataAnswerService:
             heading="具体区县分布信息如下：",
             rows=rows,
             label_key="county",
-            note="仅展示当前已部署土壤墒情仪的区县。",
         )
         follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
         query_spec = {
@@ -5407,13 +5472,13 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "device_registry_county_card",
-            "display_mode": "chat",
             "title": f"{city}设备区县分布",
             "city": city,
             "total_count": total,
             "county_count": len(rows),
             "rows": rows,
         }
+        block = self._apply_block_display_policy(block)
         base_context = {
             "topic_family": "device_registry",
             "active_topic_turn_id": turn_id,
@@ -5519,7 +5584,6 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "rule_card",
-            "display_mode": "chat",
             "title": "预警规则说明",
             "rule_code": rule_code,
             "rule_name": (rule_row or {}).get("rule_name") or "土壤墒情预警规则",
@@ -5532,6 +5596,7 @@ class DataAnswerService:
                 else [],
             },
         }
+        block = self._apply_block_display_policy(block)
         base_context = {
             "topic_family": "rule",
             "active_topic_turn_id": turn_id,
@@ -5661,6 +5726,7 @@ class DataAnswerService:
             str(level): int(count or 0)
             for level, count in (stats.get("by_warning_level") or {}).items()
         }
+        warning_rule_brief = self._warning_rule_brief(rule_row)
         records = await self.repository.query_warning_records_async(
             city=resolved_args.get("city"),
             county=resolved_args.get("county"),
@@ -5687,7 +5753,7 @@ class DataAnswerService:
         block_id = f"block_warning_list_{turn_id}"
         primary_rows = record_rows if warning_list_target == LIST_TARGET_ALERT_RECORDS else device_rows
         primary_grain = "record_list" if warning_list_target == LIST_TARGET_ALERT_RECORDS else "device_list"
-        primary_title = "预警记录详情" if warning_list_target == LIST_TARGET_ALERT_RECORDS else "预警点位详情"
+        primary_title = "预警记录详情" if warning_list_target == LIST_TARGET_ALERT_RECORDS else "预警墒情仪详情"
         primary_columns = (
             ["create_time", "city", "county", "sn", "water20cm", "water40cm"]
             if warning_list_target == LIST_TARGET_ALERT_RECORDS
@@ -5814,16 +5880,15 @@ class DataAnswerService:
                 level_summary = self._warning_level_summary_text(by_warning_level)
                 if level_summary:
                     detail_lines.append(f"预警类型分布：{level_summary}")
+                lead_scope = f"出现{warning_scope_label}的" if warning_type else "出现预警的"
                 final_text = self._render_markdown_answer(
                     lead=(
-                        f"{range_label}按当前预警规则筛选后，共筛出 {device_total} 个满足条件的"
-                        f"{warning_scope_label}点位，涉及 {region_count} 个区域。"
+                        f"{range_label}共筛出 {device_total} 套{lead_scope}墒情仪，涉及 {region_count} 个区域。"
                     ),
                     bullet_lines=detail_lines,
-                    note="以上结果均按当前预警规则筛选，详细内容见下方列表。",
                 )
             else:
-                final_text = f"{range_label}按当前预警规则筛选后，没有查询到满足条件的{warning_scope_label}点位。"
+                final_text = f"{range_label}没有查询到出现{warning_scope_label if warning_type else '预警'}的墒情仪。"
         else:
             if total_count > 0:
                 seen_regions = set()
@@ -5844,20 +5909,13 @@ class DataAnswerService:
                 level_summary = self._warning_level_summary_text(by_warning_level)
                 if level_summary:
                     detail_lines.append(f"预警类型分布：{level_summary}")
+                record_scope = f"{warning_scope_label}记录" if warning_type else "预警记录"
                 final_text = self._render_markdown_answer(
-                    lead=(
-                        f"{range_label}按当前预警规则筛选后，共筛出 {total_count} 条满足条件的"
-                        f"{warning_scope_label}记录，涉及 {region_count} 个区域。"
-                    ),
+                    lead=f"{range_label}共筛出 {total_count} 条{record_scope}，涉及 {region_count} 个区域。",
                     bullet_lines=detail_lines,
-                    note="以上结果均按当前预警规则筛选，详细内容见下方列表。",
                 )
             else:
-                final_text = f"{range_label}按当前预警规则筛选后，没有查询到满足条件的{warning_scope_label}记录。"
-        if total_count > 0 or (warning_list_target == LIST_TARGET_FOCUS_DEVICES and len(device_rows) > 0):
-            final_text += f"\n- 规则摘要：{warning_rule_brief}。"
-        else:
-            final_text += f" 当前预警规则：{warning_rule_brief}。"
+                final_text = f"{range_label}没有查询到{warning_scope_label if warning_type else '预警'}记录。"
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -6115,6 +6173,7 @@ class DataAnswerService:
                 "warning_rule_brief": warning_rule_brief,
             },
         )
+        block = self._apply_block_display_policy(block)
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -6166,7 +6225,7 @@ class DataAnswerService:
         range_label = self._scoped_range_label(scope_label, time_window)
         final_text = self._render_warning_group_text(
             lead=(
-                f"{range_label}内共出现 {total_count} 条满足当前预警规则的墒情预警信息。"
+                f"{range_label}内共出现 {total_count} 条墒情预警信息。"
             ),
             rows=table_rows,
         )
@@ -6289,6 +6348,7 @@ class DataAnswerService:
             str(level): int(count or 0)
             for level, count in (stats.get("by_warning_level") or {}).items()
         }
+        warning_rule_brief = self._warning_rule_brief(rule_row)
         records = await self.repository.query_warning_records_async(
             city=resolved_args.get("city"),
             county=resolved_args.get("county"),
@@ -6311,7 +6371,6 @@ class DataAnswerService:
             for record in records
         ]
         count_value = self._count_value(records, query_profile.get("measure"))
-        warning_rule_brief = self._warning_rule_brief(rule_row)
         block_id = f"block_warning_count_{turn_id}"
         query_spec = self._build_query_spec(
             capability="count",
@@ -6406,31 +6465,22 @@ class DataAnswerService:
         )
         scope_label = self._entity_label(resolved_entities) or "全省"
         range_label = self._scoped_range_label(scope_label, time_window)
-        measure_label = {
-            "alert_device_count": "点位",
-            "alert_record_count": "预警记录",
-            "alert_region_count": "预警地区",
-        }.get(str(query_profile.get("measure") or ""), "预警记录")
-        unit = "个" if "点位" in measure_label or "地区" in measure_label else "条"
         level_summary = self._warning_level_summary_text(by_warning_level)
+        measure_phrase = self._count_measure_phrase(
+            measure=str(query_profile.get("measure") or "alert_record_count"),
+            count_value=count_value,
+            warning_type_label=self._warning_level_label(warning_type) if warning_type else None,
+        )
         if count_value > 0:
             bullet_lines = []
             if level_summary:
                 bullet_lines.append(f"预警类型分布：{level_summary}")
             final_text = self._render_markdown_answer(
-                lead=f"{range_label}按当前预警规则筛选后，共有 {count_value}{unit}{measure_label}。",
+                lead=f"{range_label}共有 {measure_phrase}。",
                 bullet_lines=bullet_lines,
-                note="以上结果均按当前预警规则筛选。",
             )
         else:
-            final_text = (
-                f"{range_label}按当前预警规则筛选后，共有 0{unit}{measure_label}。"
-                f" 当前没有命中预警规则。"
-            )
-        if count_value > 0:
-            final_text += f"\n- 规则摘要：{warning_rule_brief}。"
-        else:
-            final_text += f" 当前预警规则：{warning_rule_brief}。"
+            final_text = f"{range_label}共有 {measure_phrase}。"
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -6538,13 +6588,13 @@ class DataAnswerService:
         block = {
             "block_id": block_id,
             "block_type": "warning_disposal_card",
-            "display_mode": "chat",
             "title": "预警处置统计",
             "total": total,
             "stats": {name: int(stats.get(name) or 0) for name in status_order},
             "time_window": time_window,
             "region": {"city": city, "county": county},
         }
+        block = self._apply_block_display_policy(block)
         audit_sql = self.repository.build_warning_disposal_audit_sql(
             city=city,
             county=county,
@@ -6566,13 +6616,9 @@ class DataAnswerService:
         )
         status_focus_label = self._warning_status_focus_label(query_profile.get("status_focus"))
         if total > 0 and status_focus_label:
-            final_text = self._render_warning_disposal_text(
-                lead=(
-                    f"{range_label}内共出现 {total} 条墒情预警信息，"
-                    f"其中{status_focus_label} {int(stats.get(status_focus_label) or 0)} 条。"
-                ),
-                stats=stats,
-                status_order=status_order,
+            final_text = (
+                f"{range_label}内共出现 {total} 条墒情预警信息，"
+                f"其中{status_focus_label} {int(stats.get(status_focus_label) or 0)} 条。"
             )
         query_spec = {
             "spec_id": f"qs_{turn_id}_warning_disposal",
@@ -7302,8 +7348,8 @@ class DataAnswerService:
             "snapshot_key": "device_snapshot_id",
             "snapshot_kind": LIST_TARGET_FOCUS_DEVICES,
             "grain": "device_list",
-            "title": "点位详情",
-            "label": "点位",
+            "title": "墒情仪详情",
+            "label": "墒情仪",
             "columns": FOCUS_DEVICE_COLUMNS,
             "sort_field": "create_time",
         }
@@ -7510,8 +7556,8 @@ class DataAnswerService:
             preview = DataAnswerService._warning_region_preview(top_regions or [])
             if int(metrics.get("record_count") or 0) > 0:
                 text = (
-                    f"{range_label}按当前预警规则筛选后，命中预警记录 "
-                    f"{metrics['record_count']} 条，涉及 {metrics['device_count']} 个预警点位，"
+                    f"{range_label}命中预警记录 "
+                    f"{metrics['record_count']} 条，涉及 {metrics['device_count']} 套预警墒情仪，"
                     f"覆盖 {metrics['region_count']} 个预警地区，最新预警时间为 {latest_time}。"
                 )
                 if preview:
@@ -7519,20 +7565,18 @@ class DataAnswerService:
             else:
                 text = (
                     f"{range_label}"
-                    "按当前预警规则筛选后，没有命中预警规则的点位或记录。"
+                    "当前没有命中预警条件的记录。"
                 )
-            if warning_rule_brief:
-                text += f" 当前预警规则：{warning_rule_brief}。"
         else:
             text = (
                 f"{range_label}的墒情概况如下："
                 f"20cm平均相对含水量约 {avg_text}，"
-                f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 个点位，"
+                f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 套墒情仪，"
                 f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
             )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
-        text += " 如需继续查看，可以直接回复：列出点位详情、列出记录详情，或按地区汇总。"
+        text += " 如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。"
         return text
 
     @staticmethod
@@ -7555,13 +7599,16 @@ class DataAnswerService:
         entity_names = " 和 ".join(item["canonical_name"] for item in resolved_entities[:2]) or "两个对象"
         if not compared:
             return f"已按相同时间范围整理 {entity_names} 的对比结果。"
-        summaries = []
+        bullet_lines = []
         for row in compared[:2]:
             avg_text = "暂无" if row.get("avg_water20cm") is None else f"{row.get('avg_water20cm')}%"
-            summaries.append(
-                f"{row.get('entity')}：{row.get('record_count')}条记录，{row.get('device_count')}个点位，20cm平均含水量 {avg_text}"
+            bullet_lines.append(
+                f"{row.get('entity')}：{row.get('record_count')}条记录，{row.get('device_count')}套墒情仪，20cm平均含水量 {avg_text}"
             )
-        return "；".join(summaries) + "。"
+        return DataAnswerService._render_markdown_answer(
+            lead=f"已按相同时间范围整理 {entity_names} 的对比结果。",
+            bullet_lines=bullet_lines,
+        )
 
     @staticmethod
     def _render_detail_text(
@@ -7586,7 +7633,7 @@ class DataAnswerService:
             text = (
                 f"{range_label}的详情如下："
                 f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
-                f"涉及 {int(metrics.get('device_count') or 0)} 个点位，"
+                f"涉及 {int(metrics.get('device_count') or 0)} 套墒情仪，"
                 f"20cm平均相对含水量约 {avg_text}，"
                 f"最新记录时间为 {latest_time}。"
             )
@@ -7594,7 +7641,7 @@ class DataAnswerService:
             text = (
                 f"{label}的详情如下："
                 f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
-                f"涉及 {int(metrics.get('device_count') or 0)} 个点位，"
+                f"涉及 {int(metrics.get('device_count') or 0)} 套墒情仪，"
                 f"20cm平均相对含水量约 {avg_text}，"
                 f"最新记录时间为 {latest_time}。"
             )
@@ -7738,7 +7785,6 @@ class DataAnswerService:
         heading: str,
         rows: list[dict[str, Any]],
         label_key: str,
-        note: str,
     ) -> str:
         bullet_lines = [
             f"{row.get(label_key) or '（未知）'}：{int(row.get('device_count') or 0)} 套"
@@ -7748,7 +7794,6 @@ class DataAnswerService:
             lead=lead,
             heading=heading,
             bullet_lines=bullet_lines,
-            note=note,
         )
 
     @classmethod
@@ -7776,7 +7821,6 @@ class DataAnswerService:
             lead=lead,
             heading="具体分布信息如下：",
             bullet_lines=bullet_lines,
-            note="单区县多类型预警已合并展示，以上结果均按当前预警规则筛选。",
         )
 
     @classmethod
@@ -7792,7 +7836,6 @@ class DataAnswerService:
             lead=lead,
             heading="处置情况如下：",
             bullet_lines=bullet_lines,
-            note="展示顺序固定为已处理、待处理、超时已处理、超时待处理。",
         )
 
     @staticmethod

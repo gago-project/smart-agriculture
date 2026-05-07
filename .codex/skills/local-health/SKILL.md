@@ -99,10 +99,12 @@ fi
 
 echo "  ✓ 登录成功，token 已获取"
 
+SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
+CLIENT_MESSAGE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
 curl -fsS -X POST "$BASE_WEB/api/agent/chat" \
   -H 'Content-Type: application/json' \
   -H "Authorization: Bearer $AUTH_TOKEN" \
-  -d '{"question":"最近墒情怎么样","thread_id":"health-check","history":[]}' \
+  -d "{\"session_id\":\"$SESSION_ID\",\"turn_id\":1,\"client_message_id\":\"$CLIENT_MESSAGE_ID\",\"message\":\"最近墒情怎么样\"}" \
   | python3 -m json.tool
 ```
 
