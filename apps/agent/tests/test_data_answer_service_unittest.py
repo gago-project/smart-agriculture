@@ -1407,7 +1407,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(rule["capability"], "rule")
         self.assertEqual(rule["turn_context"]["topic_family"], "rule")
         self.assertEqual(rule["blocks"][0]["block_type"], "rule_card")
-        self.assertEqual(rule["blocks"][0]["display_mode"], "evidence_only")
+        self.assertNotEqual(rule["blocks"][0].get("display_mode"), "evidence_only")
 
         follow_up = await self.service.reply(
             message="这些点位呢",
@@ -1859,6 +1859,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["answer_kind"], "business")
         self.assertEqual(result["capability"], "device_registry_distribution")
+        self.assertNotEqual(result["blocks"][0].get("display_mode"), "evidence_only")
         self.assertIn("528 套", result["final_text"])
         self.assertIn("南京市", result["final_text"])
         self.assertIn("南通市", result["final_text"])
@@ -1876,6 +1877,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["answer_kind"], "business")
         self.assertEqual(result["capability"], "device_registry_county_detail")
+        self.assertNotEqual(result["blocks"][0].get("display_mode"), "evidence_only")
         self.assertIn("南通市", result["final_text"])
         self.assertIn("42 台", result["final_text"])
         self.assertIn("如东县", result["final_text"])
@@ -1893,6 +1895,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["answer_kind"], "business")
         self.assertEqual(result["capability"], "rule")
+        self.assertNotEqual(result["blocks"][0].get("display_mode"), "evidence_only")
         self.assertIn("soil_warning_v1", result["final_text"])
         self.assertIn("50", result["final_text"])
         self.assertIn("150", result["final_text"])
@@ -1909,10 +1912,11 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["answer_kind"], "business")
-        self.assertEqual(result["capability"], "warning_list")
-        self.assertIn("预警记录", result["final_text"])
+        self.assertEqual(result["capability"], "list")
+        self.assertIn("点位", result["blocks"][0]["title"])
+        self.assertIn("点位", result["final_text"])
         self.assertIn("涉及", result["final_text"])
-        self.assertIn("涝渍预警", result["final_text"])
+        self.assertIn("当前预警规则", result["final_text"])
         self.assertIn("water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
         self.assertGreater(result["query_log_entries"][0]["row_count"], 0)
 
@@ -1932,8 +1936,137 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["answer_kind"], "business")
-        self.assertEqual(result["capability"], "warning_count")
+        self.assertEqual(result["capability"], "count")
         self.assertIn(str(expected["total"]), result["final_text"])
         self.assertIn("重旱", result["final_text"])
         self.assertIn("AND water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
         self.assertNotIn("AND (water20cm < 50 OR water20cm >= 150", result["query_log_entries"][0]["executed_sql_text"])
+
+    async def test_warning_group_returns_group_table_and_rule_basis(self) -> None:
+        result = await self.service.reply(
+            message="最近7天哪些区域出现了预警信息",
+            session_id="warning-region-group",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "business")
+        self.assertEqual(result["capability"], "warning_group")
+        self.assertEqual(result["blocks"][0]["block_type"], "group_table")
+        self.assertEqual(result["blocks"][0]["group_by"], "region")
+        self.assertGreater(result["blocks"][0]["pagination"]["total_count"], 0)
+        self.assertIn("满足当前预警规则", result["final_text"])
+        self.assertIn("当前预警规则：", result["final_text"])
+
+    async def test_warning_group_follow_up_city_keeps_time_window_and_group_capability(self) -> None:
+        grouped = await self.service.reply(
+            message="最近7天哪些区域出现了预警信息",
+            session_id="warning-region-group-follow-up-city",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那徐州市呢",
+            session_id="warning-region-group-follow-up-city",
+            turn_id=2,
+            current_context=grouped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "warning_group")
+        self.assertEqual(follow_up["turn_context"]["time_window"]["source"], "history_inherited")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertEqual(follow_up["turn_context"]["resolved_entities"], [{"kind": "city", "canonical_name": "徐州市"}])
+        self.assertIn("徐州市", follow_up["final_text"])
+
+    async def test_warning_group_follow_up_type_refine_persists_warning_type(self) -> None:
+        grouped = await self.service.reply(
+            message="最近7天哪些区域出现了预警信息",
+            session_id="warning-region-group-follow-up-type",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那涝渍呢",
+            session_id="warning-region-group-follow-up-type",
+            turn_id=2,
+            current_context=grouped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "warning_group")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["warning_type"], "waterlogging")
+        self.assertIn("涝渍预警", follow_up["final_text"])
+
+    async def test_device_registry_count_follow_up_can_expand_to_distribution(self) -> None:
+        count = await self.service.reply(
+            message="目前平台接入了多少台土壤墒情仪",
+            session_id="device-registry-follow-up-distribution",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="分布在哪里",
+            session_id="device-registry-follow-up-distribution",
+            turn_id=2,
+            current_context=count["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "device_registry_distribution")
+        self.assertEqual(follow_up["turn_context"]["topic_family"], "device_registry")
+
+    async def test_device_registry_distribution_follow_up_can_drill_to_city(self) -> None:
+        distribution = await self.service.reply(
+            message="土壤墒情仪分布在哪里",
+            session_id="device-registry-follow-up-city",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await self.service.reply(
+            message="那南通呢",
+            session_id="device-registry-follow-up-city",
+            turn_id=2,
+            current_context=distribution["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "device_registry_county_detail")
+        self.assertIn("南通市", follow_up["final_text"])
+
+    async def test_warning_rule_description_returns_fallback_when_rule_missing(self) -> None:
+        class MissingRuleRepository(SeedSoilRepository):
+            def warning_rule_row(self, rule_code: str = "soil_warning_v1"):
+                del rule_code
+                return None
+
+            async def warning_rule_row_async(self, rule_code: str = "soil_warning_v1"):
+                del rule_code
+                return None
+
+        service = type(self.service)(repository=MissingRuleRepository())
+
+        result = await service.reply(
+            message="土壤墒情的预警规则是什么",
+            session_id="warning-rule-missing",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["answer_kind"], "fallback")
+        self.assertEqual(result["capability"], "rule")
+        self.assertIn("规则", result["final_text"])

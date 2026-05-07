@@ -5,11 +5,12 @@ from __future__ import annotations
 
 import asyncio
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 from urllib.parse import quote_plus
 
 from app.db.mysql import MySQLDatabase
+from app.services.warning_predicate_service import WarningPredicateService
 
 
 DEFAULT_WARNING_TEMPLATE_TEXT = "{year} 年 {month} 月 {day} 日 {hour} 时 {city} {county} SN 编号 {sn} 土壤墒情仪监测到相对含水量 {water20cm}%，预警等级 {warning_level}，请大田/设施大棚/林果相关主体关注！"
@@ -33,6 +34,7 @@ class SoilRepository:
     mysql_user: str | None = None
     mysql_password: str | None = None
     async_database: MySQLDatabase | None = None
+    warning_predicate_service: WarningPredicateService = field(default_factory=WarningPredicateService)
     @classmethod
     def from_env(cls) -> "SoilRepository":
         """Build repository configuration from process environment variables."""
@@ -793,34 +795,64 @@ class SoilRepository:
     async def soil_device_county_distribution_async(self, city: str) -> list[dict[str, Any]] | None:
         return await asyncio.to_thread(self.soil_device_county_distribution, city)
 
-    @staticmethod
-    def _warning_filter_sql(warning_type: str | None = None) -> str:
-        if warning_type == "heavy_drought":
-            return "water20cm < 50"
-        if warning_type == "waterlogging":
-            return "water20cm >= 150"
-        if warning_type == "device_fault":
-            return "(water20cm = 0 AND t20cm = 0)"
-        return "(water20cm < 50 OR water20cm >= 150 OR (water20cm = 0 AND t20cm = 0))"
+    def _warning_rule_row_or_raise(self, rule_row: dict[str, Any] | None) -> dict[str, Any]:
+        active_rule = rule_row or self.warning_rule_row()
+        if not active_rule:
+            raise DatabaseQueryError("预警规则不可用，无法执行预警查询。")
+        return active_rule
+
+    def _warning_filter_sql(
+        self,
+        *,
+        rule_row: dict[str, Any] | None,
+        warning_type: str | None = None,
+        time_column: str = "create_time",
+    ) -> str:
+        active_rule = self._warning_rule_row_or_raise(rule_row)
+        return self.warning_predicate_service.build_sql_predicate(
+            rule_row=active_rule,
+            warning_type=warning_type,
+            time_column=time_column,
+        )
+
+    def _warning_case_sql(
+        self,
+        *,
+        rule_row: dict[str, Any] | None,
+        time_column: str = "create_time",
+        default_label: str = "normal",
+    ) -> str:
+        active_rule = self._warning_rule_row_or_raise(rule_row)
+        return self.warning_predicate_service.build_warning_case_expression(
+            rule_row=active_rule,
+            time_column=time_column,
+            default_label=default_label,
+        )
 
     @staticmethod
-    def _warning_record_select_sql(*, escape_percent_for_pyformat: bool = False) -> str:
+    def _pyformat_safe_sql_fragment(fragment: str) -> str:
+        return str(fragment or "").replace("%", "%%")
+
+    def _warning_record_select_sql(
+        self,
+        *,
+        rule_row: dict[str, Any] | None,
+        escape_percent_for_pyformat: bool = False,
+    ) -> str:
+        warning_case_sql = self._warning_case_sql(rule_row=rule_row)
         sql = (
             "SELECT sn, city, county,\n"
             "       DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,\n"
             "       water20cm, water40cm,\n"
-            "       CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'\n"
-            "            WHEN water20cm < 50 THEN 'heavy_drought'\n"
-            "            WHEN water20cm >= 150 THEN 'waterlogging'\n"
-            "            ELSE 'normal' END AS warning_level\n"
+            f"       {warning_case_sql} AS warning_level\n"
             "FROM fact_soil_moisture"
         )
         if escape_percent_for_pyformat:
             return sql.replace("%", "%%")
         return sql
 
-    @staticmethod
     def build_warning_records_audit_sql(
+        self,
         city: str | None = None,
         county: str | None = None,
         sn: str | None = None,
@@ -828,6 +860,7 @@ class SoilRepository:
         end_time: str | None = None,
         warning_type: str | None = None,
         limit: int = 50,
+        rule_row: dict[str, Any] | None = None,
     ) -> str:
         clauses: list[str] = []
         if city:
@@ -840,10 +873,14 @@ class SoilRepository:
             clauses.append(f"create_time >= {SoilRepository._normalize_sql_literal(start_time)}")
         if end_time:
             clauses.append(f"create_time <= {SoilRepository._normalize_sql_literal(end_time)}")
-        clauses.append(SoilRepository._warning_filter_sql(warning_type))
+        clauses.append(
+            self._pyformat_safe_sql_fragment(
+                self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type)
+            )
+        )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         return (
-            f"{SoilRepository._warning_record_select_sql()}\n"
+            f"{self._warning_record_select_sql(rule_row=rule_row)}\n"
             f"{where}\n"
             "ORDER BY create_time DESC\n"
             f"LIMIT {int(limit)}"
@@ -859,6 +896,7 @@ class SoilRepository:
         end_time: str | None = None,
         warning_type: str | None = None,
         limit: int = 50,
+        rule_row: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -873,9 +911,12 @@ class SoilRepository:
                 clauses.append(f"{col} {op} %s")
                 params.append(val)
 
-        clauses.append(self._warning_filter_sql(warning_type))
+        clauses.append(self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
-        select_sql = self._warning_record_select_sql(escape_percent_for_pyformat=True)
+        select_sql = self._warning_record_select_sql(
+            rule_row=rule_row,
+            escape_percent_for_pyformat=True,
+        )
         sql = f"""
         {select_sql}
         {where}
@@ -905,6 +946,7 @@ class SoilRepository:
         end_time: str | None = None,
         warning_type: str | None = None,
         limit: int = 50,
+        rule_row: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         return await asyncio.to_thread(
             self.query_warning_records,
@@ -915,6 +957,129 @@ class SoilRepository:
             end_time=end_time,
             warning_type=warning_type,
             limit=limit,
+            rule_row=rule_row,
+        )
+
+    def build_warning_group_audit_sql(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> str:
+        warning_case_sql = self._warning_case_sql(rule_row=rule_row)
+        warning_filter_sql = self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type)
+        clauses: list[str] = []
+        if city:
+            clauses.append(f"city = {SoilRepository._normalize_sql_literal(city)}")
+        if county:
+            clauses.append(f"county = {SoilRepository._normalize_sql_literal(county)}")
+        if sn:
+            clauses.append(f"sn = {SoilRepository._normalize_sql_literal(sn)}")
+        if start_time:
+            clauses.append(f"create_time >= {SoilRepository._normalize_sql_literal(start_time)}")
+        if end_time:
+            clauses.append(f"create_time <= {SoilRepository._normalize_sql_literal(end_time)}")
+        clauses.append(warning_filter_sql)
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        return (
+            "SELECT city, county,\n"
+            "       SUM(warning_level = 'heavy_drought') AS heavy_drought_count,\n"
+            "       SUM(warning_level = 'waterlogging') AS waterlogging_count,\n"
+            "       SUM(warning_level = 'device_fault') AS device_fault_count,\n"
+            "       COUNT(*) AS total_count,\n"
+            "       DATE_FORMAT(MAX(create_time), '%Y-%m-%d %H:%i:%s') AS latest_create_time\n"
+            "FROM (\n"
+            "    SELECT city, county, create_time,\n"
+            f"           {warning_case_sql} AS warning_level\n"
+            "    FROM fact_soil_moisture\n"
+            f"    {where_sql}\n"
+            ") AS warning_rows\n"
+            "GROUP BY city, county\n"
+            "ORDER BY total_count DESC, latest_create_time DESC, city ASC, county ASC"
+        )
+
+    def query_warning_group_by_region(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        for col, op, val in [
+            ("city", "=", city),
+            ("county", "=", county),
+            ("sn", "=", sn),
+            ("create_time", ">=", start_time),
+            ("create_time", "<=", end_time),
+        ]:
+            if val is not None:
+                clauses.append(f"{col} {op} %s")
+                params.append(val)
+        clauses.append(
+            self._pyformat_safe_sql_fragment(
+                self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type)
+            )
+        )
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        warning_case_sql = self._pyformat_safe_sql_fragment(self._warning_case_sql(rule_row=rule_row))
+        sql = f"""
+        SELECT city, county,
+               SUM(warning_level = 'heavy_drought') AS heavy_drought_count,
+               SUM(warning_level = 'waterlogging') AS waterlogging_count,
+               SUM(warning_level = 'device_fault') AS device_fault_count,
+               COUNT(*) AS total_count,
+               DATE_FORMAT(MAX(create_time), '%%Y-%%m-%%d %%H:%%i:%%s') AS latest_create_time
+        FROM (
+            SELECT city, county, create_time,
+                   {warning_case_sql} AS warning_level
+            FROM fact_soil_moisture
+            {where}
+        ) AS warning_rows
+        GROUP BY city, county
+        ORDER BY total_count DESC, latest_create_time DESC, city ASC, county ASC
+        """
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, tuple(params))
+                rows = cursor.fetchall()
+            return [dict(row) for row in rows]
+        except Exception as exc:
+            raise DatabaseQueryError(f"MySQL 查询预警区域分布失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def query_warning_group_by_region_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self.query_warning_group_by_region,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            rule_row=rule_row,
         )
 
     @staticmethod
@@ -1030,6 +1195,7 @@ class SoilRepository:
         start_time: str | None = None,
         end_time: str | None = None,
         warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         clauses: list[str] = []
         params: list[Any] = []
@@ -1048,16 +1214,18 @@ class SoilRepository:
         if end_time:
             clauses.append("create_time <= %s")
             params.append(end_time)
-        clauses.append(self._warning_filter_sql(warning_type))
+        clauses.append(
+            self._pyformat_safe_sql_fragment(
+                self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type)
+            )
+        )
 
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        warning_case_sql = self._pyformat_safe_sql_fragment(self._warning_case_sql(rule_row=rule_row))
         sql_total = f"SELECT COUNT(*) AS cnt FROM fact_soil_moisture {where}"
         sql_by_level = f"""
         SELECT
-            CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'
-                 WHEN water20cm < 50 THEN 'heavy_drought'
-                 WHEN water20cm >= 150 THEN 'waterlogging'
-                 ELSE 'normal' END AS warning_level,
+            {warning_case_sql} AS warning_level,
             COUNT(*) AS cnt
         FROM fact_soil_moisture {where}
         GROUP BY warning_level
@@ -1092,6 +1260,7 @@ class SoilRepository:
         start_time: str | None = None,
         end_time: str | None = None,
         warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         return await asyncio.to_thread(
             self.count_warning_records_by_region,
@@ -1101,4 +1270,5 @@ class SoilRepository:
             start_time=start_time,
             end_time=end_time,
             warning_type=warning_type,
+            rule_row=rule_row,
         )

@@ -50,7 +50,16 @@ const LEGACY_BLOCK_KEYS = new Set([
   'focus_devices_snapshot_id',
 ]);
 
-const GROUP_METRIC_FIELDS = ['alert_device_count', 'alert_record_count', 'latest_alert_time'];
+const GROUP_METRIC_FIELDS = [
+  'alert_device_count',
+  'alert_record_count',
+  'latest_alert_time',
+  'heavy_drought_count',
+  'waterlogging_count',
+  'device_fault_count',
+  'total_count',
+  'latest_create_time',
+];
 const CARD_META_FIELDS = ['count', 'measure', 'data_focus', 'field_mode', 'field', 'fields', 'values', 'aggregation', 'value', 'metric', 'compare_mode', 'winner', 'left_value', 'right_value'];
 
 function isPlainObject(value) {

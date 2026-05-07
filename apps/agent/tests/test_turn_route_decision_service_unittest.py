@@ -428,6 +428,18 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.subject, "warning")
         self.assertEqual(result.query_shape.action, "list")
 
+    def test_warning_group_route_with_time_signal(self) -> None:
+        result = self.service.decide(
+            message="最近7天哪些区域出现了预警信息",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
+        self.assertEqual(result.query_shape.subject, "warning")
+        self.assertEqual(result.query_shape.action, "group")
+
     def test_warning_count_route(self) -> None:
         result = self.service.decide(
             message="上周南通市有多少条预警记录",
@@ -490,6 +502,56 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertTrue(Svc._is_warning_disposal_query("上周预警处置进度"))
         self.assertFalse(Svc._is_warning_disposal_query("最近7天哪些区域出现预警"))
         self.assertFalse(Svc._is_warning_disposal_query("预警规则是什么"))
+
+    def test_device_registry_follow_up_distribution_from_count_context(self) -> None:
+        result = self.service.decide(
+            message="分布在哪里",
+            current_context={"topic_family": "device_registry", "query_state": {"capability": "device_registry_count"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_distribution")
+
+    def test_device_registry_follow_up_city_detail_from_distribution_context(self) -> None:
+        result = self.service.decide(
+            message="那南通呢",
+            current_context={"topic_family": "device_registry", "query_state": {"capability": "device_registry_distribution"}},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+
+    def test_warning_group_follow_up_city_keeps_group_route(self) -> None:
+        result = self.service.decide(
+            message="那徐州市呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(city="徐州市"),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
+
+    def test_warning_group_follow_up_type_refine_keeps_group_route(self) -> None:
+        result = self.service.decide(
+            message="那涝渍呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
+
+    def test_warning_disposal_follow_up_status_focus_keeps_disposal_route(self) -> None:
+        result = self.service.decide(
+            message="那已处理多少条呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_disposal"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_disposal")
 
     def test_is_warning_record_query_detection(self) -> None:
         from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc

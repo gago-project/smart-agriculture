@@ -64,6 +64,8 @@ class QueryProfile:
     list_target: str | None = None
     group_by: str | None = None
     top_n: int | None = None
+    warning_type: str | None = None
+    status_focus: str | None = None
 
 
 class QueryProfileResolverService:
@@ -98,6 +100,16 @@ class QueryProfileResolverService:
         field_mode, field_name, fields, aggregation = self._resolve_field_request(text)
         group_by = self._resolve_group_by(text, route_decision)
         top_n = self._resolve_top_n(text)
+        warning_type = self._resolve_warning_type(text) or self._inherited_warning_type(
+            route=route,
+            follow_up_mode=follow_up_mode,
+            prior_profile=prior_profile,
+        )
+        status_focus = self._resolve_status_focus(text) or self._inherited_status_focus(
+            route=route,
+            follow_up_mode=follow_up_mode,
+            prior_profile=prior_profile,
+        )
 
         answer_mode = "summary"
         result_grain = "aggregate"
@@ -187,6 +199,8 @@ class QueryProfileResolverService:
             list_target=list_target,
             group_by=group_by,
             top_n=top_n,
+            warning_type=warning_type,
+            status_focus=status_focus,
         )
 
     @staticmethod
@@ -306,6 +320,30 @@ class QueryProfileResolverService:
         return "alert_device_count" if data_focus == "warning_only" else "record_count"
 
     @staticmethod
+    def _resolve_warning_type(text: str) -> str | None:
+        normalized = str(text or "")
+        if "重旱" in normalized:
+            return "heavy_drought"
+        if "涝渍" in normalized:
+            return "waterlogging"
+        if "设备故障" in normalized:
+            return "device_fault"
+        return None
+
+    @staticmethod
+    def _resolve_status_focus(text: str) -> str | None:
+        normalized = str(text or "")
+        if "超时已处理" in normalized:
+            return "overtime_done"
+        if "超时待处理" in normalized:
+            return "overtime_pending"
+        if "已处理" in normalized:
+            return "done"
+        if "待处理" in normalized:
+            return "pending"
+        return None
+
+    @staticmethod
     def _resolve_compare_mode(text: str) -> str | None:
         normalized = str(text or "")
         if re.search(r"(最近|近)\s*[0-9一二两三四五六七八九十百]+\s*天.*和.*前\s*[0-9一二两三四五六七八九十百]+\s*天", normalized):
@@ -337,6 +375,30 @@ class QueryProfileResolverService:
         if follow_up_mode == "standalone" and route not in {"count", "compare"}:
             return None
         inherited = str(prior_profile.get("measure") or "")
+        return inherited or None
+
+    @staticmethod
+    def _inherited_warning_type(
+        *,
+        route: str,
+        follow_up_mode: str,
+        prior_profile: dict[str, Any],
+    ) -> str | None:
+        if follow_up_mode == "standalone" and route not in {"warning_group", "warning_list", "warning_count"}:
+            return None
+        inherited = str(prior_profile.get("warning_type") or "")
+        return inherited or None
+
+    @staticmethod
+    def _inherited_status_focus(
+        *,
+        route: str,
+        follow_up_mode: str,
+        prior_profile: dict[str, Any],
+    ) -> str | None:
+        if follow_up_mode == "standalone" and route != "warning_disposal":
+            return None
+        inherited = str(prior_profile.get("status_focus") or "")
         return inherited or None
 
     def _resolve_field_request(self, text: str) -> tuple[str | None, str | None, list[str], str | None]:

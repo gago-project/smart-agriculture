@@ -258,10 +258,18 @@ class SeedSoilRepository(SoilRepository):
             "rule_scope": "soil",
             "rule_definition_json": {
                 "rules": [
-                    {"warning_level": "heavy_drought", "condition": "water20cm < 50"},
-                    {"warning_level": "waterlogging", "condition": "water20cm >= 150"},
-                    {"warning_level": "device_fault", "condition": "water20cm = 0 and t20cm = 0"},
-                ]
+                    {"warning_level": "device_fault", "condition": "water20cm = 0 and t20cm = 0", "priority": 5},
+                    {"warning_level": "heavy_drought", "condition": "water20cm < 50", "priority": 10},
+                    {"warning_level": "waterlogging", "condition": "water20cm >= 150", "priority": 20},
+                ],
+                "seasonal_overrides": [
+                    {
+                        "name": "夏季涝渍暂停",
+                        "description": "每年6月1日至10月31日暂停涝渍预警",
+                        "period": {"month_start": 6, "day_start": 1, "month_end": 10, "day_end": 31},
+                        "suspended_warning_levels": ["waterlogging"],
+                    }
+                ],
             },
             "enabled": 1,
             "updated_at": "2026-04-13 23:59:59",
@@ -361,18 +369,24 @@ class SeedSoilRepository(SoilRepository):
         """Async county-level device distribution for tests."""
         return self.soil_device_county_distribution(city)
 
-    @staticmethod
-    def _warning_level_for_record(record: dict[str, Any]) -> str | None:
-        """Evaluate one seed row with the same threshold contract as the SQL path."""
-        water20 = record.get("water20cm")
-        t20 = record.get("t20cm")
-        if water20 == 0 and t20 == 0:
-            return "device_fault"
-        if isinstance(water20, (int, float)) and water20 < 50:
-            return "heavy_drought"
-        if isinstance(water20, (int, float)) and water20 >= 150:
-            return "waterlogging"
-        return None
+    def _warning_match_for_record(
+        self,
+        record: dict[str, Any],
+        *,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> str | None:
+        active_rule = rule_row or self.warning_rule_row()
+        match = self.warning_predicate_service.evaluate(
+            record,
+            active_rule,
+            record.get("create_time") or record.get("time"),
+        )
+        if not match.matched:
+            return None
+        if warning_type and match.warning_level != warning_type:
+            return None
+        return match.warning_level
 
     def query_warning_records(
         self,
@@ -384,6 +398,7 @@ class SeedSoilRepository(SoilRepository):
         end_time: str | None = None,
         warning_type: str | None = None,
         limit: int = 50,
+        rule_row: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Return seed warning rows using the same SQL-threshold semantics."""
         filtered: list[dict[str, Any]] = []
@@ -394,10 +409,12 @@ class SeedSoilRepository(SoilRepository):
             start_time=start_time,
             end_time=end_time,
         ):
-            warning_level = self._warning_level_for_record(record)
+            warning_level = self._warning_match_for_record(
+                record,
+                warning_type=warning_type,
+                rule_row=rule_row,
+            )
             if warning_level is None:
-                continue
-            if warning_type and warning_level != warning_type:
                 continue
             filtered.append(
                 {
@@ -422,6 +439,7 @@ class SeedSoilRepository(SoilRepository):
         end_time: str | None = None,
         warning_type: str | None = None,
         limit: int = 50,
+        rule_row: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """Async warning-row query for tests."""
         return self.query_warning_records(
@@ -432,6 +450,85 @@ class SeedSoilRepository(SoilRepository):
             end_time=end_time,
             warning_type=warning_type,
             limit=limit,
+            rule_row=rule_row,
+        )
+
+    def query_warning_group_by_region(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        grouped: dict[tuple[str, str], dict[str, Any]] = {}
+        for row in self.query_warning_records(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            limit=len(self.records),
+            rule_row=rule_row,
+        ):
+            key = (str(row.get("city") or ""), str(row.get("county") or ""))
+            bucket = grouped.setdefault(
+                key,
+                {
+                    "city": row.get("city"),
+                    "county": row.get("county"),
+                    "heavy_drought_count": 0,
+                    "waterlogging_count": 0,
+                    "device_fault_count": 0,
+                    "total_count": 0,
+                    "latest_create_time": row.get("create_time"),
+                },
+            )
+            level = str(row.get("warning_level") or "")
+            if level == "heavy_drought":
+                bucket["heavy_drought_count"] += 1
+            elif level == "waterlogging":
+                bucket["waterlogging_count"] += 1
+            elif level == "device_fault":
+                bucket["device_fault_count"] += 1
+            bucket["total_count"] += 1
+            latest = str(bucket.get("latest_create_time") or "")
+            current = str(row.get("create_time") or "")
+            if current > latest:
+                bucket["latest_create_time"] = current
+        return sorted(
+            grouped.values(),
+            key=lambda item: (
+                -int(item.get("total_count") or 0),
+                -int(str(item.get("latest_create_time") or "0").replace("-", "").replace(" ", "").replace(":", "")),
+                str(item.get("city") or ""),
+                str(item.get("county") or ""),
+            ),
+        )
+
+    async def query_warning_group_by_region_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return self.query_warning_group_by_region(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            rule_row=rule_row,
         )
 
     def count_warning_records_by_region(
@@ -443,6 +540,7 @@ class SeedSoilRepository(SoilRepository):
         start_time: str | None = None,
         end_time: str | None = None,
         warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Count seed warning rows with optional warning-type filtering."""
         rows = self.query_warning_records(
@@ -453,6 +551,7 @@ class SeedSoilRepository(SoilRepository):
             end_time=end_time,
             warning_type=warning_type,
             limit=len(self.records),
+            rule_row=rule_row,
         )
         by_level: dict[str, int] = {}
         for row in rows:
@@ -472,6 +571,7 @@ class SeedSoilRepository(SoilRepository):
         start_time: str | None = None,
         end_time: str | None = None,
         warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Async warning count for tests."""
         return self.count_warning_records_by_region(
@@ -481,4 +581,5 @@ class SeedSoilRepository(SoilRepository):
             start_time=start_time,
             end_time=end_time,
             warning_type=warning_type,
+            rule_row=rule_row,
         )

@@ -166,6 +166,7 @@ class TestWarningDisposalAnswer(unittest.IsolatedAsyncioTestCase):
         self.assertIn("内共出现 10 条墒情预警信息，处置情况如下", result["final_text"])
         self.assertIn("已处理 7 条，待处理 1 条，超时已处理 1 条，超时待处理 1 条。", result["final_text"])
         self.assertEqual(result["blocks"][0]["block_type"], "warning_disposal_card")
+        self.assertNotEqual(result["blocks"][0].get("display_mode"), "evidence_only")
         self.assertEqual(result["blocks"][0]["stats"], {"已处理": 7, "待处理": 1, "超时已处理": 1, "超时待处理": 1})
         self.assertEqual(result["query_log_entries"][0]["query_type"], "warning_disposal")
         self.assertIn("FROM warning_disposal_record", result["query_log_entries"][0]["executed_sql_text"])
@@ -195,6 +196,40 @@ class TestWarningDisposalAnswer(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["capability"], "warning_disposal")
         self.assertIn("内未查询到有效墒情预警信息，无对应处置数据", result["final_text"])
         self.assertEqual(result["blocks"][0]["total"], 0)
+
+    async def test_reply_warning_disposal_follow_up_status_focus_keeps_capability(self) -> None:
+        repository = WarningDisposalSeedRepository(
+            stats={
+                "total": 10,
+                "已处理": 7,
+                "待处理": 1,
+                "超时已处理": 1,
+                "超时待处理": 1,
+            }
+        )
+        service = DataAnswerService(repository=repository)
+
+        first = await service.reply(
+            message="最近30天全省预警处置情况怎么样",
+            session_id="warning-disposal-follow-up-status",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await service.reply(
+            message="那已处理多少条呢",
+            session_id="warning-disposal-follow-up-status",
+            turn_id=2,
+            current_context=first["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "warning_disposal")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["status_focus"], "done")
+        self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["follow_up_mode"], "inherit")
+        self.assertIn("已处理", follow_up["final_text"])
 
 
 if __name__ == "__main__":

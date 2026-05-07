@@ -372,6 +372,20 @@ class WarningRecordCursor:
         rendered = sql % params
         self.rendered = rendered
 
+    def fetchone(self):
+        return {
+            "rule_code": "soil_warning_v1",
+            "rule_name": "土壤墒情预警规则",
+            "rule_scope": "soil",
+            "rule_definition_json": (
+                '{"rules":[{"warning_level":"heavy_drought","condition":"water20cm < 50"},'
+                '{"warning_level":"waterlogging","condition":"water20cm >= 150"},'
+                '{"warning_level":"device_fault","condition":"water20cm = 0 and t20cm = 0"}]}'
+            ),
+            "enabled": 1,
+            "updated_at": "2026-04-30 00:00:00",
+        }
+
     def fetchall(self):
         return [
             {

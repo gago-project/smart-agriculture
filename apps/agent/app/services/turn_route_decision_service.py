@@ -78,6 +78,7 @@ _WARNING_RECORD_INTENT_TOKENS = (
 )
 _WARNING_DISPOSAL_SUBJECT_TOKENS = ("处置", "处理情况", "处置情况", "处置进度", "处置状态")
 _WARNING_DISPOSAL_INTENT_TOKENS = ("已处理", "待处理", "超时", "处置了多少", "处理了多少", "进度")
+_WARNING_GROUP_REGION_TOKENS = ("哪些区域", "哪些地区", "哪些地方", "哪些县区", "哪些区县", "有哪些区域", "有哪些地区", "有哪些地方")
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
@@ -138,6 +139,17 @@ class TurnRouteDecisionService:
             has_city_entity=has_city_entity,
             has_time_signal=has_time_signal,
         )
+        contextual_subject = None
+        if subject == "soil":
+            contextual_subject = self._contextual_follow_up_subject(
+                text=normalized_text,
+                current_context=context,
+                entities=extracted_entities,
+                time_evidence=time_evidence,
+            )
+            if contextual_subject:
+                subject = contextual_subject
+        subject_mode = "contextual" if contextual_subject else "standalone"
         if subject == "rule":
             return self._decision(
                 route="rule",
@@ -183,7 +195,7 @@ class TurnRouteDecisionService:
                     subject="warning_disposal",
                     action="stats",
                     grain="aggregate",
-                    mode="standalone",
+                    mode=subject_mode,
                 ),
                 reason_codes=("warning_disposal_query",),
                 entities=extracted_entities,
@@ -191,6 +203,22 @@ class TurnRouteDecisionService:
                     "time_start": getattr(time_evidence, "start_time", None),
                     "time_end": getattr(time_evidence, "end_time", None),
                 },
+                route_source="context" if contextual_subject else "direct",
+            )
+        if subject == "warning_group":
+            return self._decision(
+                route="warning_group",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="warning", action="group", grain="region", mode=subject_mode),
+                reason_codes=("warning_group_query",),
+                group_by="region",
+                entities=extracted_entities,
+                extra={
+                    "time_start": getattr(time_evidence, "start_time", None),
+                    "time_end": getattr(time_evidence, "end_time", None),
+                },
+                route_source="context" if contextual_subject else "direct",
             )
         if subject == "warning_record":
             count_tokens = ("多少条", "多少个", "多少台", "数量", "总计", "总共")
@@ -214,19 +242,21 @@ class TurnRouteDecisionService:
                 route="device_registry_county_detail",
                 normalized_text=normalized_text,
                 normalized_changed=normalized_changed,
-                query_shape=QueryShape(subject="device_registry", action="distribution", grain="county", mode="standalone"),
+                query_shape=QueryShape(subject="device_registry", action="distribution", grain="county", mode=subject_mode),
                 reason_codes=("device_registry_county_detail",),
                 entities=extracted_entities,
                 extra={"target_city": city},
+                route_source="context" if contextual_subject else "direct",
             )
         if subject == "device_registry_distribution":
             return self._decision(
                 route="device_registry_distribution",
                 normalized_text=normalized_text,
                 normalized_changed=normalized_changed,
-                query_shape=QueryShape(subject="device_registry", action="distribution", grain="city", mode="standalone"),
+                query_shape=QueryShape(subject="device_registry", action="distribution", grain="city", mode=subject_mode),
                 reason_codes=("device_registry_distribution",),
                 entities=extracted_entities,
+                route_source="context" if contextual_subject else "direct",
             )
         if subject == "device_registry":
             return self._decision(
@@ -518,6 +548,8 @@ class TurnRouteDecisionService:
             return "warning_rule"
         if TurnRouteDecisionService._is_warning_disposal_query(text):
             return "warning_disposal"
+        if TurnRouteDecisionService._is_warning_group_query(text, has_time_signal):
+            return "warning_group"
         if TurnRouteDecisionService._is_warning_record_query(text, has_time_signal):
             return "warning_record"
         if TurnRouteDecisionService._is_device_registry_county_detail_request(text, has_city_entity):
@@ -545,7 +577,13 @@ class TurnRouteDecisionService:
             return False
         if QueryProfileResolverService.is_compare_request(text):
             return False
+        if TurnRouteDecisionService._is_group_request(text):
+            return False
         if "点位是哪些" in text or "设备是哪些" in text:
+            return False
+        if any(token in text for token in ("有没有", "是否有")) and any(
+            token in text for token in ("点位", "设备", "地区", "地方", "区域")
+        ):
             return False
         return has_warning_word and (has_record_intent or has_time_signal)
 
@@ -563,6 +601,19 @@ class TurnRouteDecisionService:
         if has_rule_word:
             return False
         return has_disposal_subject or (has_warning_word and has_disposal_intent)
+
+    @staticmethod
+    def _is_warning_group_query(text: str, has_time_signal: bool) -> bool:
+        has_warning_word = any(token in text for token in _WARNING_RECORD_QUERY_TOKENS)
+        if not has_warning_word:
+            return False
+        if any(token in text for token in ("多少条", "多少个", "数量", "总共", "总计")):
+            return False
+        if QueryProfileResolverService.is_compare_request(text):
+            return False
+        return any(token in text for token in _WARNING_GROUP_REGION_TOKENS) or (
+            has_time_signal and "预警" in text and any(token in text for token in ("区域", "地区", "地方", "县区", "区县"))
+        )
 
     @staticmethod
     def _is_device_registry_distribution_request(text: str) -> bool:
@@ -586,6 +637,79 @@ class TurnRouteDecisionService:
         if "接入" in text:
             return True
         return any(t in text for t in _DEVICE_REGISTRY_COUNT_TOKENS)
+
+    def _contextual_follow_up_subject(
+        self,
+        *,
+        text: str,
+        current_context: dict[str, Any],
+        entities: dict[str, Any],
+        time_evidence: Any,
+    ) -> str | None:
+        topic_family = str(current_context.get("topic_family") or "")
+        query_state = current_context.get("query_state") or {}
+        capability = str(query_state.get("capability") or "")
+        has_explicit_scope = any(entities.get(key) for key in ("province", "city", "county", "sn"))
+        has_time_signal = bool(getattr(time_evidence, "has_time_signal", False))
+        has_soil_business_signal = any(token in text for token in ("墒情", "含水量", "记录", "详情", "明细", "汇总"))
+
+        if topic_family == "device_registry":
+            if capability == "device_registry_count" and self._is_device_registry_distribution_follow_up(text):
+                return "device_registry_distribution"
+            if capability == "device_registry_distribution" and has_explicit_scope and not has_time_signal and not has_soil_business_signal:
+                return "device_registry_county_detail"
+
+        if topic_family == "data" and capability == "warning_group":
+            if self._is_warning_group_contextual_follow_up(
+                text=text,
+                has_explicit_scope=has_explicit_scope,
+                has_time_signal=has_time_signal,
+            ):
+                return "warning_group"
+
+        if topic_family == "data" and capability == "warning_disposal":
+            if self._is_warning_disposal_contextual_follow_up(
+                text=text,
+                has_explicit_scope=has_explicit_scope,
+                has_time_signal=has_time_signal,
+            ):
+                return "warning_disposal"
+        return None
+
+    @staticmethod
+    def _is_device_registry_distribution_follow_up(text: str) -> bool:
+        normalized = str(text or "").strip()
+        return bool(normalized) and any(token in normalized for token in ("分布在哪里", "分布情况", "分布呢", "都分布在哪", "哪里有"))
+
+    @staticmethod
+    def _is_warning_group_contextual_follow_up(
+        *,
+        text: str,
+        has_explicit_scope: bool,
+        has_time_signal: bool,
+    ) -> bool:
+        normalized = str(text or "").strip()
+        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+            return True
+        if has_explicit_scope and (normalized.startswith(("那", "换成", "改成", "还是")) or normalized.endswith("呢")):
+            return True
+        if re.search(r"[\u4e00-\u9fa5]{2,8}(市|县|区)(?:呢)?$", normalized):
+            return True
+        return any(token in normalized for token in ("重旱", "涝渍", "设备故障")) and not has_time_signal
+
+    @staticmethod
+    def _is_warning_disposal_contextual_follow_up(
+        *,
+        text: str,
+        has_explicit_scope: bool,
+        has_time_signal: bool,
+    ) -> bool:
+        normalized = str(text or "").strip()
+        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+            return True
+        if any(token in normalized for token in _WARNING_DISPOSAL_INTENT_TOKENS):
+            return True
+        return has_explicit_scope and (normalized.startswith(("那", "换成", "改成", "还是")) or normalized.endswith("呢")) and not has_time_signal
 
     @staticmethod
     def _current_list_grain(context: dict[str, Any]) -> str:

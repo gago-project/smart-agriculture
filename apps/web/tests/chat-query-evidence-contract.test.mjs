@@ -60,6 +60,20 @@ test('count cards stay available for evidence but are not rendered in the main c
   assert.match(turnRendererSource, /block\?\.block_type !== 'count_card'/);
 });
 
+test('turn renderer supports visible device registry and warning disposal cards', () => {
+  const turnRendererSource = readFileSync(new URL('../workspace/components/TurnRenderer.tsx', import.meta.url), 'utf8');
+  const typeSource = readFileSync(new URL('../workspace/types/chat.ts', import.meta.url), 'utf8');
+
+  assert.match(typeSource, /device_registry_count_card/);
+  assert.match(typeSource, /device_registry_distribution_card/);
+  assert.match(typeSource, /device_registry_county_card/);
+  assert.match(typeSource, /warning_disposal_card/);
+  assert.match(turnRendererSource, /block\.block_type === 'device_registry_count_card'/);
+  assert.match(turnRendererSource, /block\.block_type === 'device_registry_distribution_card'/);
+  assert.match(turnRendererSource, /block\.block_type === 'device_registry_county_card'/);
+  assert.match(turnRendererSource, /block\.block_type === 'warning_disposal_card'/);
+});
+
 test('chat turn tables keep message width constrained and scroll horizontally', () => {
   const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 

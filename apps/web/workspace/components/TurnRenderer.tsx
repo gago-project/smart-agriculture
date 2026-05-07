@@ -232,6 +232,70 @@ function RuleBlock({ block }: { block: ChatBlock }) {
   );
 }
 
+function DeviceRegistryCountBlock({ block }: { block: ChatBlock }) {
+  return (
+    <section className="turn-block">
+      <header className="turn-block-header">
+        <strong>{block.title || '设备接入总数'}</strong>
+      </header>
+      <div className="turn-block-empty">
+        共接入 {toLabelValue(block.total_count)} 套土壤墒情仪
+        {block.city ? `，地区：${toLabelValue(block.city)}` : ''}
+        {block.county ? ` ${toLabelValue(block.county)}` : ''}
+      </div>
+    </section>
+  );
+}
+
+function DeviceRegistryDistributionBlock({ block }: { block: ChatBlock }) {
+  const rows = Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : [];
+  return (
+    <section className="turn-block">
+      <header className="turn-block-header">
+        <strong>{block.title || '设备城市分布'}</strong>
+        <span>{toLabelValue(block.total_count)} 套</span>
+      </header>
+      <BlockTable columns={['city', 'device_count']} rows={rows} />
+    </section>
+  );
+}
+
+function DeviceRegistryCountyBlock({ block }: { block: ChatBlock }) {
+  const rows = Array.isArray(block.rows) ? (block.rows as Array<Record<string, unknown>>) : [];
+  return (
+    <section className="turn-block">
+      <header className="turn-block-header">
+        <strong>{block.title || '设备区县分布'}</strong>
+        <span>{toLabelValue(block.total_count)} 台</span>
+      </header>
+      <BlockTable columns={['county', 'device_count']} rows={rows} />
+    </section>
+  );
+}
+
+function WarningDisposalBlock({ block }: { block: ChatBlock }) {
+  const stats =
+    block.stats && typeof block.stats === 'object' && !Array.isArray(block.stats)
+      ? (block.stats as Record<string, unknown>)
+      : null;
+  const rows = stats
+    ? Object.entries(stats).map(([status, count]) => ({
+        status,
+        count,
+      }))
+    : [];
+  return (
+    <section className="turn-block">
+      <header className="turn-block-header">
+        <strong>{block.title || '预警处置统计'}</strong>
+        <span>{timeWindowLabel(block.time_window)}</span>
+      </header>
+      <div className="turn-block-empty">总条数：{toLabelValue(block.total)}</div>
+      <BlockTable columns={['status', 'count']} rows={rows} />
+    </section>
+  );
+}
+
 function SimpleTextBlock({ block }: { block: ChatBlock }) {
   return (
     <section className="turn-block">
@@ -278,6 +342,18 @@ export function TurnRenderer({ turn }: { turn: ChatTurnView | null | undefined }
         }
         if (block.block_type === 'rule_card') {
           return <RuleBlock key={block.block_id} block={block} />;
+        }
+        if (block.block_type === 'device_registry_count_card') {
+          return <DeviceRegistryCountBlock key={block.block_id} block={block} />;
+        }
+        if (block.block_type === 'device_registry_distribution_card') {
+          return <DeviceRegistryDistributionBlock key={block.block_id} block={block} />;
+        }
+        if (block.block_type === 'device_registry_county_card') {
+          return <DeviceRegistryCountyBlock key={block.block_id} block={block} />;
+        }
+        if (block.block_type === 'warning_disposal_card') {
+          return <WarningDisposalBlock key={block.block_id} block={block} />;
         }
         if (block.block_type === 'template_card') {
           return null;
