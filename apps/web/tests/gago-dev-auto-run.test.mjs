@@ -63,5 +63,10 @@ test('frontend app wires gago-dev auto run off login completion and clears local
   assert.doesNotMatch(chatStoreSource, /doc-frontend-auth-v1/);
   assert.match(runnerHookSource, /buildSingleTurnSessionTitle/);
   assert.match(runnerHookSource, /turns\.length === 1/);
-  assert.match(runnerHookSource, /focusSession: sessionId === singleTurnSessionId/);
+  assert.match(runnerHookSource, /const createSessionRef = useRef/);
+  assert.match(runnerHookSource, /const sendQuestionRef = useRef/);
+  assert.match(runnerHookSource, /const switchSessionRef = useRef/);
+  assert.match(runnerHookSource, /await sendQuestionRef\.current/);
+  assert.match(runnerHookSource, /focusSession: true/);
+  assert.doesNotMatch(runnerHookSource, /\[createSession,\s*enabled,\s*isEnabled,\s*lastLoginAt,\s*sendQuestion,\s*switchSession,\s*username\]/);
 });
