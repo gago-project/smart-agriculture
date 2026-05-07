@@ -1,7 +1,22 @@
 export type ChatMode = 'business' | 'guidance' | 'fallback' | 'unknown';
 export type MessageRole = 'user' | 'assistant';
 export type MessageStatus = 'pending' | 'streaming' | 'done' | 'error';
-export type ChatCapability = 'summary' | 'list' | 'group' | 'detail' | 'compare' | 'count' | 'field' | 'rule' | 'template' | 'none';
+export type ChatCapability =
+  | 'summary'
+  | 'list'
+  | 'group'
+  | 'detail'
+  | 'compare'
+  | 'count'
+  | 'field'
+  | 'rule'
+  | 'template'
+  | 'warning_group'
+  | 'warning_disposal'
+  | 'device_registry_count'
+  | 'device_registry_distribution'
+  | 'device_registry_county_detail'
+  | 'none';
 export type ChatTurnContext = Record<string, unknown> | null;
 
 export interface ChatTopic {
@@ -35,6 +50,10 @@ export interface ChatBlock {
     | 'compare_card'
     | 'rule_card'
     | 'template_card'
+    | 'device_registry_count_card'
+    | 'device_registry_distribution_card'
+    | 'device_registry_county_card'
+    | 'warning_disposal_card'
     | 'guidance_card'
     | 'fallback_card';
   display_mode?: 'chat' | 'evidence_only';

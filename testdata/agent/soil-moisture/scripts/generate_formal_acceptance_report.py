@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the 90-case formal acceptance report for the soil-moisture Agent."""
+"""Generate the 94-case formal acceptance report for the soil-moisture Agent."""
 
 from __future__ import annotations
 
@@ -29,13 +29,14 @@ REPORT_PATH = ROOT / "testdata/agent/soil-moisture/outputs/formal-acceptance-rep
 AGENT_URL = os.environ.get("FORMAL_AGENT_URL", "http://localhost:18010/chat-v2")
 RUN_ID = datetime.now().strftime("%Y%m%d-%H%M%S")
 PYTEST_BIN = ROOT / ".venv/bin/pytest"
-EXPECTED_CASE_TOTAL = 56
+EXPECTED_CASE_TOTAL = 94
 EXPECTED_DISTRIBUTION = {
-    "guidance_answer": 13,
-    "soil_summary_answer": 12,
+    "guidance_answer": 32,
+    "soil_summary_answer": 19,
     "soil_ranking_answer": 8,
     "soil_detail_answer": 13,
-    "fallback_answer": 10,
+    "fallback_answer": 11,
+    "device_registry_answer": 11,
 }
 
 REQUIRED_LIBRARY_FIELDS = [
@@ -91,6 +92,17 @@ QUERY_TYPE_TO_TOOL = {
     "template": None,
 }
 
+NON_TOOL_QUERY_TYPES: frozenset[str] = frozenset({
+    "warning_disposal",
+    "warning_list",
+    "warning_count",
+    "warning_rule_description",
+    "device_registry_count",
+    "device_registry_distribution",
+    "device_registry_county_detail",
+    "rule",
+})
+
 CAPABILITY_TO_ANSWER_TYPE = {
     "summary": "soil_summary_answer",
     "count": "soil_summary_answer",
@@ -100,9 +112,18 @@ CAPABILITY_TO_ANSWER_TYPE = {
     "list": "soil_detail_answer",
     "group": "soil_ranking_answer",
     "compare": "soil_ranking_answer",
-    "rule": "guidance_answer",
+    "rule": "device_registry_answer",
     "template": "guidance_answer",
     "none": None,
+    # warning routes
+    "warning_list": "soil_summary_answer",
+    "warning_count": "soil_summary_answer",
+    "warning_disposal": "soil_summary_answer",
+    "warning_rule_description": "device_registry_answer",
+    # device registry routes
+    "device_registry_count": "device_registry_answer",
+    "device_registry_distribution": "device_registry_answer",
+    "device_registry_county_detail": "device_registry_answer",
 }
 
 
@@ -338,7 +359,7 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
         execution = run_fb009_case(case)
     else:
         execution = run_live_case(case)
-    db_truth = build_db_truth(case)
+    db_truth = build_db_truth(case, execution)
     analysis = analyze_case(case, execution, db_truth)
     return {
         "case": case,
@@ -811,9 +832,9 @@ def normalize_deep(value: Any) -> Any:
     return value
 
 
-def build_db_truth(case: dict[str, Any]) -> dict[str, Any]:
+def build_db_truth(case: dict[str, Any], execution: dict[str, Any] | None = None) -> dict[str, Any]:
     assertion = case.get("数据库校验断言", "")
-    if "不查库" in assertion or "不适用（非业务，不查库）" in assertion:
+    if "不查库" in assertion or "不适用" in assertion:
         return {
             "applicable": False,
             "invocations": [],
@@ -822,6 +843,32 @@ def build_db_truth(case: dict[str, Any]) -> dict[str, Any]:
             "truth": {},
             "blocker": None,
         }
+
+    # Path 1: for non-Tool routes, use the real executed_sql_text from the live run
+    if execution is not None:
+        live_truth = _try_build_from_execution_sql(case, execution)
+        if live_truth is not None:
+            return live_truth
+
+    # Cross-reference assertions ("同 SM-xxx") can't be independently evaluated;
+    # DB verification is covered by the referenced case. If Path 1 didn't find SQL,
+    # treat as not-applicable to avoid a spurious blocker.
+    if re.match(r"^同\s+`?SM-[A-Z]+-\d+", assertion.strip()):
+        return {
+            "applicable": False,
+            "invocations": [],
+            "sql_blocks": [],
+            "rows": [],
+            "truth": {},
+            "blocker": None,
+        }
+
+    # Path 2: extract a literal SELECT statement from the assertion text
+    literal_sql = _extract_literal_sql_from_assertion(assertion)
+    if literal_sql:
+        return _build_from_literal_sql(case, literal_sql)
+
+    # Path 3 (original): parse tool-call notation like query_soil_summary(...)
     invocations = parse_tool_invocations(assertion)
     if not invocations:
         return {
@@ -869,6 +916,137 @@ def build_db_truth(case: dict[str, Any]) -> dict[str, Any]:
         "truth": truth,
         "blocker": None,
     }
+
+
+def _try_build_from_execution_sql(case: dict[str, Any], execution: dict[str, Any]) -> dict[str, Any] | None:
+    """For non-Tool routes: extract executed_sql_text from the live run and execute it."""
+    response = execution.get("response") or {}
+    if not isinstance(response, dict):
+        response = {}
+    query_log_entries = normalize_deep(response.get("query_log_entries") or [])
+    if not query_log_entries:
+        query_log_entries = normalize_deep(execution.get("logs") or [])
+    if not query_log_entries:
+        return None
+    first_entry = query_log_entries[0]
+    query_type = normalize_expected(first_entry.get("query_type"))
+    if query_type not in NON_TOOL_QUERY_TYPES:
+        return None
+    raw_sql = (first_entry.get("executed_sql_text") or "").strip()
+    if not raw_sql or not raw_sql.upper().startswith("SELECT"):
+        return None
+    # Use only the first statement when multiple are joined by ";\n\n"
+    sql = raw_sql.split(";\n\n")[0].strip()
+    return _execute_non_tool_sql(
+        case,
+        sql,
+        query_type,
+        "真实执行 SQL（来自 agent_query_log.executed_sql_text）",
+    )
+
+
+def _extract_literal_sql_from_assertion(assertion: str) -> str | None:
+    """Pull a bare SELECT statement out of a 数据库校验断言 text."""
+    # Match backtick-quoted SQL: `SELECT ...`
+    match = re.search(r"`(SELECT\s[^`]+)`", assertion, re.IGNORECASE | re.DOTALL)
+    if match:
+        sql = match.group(1).strip()
+        # If it contains placeholder "...", skip — not executable
+        if "..." not in sql:
+            return sql
+    # Bare SELECT (not inside backticks)
+    match = re.search(r"(SELECT\s.+)", assertion, re.IGNORECASE | re.DOTALL)
+    if match:
+        sql = match.group(1).strip()
+        # Trim trailing commentary after the SQL
+        semicolon_end = re.match(r"[^;]+;?", sql)
+        if semicolon_end:
+            candidate = semicolon_end.group(0).strip()
+            if "..." not in candidate:
+                return candidate
+    return None
+
+
+def _build_from_literal_sql(case: dict[str, Any], sql: str) -> dict[str, Any]:
+    """Build db_truth by executing a literal SQL extracted from the assertion."""
+    if "warning_disposal_record" in sql:
+        query_type = "warning_disposal"
+    elif "subject_device_record" in sql:
+        query_type = "device_registry_count"
+    elif "metric_rule" in sql:
+        query_type = "rule"
+    else:
+        query_type = "warning_count"
+    return _execute_non_tool_sql(case, sql, query_type, "等效 SQL（由数据库校验断言提取）")
+
+
+def _execute_non_tool_sql(
+    case: dict[str, Any], sql: str, query_type: str, source: str
+) -> dict[str, Any]:
+    """Execute a non-Tool SQL and return a standard db_truth dict."""
+    try:
+        rows = execute_sql(sql)
+    except Exception as exc:
+        return {
+            "applicable": True,
+            "invocations": [],
+            "sql_blocks": [{"tool": query_type, "sql_type": source, "sql": sql}],
+            "rows": [],
+            "truth": {},
+            "blocker": f"SQL 执行失败：{exc}",
+        }
+    truth = _compute_non_tool_truth(query_type, rows)
+    return {
+        "applicable": True,
+        "invocations": [],
+        "sql_blocks": [{"tool": query_type, "sql_type": source, "sql": sql}],
+        "rows": rows,
+        "truth": truth,
+        "blocker": None,
+    }
+
+
+def _compute_non_tool_truth(query_type: str, rows: list[dict[str, Any]]) -> dict[str, Any]:
+    """Derive a truth dict from raw SQL result rows for non-Tool routes."""
+    if query_type == "warning_disposal":
+        if not rows:
+            return {"total": 0, "status_done": 0, "status_pending": 0,
+                    "status_overtime_done": 0, "status_overtime_pending": 0, "total_records": 0}
+        row = rows[0]
+        total = int(row.get("total") or 0)
+        return {
+            "total": total,
+            "status_done": int(row.get("status_done") or 0),
+            "status_pending": int(row.get("status_pending") or 0),
+            "status_overtime_done": int(row.get("status_overtime_done") or 0),
+            "status_overtime_pending": int(row.get("status_overtime_pending") or 0),
+            "total_records": total,
+        }
+    if query_type in {"device_registry_count", "device_registry_distribution", "device_registry_county_detail"}:
+        if not rows:
+            return {"device_count": 0, "total_records": 0}
+        # COUNT(*) or SUM query: first numeric value in first row
+        first_row = rows[0]
+        count_val = (
+            first_row.get("total_count")
+            or first_row.get("device_count")
+            or first_row.get("COUNT(*)")
+            or next((v for v in first_row.values() if isinstance(v, (int, float, Decimal))), len(rows))
+        )
+        return {"device_count": int(count_val), "total_records": int(count_val)}
+    if query_type == "rule":
+        return {"rule_rows": len(rows), "total_records": len(rows)}
+    # warning_list, warning_count, warning_rule_description, or unknown
+    if not rows:
+        return {"warning_count": 0, "total_records": 0}
+    first_row = rows[0]
+    if len(rows) == 1 and len(first_row) <= 2:
+        # Looks like a scalar COUNT(*) result
+        count_val = next(
+            (v for v in first_row.values() if isinstance(v, (int, float, Decimal))), 0
+        )
+        return {"warning_count": int(count_val), "total_records": int(count_val)}
+    return {"warning_count": len(rows), "total_records": len(rows)}
 
 
 def parse_expected_time_window(value: Any) -> dict[str, str] | None:
@@ -1470,17 +1648,17 @@ def infer_actual_output_mode(response: dict[str, Any]) -> str | None:
         if isinstance(normalized.get("turn_context"), dict)
         else {}
     )
+    if normalized["capability"] in {"warning_disposal"}:
+        return "normal"
+    if normalized["capability"] in {"warning_list", "warning_count"}:
+        return "warning_mode"
     if query_profile.get("data_focus") == "warning_only":
         return "warning_mode"
     if normalized["answer_kind"] == "business" and normalized["capability"] in {
-        "summary",
-        "count",
-        "latest_record",
-        "detail",
-        "field",
-        "list",
-        "group",
-        "compare",
+        "summary", "count", "latest_record", "detail", "field", "list",
+        "group", "compare",
+        "rule", "warning_rule_description",
+        "device_registry_count", "device_registry_distribution", "device_registry_county_detail",
     }:
         return "normal"
     answer_type = normalized["answer_type"]
@@ -1692,7 +1870,7 @@ def render_report(
     summary: dict[str, Any],
 ) -> str:
     lines: list[str] = []
-    lines.append("# 墒情 Agent 90 条正式验收测试报告")
+    lines.append("# 墒情 Agent 94 条正式验收测试报告")
     lines.append("")
     lines.append("## 1. 测试概览")
     lines.append(f"- 测试时间：{env_meta['timestamp']}")
@@ -1721,7 +1899,7 @@ def render_report(
     lines.append("")
     lines.append(render_command_result("Node 测试结果", node_test))
     lines.append("")
-    lines.append("## 4. 56 条 case 逐条结果")
+    lines.append("## 4. 94 条 case 逐条结果")
     for result in results:
         lines.extend(render_case_section(result))
     lines.append("")

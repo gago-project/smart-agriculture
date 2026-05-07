@@ -130,7 +130,7 @@ npm run qa:soil:formal
 
 ## 正式验收库结构
 
-正式库共 **90** 条，分布如下：
+正式库共 **94** 条，分布如下：
 
 | 章节 | 数量 | CaseID |
 |---|---:|---|
@@ -140,7 +140,7 @@ npm run qa:soil:formal
 | Detail Cases | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
 | Fallback Cases | 10 | `SM-FB-001 ~ SM-FB-010` |
 | Device Registry Cases | 11 | `SM-DEV-001 ~ SM-DEV-011` |
-| Warning Cases | 5 | `SM-WARN-001 ~ SM-WARN-005` |
+| Warning Cases | 9 | `SM-WARN-001 ~ SM-WARN-009` |
 
 ### 必须覆盖的重点
 
@@ -160,6 +160,9 @@ npm run qa:soil:formal
   - `unknown`：catch-all 兜底，未分类异常 / 非法 JSON / 未捕获 panic（FB-009）
 - device registry：总数 / 全省城市分布 / 指定城市县区分布 / 数据不可用 fallback
 - warning：规则说明 / 重旱规则变体 / 预警记录列表 / 按预警类型统计 / 涝渍存在性查询
+  - **处置查询**（SM-WARN-006~009）：全省 + 相对时间 / 城市 + 相对时间 / 城市 + 绝对月份 / 无数据（未来时间窗）
+  - 路由优先级：`warning_disposal` 在 `warning_record` 之前判断，不得混路由
+  - 四种状态顺序固定：`已处理 → 待处理 → 超时已处理 → 超时待处理`
 
 ---
 
@@ -169,9 +172,9 @@ npm run qa:soil:formal
 
 正式要求是：
 - 只维护一套正式库
-- 每次都全量跑完 90 条
+- 每次都全量跑完 94 条
 - 测试以单元测试为主
-- 顶层问法变体先补快速路由矩阵，再决定是否需要进入正式 90 条
+- 顶层问法变体先补快速路由矩阵，再决定是否需要进入正式 94 条
 
 ### 长文本回答必须保留
 
