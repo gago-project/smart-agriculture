@@ -2092,6 +2092,25 @@ class DataAnswerService:
         return f"{rule_name}（{rule_code}）：{'；'.join(fragments)}"
 
     @staticmethod
+    def _condition_to_chinese(condition: str) -> str:
+        """Render a raw SQL rule condition as human-readable Chinese. Falls back to raw condition."""
+        import re as _re
+        cond = condition.strip()
+        # Compound: "fieldA = 0 and fieldB = 0"
+        if " and " in cond.lower():
+            parts = [p.strip() for p in _re.split(r"\band\b", cond, flags=_re.IGNORECASE)]
+            all_zero = all(_re.fullmatch(r"\w+\s*=\s*0", p) for p in parts)
+            if all_zero:
+                return "含水量与温度同时为 0（疑似断电或故障）"
+        # Single field comparison: waterXXcm OP value
+        m = _re.fullmatch(r"water(\d+)cm\s*(<=|>=|<|>|=|!=)\s*(\d+(?:\.\d+)?)", cond)
+        if m:
+            depth, op, value = m.group(1), m.group(2), m.group(3)
+            op_map = {"<": "低于", "<=": "低于或等于", ">": "高于", ">=": "高于或等于", "=": "等于", "!=": "不等于"}
+            return f"表层（{depth}cm）相对含水量{op_map.get(op, op)} {value}%"
+        return cond
+
+    @staticmethod
     def _warning_type_from_text(text: str) -> str | None:
         normalized = str(text or "")
         if "重旱" in normalized:
@@ -5294,15 +5313,10 @@ class DataAnswerService:
             )
         rules, thresholds, rule_code, updated_at = self._warning_rule_thresholds(rule_row)
         lines = []
-        condition_desc = {
-            "water20cm < 50": "表层（20cm）相对含水量低于 50%",
-            "water20cm >= 150": "表层（20cm）相对含水量高于或等于 150%",
-            "water20cm = 0 and t20cm = 0": "表层含水量与温度同时为 0（疑似断电或故障）",
-        }
         for rule in rules:
             level = self._warning_level_label(rule.get("warning_level"))
             condition = str(rule.get("condition") or "")
-            lines.append(f"- {level}：{condition_desc.get(condition, condition)}")
+            lines.append(f"- {level}：{self._condition_to_chinese(condition)}")
         # Render seasonal overrides if present
         seasonal_lines: list[str] = []
         if rule_row:

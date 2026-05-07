@@ -1,6 +1,6 @@
-# 84 条真实问答库
+# 102 条真实问答库
 
-> 这份文件是 84 条真实问答的落库版本，和 90 条正式验收库分开维护。
+> 这份文件是 102 条真实问答的落库版本，和 94 条正式验收库分开维护。
 
 | ID | 分类 | 测试问题 | 主测能力 | 预期 |
 |---:|---|---|---|---|
@@ -88,3 +88,21 @@
 | 82 | 多轮 | 南通市土壤墒情仪分布情况 → 那最近7天南通市墒情怎么样？ | device -> soil same-entity standalone | 重点支持 |
 | 83 | 多轮 | 最近30天全省预警处置情况怎么样 → 那已处理多少条呢 | warning_disposal status focus follow-up | 重点支持 |
 | 84 | 多轮 | 最近30天全省预警处置情况怎么样 → 那徐州市呢 | warning_disposal region refine follow-up | 高风险 |
+| 85 | 基础信息/设备 | 目前平台一共接入了多少套土壤墒情监测设备 | device_registry_count 官方口径变体 | 支持 |
+| 86 | 澄清/边界 | 接入了多少台虫情监测设备 | non_soil_device 边界拦截 | 应边界 |
+| 87 | 基础信息/设备 | 全省的墒情仪都分布在哪些地方 | device_registry_distribution 口语变体 | 支持 |
+| 88 | 基础信息/设备 | 南通的墒情设备各县区有多少台 | 城市别名 + 区县全量分布 | 支持 |
+| 89 | 预警/规则 | 为什么6月到10月没有涝渍预警 | seasonal rule override 解释 | 高风险 |
+| 90 | 预警/规则 | 什么情况下会触发设备故障预警 | device_fault rule clause | 支持 |
+| 91 | 预警信息 | 2026年4月1日到4月13日哪些区域出现了预警信息 | warning_group 绝对时间窗 | 支持 |
+| 92 | 预警信息 | 2099年1月1日到1月31日哪些区域出现了预警信息 | warning_group 未来时间窗空结果 | 支持 |
+| 93 | 预警处置 | 最近30天全省预警处置情况怎么样 | warning_disposal 全省单轮直问 | 支持 |
+| 94 | 预警处置 | 上周南通市的预警处置进度如何 | warning_disposal 城市 + 相对时间 | 支持 |
+| 95 | 预警处置 | 2026年4月份徐州市处理了多少条预警 | warning_disposal 城市 + 绝对月份 | 支持 |
+| 96 | 预警处置 | 2099年1月1日到1月31日全省预警处置情况 | warning_disposal 未来时间窗空结果 | 支持 |
+| 97 | 多轮 | 最近7天哪些区域出现了预警信息？ → 那这些预警处置情况呢 | warning_group -> warning_disposal 同时间窗切换 | 高风险 |
+| 98 | 多轮 | 最近7天哪些区域出现了预警信息？ → 那徐州市的处置情况呢 | warning_group -> warning_disposal 地区 refine | 高风险 |
+| 99 | 多轮 | 最近7天哪些区域出现了预警信息？ → 那设备故障呢 | warning_group -> warning_type refine(device_fault) | 高风险 |
+| 100 | 多轮 | 最近30天全省预警处置情况怎么样 → 那待处理多少条呢 | warning_disposal status focus follow-up | 重点支持 |
+| 101 | 多轮 | 最近30天全省预警处置情况怎么样 → 目前预警规则是什么 | warning_disposal -> rule topic switch | 重点支持 |
+| 102 | 多轮 | 最近30天全省预警处置情况怎么样 → 目前平台接入了多少台土壤墒情仪 | warning_disposal -> device topic switch | 重点支持 |
