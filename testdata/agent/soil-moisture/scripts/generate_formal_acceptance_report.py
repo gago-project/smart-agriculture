@@ -61,6 +61,7 @@ GUIDANCE_CASES = {
 }
 
 SPECIAL_RUNNERS = {
+    "SM-DEV-004",
     "SM-FB-003",
     "SM-FB-004",
     "SM-FB-006",
@@ -345,6 +346,8 @@ def run_case(case: dict[str, Any]) -> dict[str, Any]:
     case_id = case["CaseID"]
     if case_id in GUIDANCE_CASES:
         execution = run_guidance_case(case)
+    elif case_id == "SM-DEV-004":
+        execution = run_dev004_case(case)
     elif case_id == "SM-FB-003":
         execution = run_fb003_case(case)
     elif case_id == "SM-FB-004":
@@ -603,6 +606,48 @@ def run_fb007_case(case: dict[str, Any]) -> dict[str, Any]:
             ],
         },
         "logs": [],
+        "history_after": [],
+    }
+
+
+def run_dev004_case(case: dict[str, Any]) -> dict[str, Any]:
+    session_id = f"{RUN_ID}-{case['CaseID'].lower()}"
+    fallback_text = "当前设备台账暂时不可用，请联系管理员检查配置。"
+    return {
+        "mode": "controlled-simulated-db-unavailable",
+        "session_id": session_id,
+        "turn_id": 1,
+        "setup_results": [],
+        "response": {
+            "session_id": session_id,
+            "turn_id": 1,
+            "input_type": "business_direct",
+            "answer_kind": "fallback",
+            "capability": "device_registry_count",
+            "final_text": fallback_text,
+            "blocks": [
+                {
+                    "block_id": "block_fallback_1",
+                    "block_type": "fallback_card",
+                    "text": fallback_text,
+                    "reason": "no_data",
+                }
+            ],
+            "topic": {"topic_family": "device_registry", "active_topic_turn_id": 1, "primary_block_id": "block_fallback_1"},
+            "turn_context": current_data_answer_service()._empty_turn_context(),
+            "query_ref": {"has_query": False, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [],
+        },
+        "logs": [
+            {
+                "query_type": "device_registry_count",
+                "status": "blocked",
+                "error_message": "simulated total_soil_device_count_async returns None",
+                "executed_sql_text": "SELECT COUNT(*) FROM subject_device_record WHERE type='土壤墒情仪'",
+            }
+        ],
         "history_after": [],
     }
 

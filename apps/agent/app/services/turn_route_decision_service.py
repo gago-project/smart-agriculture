@@ -40,7 +40,7 @@ DETAIL_HINT_TOKENS = ("详情", "明细")
 LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
 RANKING_MARKERS = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
-_DEVICE_REGISTRY_COUNT_TOKENS = ("墒情仪", "墒情监测设备", "台账")
+_DEVICE_REGISTRY_COUNT_TOKENS = ("墒情仪", "墒情设备", "墒情监测设备", "台账")
 _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS = ("多少", "总数", "总量", "总计", "数量")
 _DEVICE_REGISTRY_DISTRIBUTION_TOKENS = ("分布", "哪些地方", "哪些城市", "各地市", "各城市", "各市")
 _DEVICE_REGISTRY_COUNTY_TOKENS = ("分布情况", "县区分布", "各县区", "各区县")
@@ -265,6 +265,15 @@ class TurnRouteDecisionService:
                 normalized_changed=normalized_changed,
                 query_shape=QueryShape(subject="device_registry", action="count", grain="total", mode="standalone"),
                 reason_codes=("device_registry_count",),
+                entities=extracted_entities,
+            )
+        if subject == "non_soil_device":
+            return self._decision(
+                route="non_soil_device_hint",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="non_soil_device", action="guidance", grain="none", mode="standalone"),
+                reason_codes=("non_soil_device_query",),
                 entities=extracted_entities,
             )
 
@@ -562,6 +571,8 @@ class TurnRouteDecisionService:
             return "unsupported_derived"
         if TurnRouteDecisionService._is_device_registry_count_request(text):
             return "device_registry"
+        if TurnRouteDecisionService._is_non_soil_device_query(text):
+            return "non_soil_device"
         return "soil"
 
     @staticmethod
@@ -637,6 +648,12 @@ class TurnRouteDecisionService:
         if "接入" in text:
             return True
         return any(t in text for t in _DEVICE_REGISTRY_COUNT_TOKENS)
+
+    @staticmethod
+    def _is_non_soil_device_query(text: str) -> bool:
+        if not any(t in text for t in _NON_SOIL_DEVICE_TOKENS):
+            return False
+        return any(t in text for t in _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS) or "接入" in text
 
     def _contextual_follow_up_subject(
         self,
