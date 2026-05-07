@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { sendChat } from '../services/chatApi';
 import { useChatStore } from '../store/chatStore';
 import type { ChatResponse, Message, Session } from '../types/chat';
@@ -81,6 +81,7 @@ export function useChatActions() {
   } = useChatStore();
   const [isSending, setIsSending] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const isSendingRef = useRef(false);
 
   const activeSession = useMemo(
     () => sessions.find((session) => session.id === activeSessionId) ?? null,
@@ -155,10 +156,11 @@ export function useChatActions() {
   const sendQuestion = useCallback(
     async (rawQuestion: string, targetSessionId?: string, options?: SendQuestionOptions) => {
       const question = rawQuestion.trim();
-      if (!question || isSending) {
+      if (!question || isSendingRef.current) {
         return;
       }
 
+      isSendingRef.current = true;
       setIsSending(true);
       setError(null);
 
@@ -210,6 +212,7 @@ export function useChatActions() {
         });
         setError(message);
       } finally {
+        isSendingRef.current = false;
         setIsSending(false);
       }
     },
@@ -217,7 +220,6 @@ export function useChatActions() {
       activeSessionId,
       addMessage,
       createSession,
-      isSending,
       patchSession,
       selectAssistantMessageInStore,
       switchSession,

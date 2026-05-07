@@ -60,7 +60,22 @@ export function useGagoDevAutoRunner({
     message: null,
   });
   const lastRunMarkerRef = useRef<number | null>(null);
+  const createSessionRef = useRef(createSession);
+  const sendQuestionRef = useRef(sendQuestion);
+  const switchSessionRef = useRef(switchSession);
   const isEnabled = enabled && username === GAGO_DEV_USERNAME;
+
+  useEffect(() => {
+    createSessionRef.current = createSession;
+  }, [createSession]);
+
+  useEffect(() => {
+    sendQuestionRef.current = sendQuestion;
+  }, [sendQuestion]);
+
+  useEffect(() => {
+    switchSessionRef.current = switchSession;
+  }, [switchSession]);
 
   useEffect(() => {
     if (!isEnabled || !lastLoginAt) {
@@ -93,11 +108,10 @@ export function useGagoDevAutoRunner({
       const singleTurnCases = library.cases.filter((testCase) => testCase.turns.length === 1);
       let singleTurnSessionId: string | null = null;
       if (singleTurnCases.length > 0) {
-        singleTurnSessionId = await createSession(buildSingleTurnSessionTitle(singleTurnCases.length), { activate: true });
+        singleTurnSessionId = await createSessionRef.current(buildSingleTurnSessionTitle(singleTurnCases.length), { activate: true });
       }
 
       let completedCases = 0;
-      let firstBackgroundSessionId: string | null = null;
 
       setStatus({
         enabled: true,
@@ -105,7 +119,7 @@ export function useGagoDevAutoRunner({
         totalCases: library.totalCount,
         completedCases,
         currentLabel: null,
-        message: `已加载 ${library.totalCount} 条真实问答，正在自动执行...`,
+        message: `已加载 ${library.totalCount} 条真实问答，正在按顺序逐条发问并展示回答...`,
       });
 
       for (const testCase of library.cases) {
@@ -117,14 +131,13 @@ export function useGagoDevAutoRunner({
         const sessionId =
           turns.length === 1
             ? singleTurnSessionId
-            : await createSession(buildMultiTurnSessionTitle(testCase), { activate: false });
+            : await createSessionRef.current(buildMultiTurnSessionTitle(testCase), { activate: false });
 
         if (!sessionId) {
           continue;
         }
-        if (!firstBackgroundSessionId && turns.length > 1) {
-          firstBackgroundSessionId = sessionId;
-        }
+
+        switchSessionRef.current(sessionId);
 
         for (let turnIndex = 0; turnIndex < turns.length; turnIndex += 1) {
           if (cancelled) {
@@ -139,12 +152,12 @@ export function useGagoDevAutoRunner({
             currentLabel: buildCurrentLabel(testCase, turnIndex),
             message:
               turns.length === 1
-                ? '单轮真实问答正在汇总到同一个会话中。'
-                : '多轮真实问答会单独使用一个会话，避免链路相互污染。',
+                ? '单轮真实问答会在当前会话里逐条展示，便于直接观察上下文和回答效果。'
+                : '多轮真实问答会单独使用一个会话，并切到当前会话逐轮展示。',
           });
 
-          await sendQuestion(turns[turnIndex], sessionId, {
-            focusSession: sessionId === singleTurnSessionId,
+          await sendQuestionRef.current(turns[turnIndex], sessionId, {
+            focusSession: true,
           });
         }
 
@@ -157,12 +170,6 @@ export function useGagoDevAutoRunner({
           currentLabel: turns[turns.length - 1] ?? testCase.question,
           message: `已完成 ${completedCases}/${library.totalCount} 条真实问答。`,
         });
-      }
-
-      if (singleTurnSessionId) {
-        switchSession(singleTurnSessionId);
-      } else if (firstBackgroundSessionId) {
-        switchSession(firstBackgroundSessionId);
       }
 
       setStatus({
@@ -190,7 +197,7 @@ export function useGagoDevAutoRunner({
     return () => {
       cancelled = true;
     };
-  }, [createSession, enabled, isEnabled, lastLoginAt, sendQuestion, switchSession, username]);
+  }, [isEnabled, lastLoginAt]);
 
   return isEnabled
     ? status
