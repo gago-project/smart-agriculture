@@ -206,6 +206,19 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.action, "compare")
         self.assertEqual(result.query_shape.mode, "standalone")
 
+    def test_warning_metric_compare_query_routes_to_compare(self) -> None:
+        result = self.service.decide(
+            message="徐州和南通最近30天哪个预警点位更多",
+            current_context={},
+            entities=_entities(city="徐州市"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+
+        self.assertEqual(result.route, "compare")
+        self.assertEqual(result.query_shape.action, "compare")
+        self.assertEqual(result.query_shape.mode, "standalone")
+
     def test_safe_hint_route_is_used_before_summary_when_signals_are_absent(self) -> None:
         result = self.service.decide(
             message="比你好",
@@ -436,6 +449,47 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
             action_result=FollowUpActionResult(),
         )
         self.assertEqual(result.route, "warning_rule_description")
+
+    def test_warning_disposal_route_basic_query(self) -> None:
+        result = self.service.decide(
+            message="最近30天全省预警处置情况怎么样",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_disposal")
+        self.assertEqual(result.query_shape.subject, "warning_disposal")
+        self.assertEqual(result.query_shape.action, "stats")
+
+    def test_warning_disposal_route_with_city_entity(self) -> None:
+        result = self.service.decide(
+            message="上周南通市的预警处置进度如何",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_disposal")
+
+    def test_warning_disposal_route_has_priority_over_warning_record(self) -> None:
+        result = self.service.decide(
+            message="最近30天超时未处理的预警有多少",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_disposal")
+
+    def test_is_warning_disposal_query_detection(self) -> None:
+        from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc
+
+        self.assertTrue(Svc._is_warning_disposal_query("最近30天预警处置情况"))
+        self.assertTrue(Svc._is_warning_disposal_query("已处理多少条预警"))
+        self.assertTrue(Svc._is_warning_disposal_query("上周预警处置进度"))
+        self.assertFalse(Svc._is_warning_disposal_query("最近7天哪些区域出现预警"))
+        self.assertFalse(Svc._is_warning_disposal_query("预警规则是什么"))
 
     def test_is_warning_record_query_detection(self) -> None:
         from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc

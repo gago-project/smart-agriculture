@@ -76,6 +76,8 @@ _WARNING_RECORD_INTENT_TOKENS = (
     "预警情况",
     "预警数据",
 )
+_WARNING_DISPOSAL_SUBJECT_TOKENS = ("处置", "处理情况", "处置情况", "处置进度", "处置状态")
+_WARNING_DISPOSAL_INTENT_TOKENS = ("已处理", "待处理", "超时", "处置了多少", "处理了多少", "进度")
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
@@ -171,6 +173,24 @@ class TurnRouteDecisionService:
                 query_shape=QueryShape(subject="warning_rule", action="describe", grain="none", mode="standalone"),
                 reason_codes=("warning_rule_query",),
                 entities=extracted_entities,
+            )
+        if subject == "warning_disposal":
+            return self._decision(
+                route="warning_disposal",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(
+                    subject="warning_disposal",
+                    action="stats",
+                    grain="aggregate",
+                    mode="standalone",
+                ),
+                reason_codes=("warning_disposal_query",),
+                entities=extracted_entities,
+                extra={
+                    "time_start": getattr(time_evidence, "start_time", None),
+                    "time_end": getattr(time_evidence, "end_time", None),
+                },
             )
         if subject == "warning_record":
             count_tokens = ("多少条", "多少个", "多少台", "数量", "总计", "总共")
@@ -496,6 +516,8 @@ class TurnRouteDecisionService:
             return "template"
         if TurnRouteDecisionService._is_warning_rule_query(text):
             return "warning_rule"
+        if TurnRouteDecisionService._is_warning_disposal_query(text):
+            return "warning_disposal"
         if TurnRouteDecisionService._is_warning_record_query(text, has_time_signal):
             return "warning_record"
         if TurnRouteDecisionService._is_device_registry_county_detail_request(text, has_city_entity):
@@ -521,9 +543,26 @@ class TurnRouteDecisionService:
         has_rule_word = any(token in text for token in _WARNING_RULE_QUERY_TOKENS)
         if has_rule_word:
             return False
+        if QueryProfileResolverService.is_compare_request(text):
+            return False
         if "点位是哪些" in text or "设备是哪些" in text:
             return False
         return has_warning_word and (has_record_intent or has_time_signal)
+
+    @staticmethod
+    def _is_warning_disposal_query(text: str) -> bool:
+        """
+        预警处置查询：用户关心的是预警是否被处理/处置进度，而非预警事件本身。
+        必须含处置主题词，或含预警词 + 处置意图词。
+        规则相关问题优先返回 False（由 warning_rule 路由处理）。
+        """
+        has_disposal_subject = any(token in text for token in _WARNING_DISPOSAL_SUBJECT_TOKENS)
+        has_warning_word = any(token in text for token in _WARNING_RECORD_QUERY_TOKENS)
+        has_disposal_intent = any(token in text for token in _WARNING_DISPOSAL_INTENT_TOKENS)
+        has_rule_word = any(token in text for token in _WARNING_RULE_QUERY_TOKENS)
+        if has_rule_word:
+            return False
+        return has_disposal_subject or (has_warning_word and has_disposal_intent)
 
     @staticmethod
     def _is_device_registry_distribution_request(text: str) -> bool:

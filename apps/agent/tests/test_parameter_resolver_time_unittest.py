@@ -179,6 +179,32 @@ class ParameterResolverTimeContractTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.resolved_args["start_time"], "2026-04-01 00:00:00")
         self.assertEqual(result.resolved_args["end_time"], "2026-04-10 23:59:59")
 
+    async def test_future_absolute_window_can_be_allowed_for_empty_result_queries(self) -> None:
+        resolver = ParameterResolverService()
+
+        result = await resolver.resolve(
+            "query_soil_summary",
+            {
+                "start_time": "2099-01-01 00:00:00",
+                "end_time": "2099-01-31 23:59:59",
+            },
+            latest_business_time="2026-04-13 23:59:17",
+            user_input="2099年1月1日到1月31日全省预警处置情况怎么样",
+            time_evidence=TimeWindowResolution(
+                matched=True,
+                has_time_signal=True,
+                time_source="rule_absolute",
+                start_time="2099-01-01 00:00:00",
+                end_time="2099-01-31 23:59:59",
+            ),
+            allow_future_end_time=True,
+        )
+
+        self.assertFalse(result.should_clarify)
+        self.assertEqual(result.resolved_args["start_time"], "2099-01-01 00:00:00")
+        self.assertEqual(result.resolved_args["end_time"], "2099-01-31 23:59:59")
+        self.assertEqual(result.time_source, "rule_absolute")
+
 
 if __name__ == "__main__":
     unittest.main()

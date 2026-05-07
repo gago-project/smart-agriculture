@@ -674,6 +674,7 @@ class ParameterResolverService:
         *,
         time_evidence: TimeWindowResolution | None,
         inherited_time_window: dict[str, str] | None,
+        allow_future_end_time: bool = False,
     ) -> tuple[dict[str, Any], str, list[str], bool, str, str | None]:
         """Resolve the final executable time window."""
         warnings: list[str] = []
@@ -695,6 +696,7 @@ class ParameterResolverService:
                 latest_business_time=lbt,
                 warnings=warnings,
                 time_source=evidence.time_source or "rule_relative",
+                allow_future_end_time=allow_future_end_time,
             )
 
         if not evidence.has_time_signal and inherited_time_window:
@@ -708,6 +710,7 @@ class ParameterResolverService:
                     latest_business_time=lbt,
                     warnings=warnings,
                     time_source="history_inherited",
+                    allow_future_end_time=allow_future_end_time,
                 )
 
         default_time_window = self._default_time_window(
@@ -721,6 +724,7 @@ class ParameterResolverService:
                 latest_business_time=lbt,
                 warnings=warnings,
                 time_source="llm_absolute",
+                allow_future_end_time=allow_future_end_time,
             )
 
         if not evidence.has_time_signal and default_time_window is not None:
@@ -731,6 +735,7 @@ class ParameterResolverService:
                 latest_business_time=lbt,
                 warnings=warnings,
                 time_source=str(default_time_window["time_source"]),
+                allow_future_end_time=allow_future_end_time,
             )
 
         if raw_start and raw_end and not evidence.has_time_signal:
@@ -743,6 +748,7 @@ class ParameterResolverService:
                 latest_business_time=lbt,
                 warnings=warnings,
                 time_source="llm_absolute",
+                allow_future_end_time=allow_future_end_time,
             )
 
         if evidence.has_time_signal:
@@ -806,6 +812,7 @@ class ParameterResolverService:
         latest_business_time: datetime | None,
         warnings: list[str],
         time_source: str,
+        allow_future_end_time: bool = False,
     ) -> tuple[dict[str, Any], str, list[str], bool, str, str | None]:
         start_dt = self._parse_datetime(time_args.get("start_time"))
         end_dt = self._parse_datetime(time_args.get("end_time"))
@@ -813,7 +820,7 @@ class ParameterResolverService:
             return {}, CONFIDENCE_LOW, warnings, True, f"时间格式不正确。{self._base_time_clarify_message()}", time_source
         if start_dt > end_dt:
             return {}, CONFIDENCE_LOW, warnings, True, f"开始时间不能晚于结束时间。{self._base_time_clarify_message()}", time_source
-        if latest_business_time is not None:
+        if latest_business_time is not None and not allow_future_end_time:
             latest_day_end = datetime(
                 latest_business_time.year,
                 latest_business_time.month,
@@ -836,6 +843,7 @@ class ParameterResolverService:
         user_input: str = "",
         time_evidence: TimeWindowResolution | None = None,
         inherited_time_window: dict[str, str] | None = None,
+        allow_future_end_time: bool = False,
     ) -> ResolvedParams:
         """Normalize and validate raw LLM tool args. Returns ResolvedParams with confidence."""
         del user_input
@@ -853,6 +861,7 @@ class ParameterResolverService:
             latest_business_time,
             time_evidence=time_evidence,
             inherited_time_window=inherited_time_window,
+            allow_future_end_time=allow_future_end_time,
         )
 
         all_warnings = entity_resolution.warnings + time_warnings

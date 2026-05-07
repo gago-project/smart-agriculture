@@ -917,6 +917,110 @@ class SoilRepository:
             limit=limit,
         )
 
+    @staticmethod
+    def build_warning_disposal_audit_sql(
+        city: str | None = None,
+        county: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> str:
+        clauses = ["pub_status IN (1,2,3,4)"]
+        if city:
+            clauses.append(f"city = {SoilRepository._normalize_sql_literal(city)}")
+        if county:
+            clauses.append(f"county = {SoilRepository._normalize_sql_literal(county)}")
+        if start_time:
+            clauses.append(f"warn_time >= {SoilRepository._normalize_sql_literal(start_time)}")
+        if end_time:
+            clauses.append(f"warn_time <= {SoilRepository._normalize_sql_literal(end_time)}")
+        where = "WHERE " + " AND ".join(clauses)
+        return (
+            "SELECT\n"
+            "  COUNT(*) AS total,\n"
+            "  SUM(pub_status = 3) AS status_done,\n"
+            "  SUM(pub_status = 1) AS status_pending,\n"
+            "  SUM(pub_status = 4) AS status_overtime_done,\n"
+            "  SUM(pub_status = 2) AS status_overtime_pending\n"
+            "FROM warning_disposal_record\n"
+            f"{where}"
+        )
+
+    def query_warning_disposal_stats(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
+        clauses: list[str] = ["pub_status IN (1,2,3,4)"]
+        params: list[Any] = []
+        for column, value in [("city", city), ("county", county)]:
+            if value:
+                clauses.append(f"{column} = %s")
+                params.append(value)
+        if start_time:
+            clauses.append("warn_time >= %s")
+            params.append(start_time)
+        if end_time:
+            clauses.append("warn_time <= %s")
+            params.append(end_time)
+        where = "WHERE " + " AND ".join(clauses)
+        sql = f"""
+        SELECT
+            COUNT(*) AS total,
+            SUM(pub_status = 3) AS status_done,
+            SUM(pub_status = 1) AS status_pending,
+            SUM(pub_status = 4) AS status_overtime_done,
+            SUM(pub_status = 2) AS status_overtime_pending
+        FROM warning_disposal_record
+        {where}
+        """
+        empty_stats = {
+            "total": 0,
+            "已处理": 0,
+            "待处理": 0,
+            "超时已处理": 0,
+            "超时待处理": 0,
+        }
+        connection = self._connect()
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, tuple(params))
+                row = cursor.fetchone()
+            if not row:
+                return empty_stats
+            return {
+                "total": int(row.get("total") or 0),
+                "已处理": int(row.get("status_done") or 0),
+                "待处理": int(row.get("status_pending") or 0),
+                "超时已处理": int(row.get("status_overtime_done") or 0),
+                "超时待处理": int(row.get("status_overtime_pending") or 0),
+            }
+        except Exception as exc:
+            message = str(exc)
+            if "warning_disposal_record" in message and ("1146" in message or "doesn't exist" in message):
+                return empty_stats
+            raise DatabaseQueryError(f"MySQL 查询预警处置统计失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def query_warning_disposal_stats_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+    ) -> dict[str, Any]:
+        return await asyncio.to_thread(
+            self.query_warning_disposal_stats,
+            city=city,
+            county=county,
+            start_time=start_time,
+            end_time=end_time,
+        )
+
     def count_warning_records_by_region(
         self,
         *,

@@ -261,6 +261,14 @@ class DataAnswerService:
                 turn_id=turn_id,
                 current_context=context,
             )
+        if route_decision.route == "warning_disposal":
+            return await self._reply_warning_disposal(
+                message=text,
+                route_decision=route_decision,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
         if route_decision.route == "unsupported_derived":
             return self._build_guidance_response(
                 turn_id=turn_id,
@@ -1695,6 +1703,7 @@ class DataAnswerService:
         allow_inherit_entities: bool = True,
         turn_id: int,
         require_time: bool = True,
+        allow_future_end_time: bool = False,
     ) -> tuple[dict[str, Any], dict[str, Any], list[dict[str, Any]], dict[str, Any]]:
         latest_business_time = await self._latest_business_time()
         entities = await self._extract_entities(message)
@@ -1773,6 +1782,7 @@ class DataAnswerService:
                 user_input=message,
                 time_evidence=time_evidence,
                 inherited_time_window=inherited_time_window,
+                allow_future_end_time=allow_future_end_time,
             )
             if resolved.should_clarify:
                 raise ValueError(resolved.clarify_message or "当前查询条件还不够明确，请补充后再试。")
@@ -1863,6 +1873,7 @@ class DataAnswerService:
             allow_inherit_entities=allow_inherit_entities,
             turn_id=turn_id,
             require_time=True,
+            allow_future_end_time=False,
         )
 
     @staticmethod
@@ -2514,11 +2525,12 @@ class DataAnswerService:
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
         try:
-            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters_with_policy(
                 message=message,
                 tool_name="query_soil_summary",
                 current_context=current_context,
                 turn_id=turn_id,
+                allow_future_end_time=True,
             )
         except ValueError as exc:
             return await self._build_filter_clarification_response(
@@ -3498,11 +3510,12 @@ class DataAnswerService:
     ) -> dict[str, Any]:
         snapshot_config = self._list_snapshot_config(list_target)
         try:
-            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters_with_policy(
                 message=message,
                 tool_name="query_soil_summary",
                 current_context=current_context,
                 turn_id=turn_id,
+                allow_future_end_time=True,
             )
         except ValueError as exc:
             return await self._build_filter_clarification_response(
@@ -5521,6 +5534,167 @@ class DataAnswerService:
                         "warning_rule_brief": warning_rule_brief,
                     },
                     result_digest={"count": total_count, "by_warning_level": by_warning_level},
+                )
+            ],
+        }
+
+    async def _reply_warning_disposal(
+        self,
+        *,
+        message: str,
+        route_decision: Any,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        try:
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters_with_policy(
+                message=message,
+                tool_name="query_soil_summary",
+                current_context=current_context,
+                turn_id=turn_id,
+                allow_future_end_time=True,
+            )
+        except ValueError as exc:
+            return await self._build_filter_clarification_response(
+                message=message,
+                turn_id=turn_id,
+                current_context=current_context,
+                capability="warning_disposal",
+                grain="aggregate",
+                clarify_text=str(exc),
+            )
+
+        time_window = {
+            "start_time": time_window.get("start_time") or (route_decision.extra or {}).get("time_start"),
+            "end_time": time_window.get("end_time") or (route_decision.extra or {}).get("time_end"),
+            "source": time_window.get("source") or "explicit",
+        }
+        city = resolved_args.get("city")
+        county = resolved_args.get("county")
+        stats = await self.repository.query_warning_disposal_stats_async(
+            city=city,
+            county=county,
+            start_time=time_window.get("start_time"),
+            end_time=time_window.get("end_time"),
+        )
+        status_order = ["已处理", "待处理", "超时已处理", "超时待处理"]
+        total = int(stats.get("total") or 0)
+        scope_label = self._entity_label(resolved_entities) or "全省"
+        range_label = self._scoped_range_label(scope_label, time_window)
+        if total == 0:
+            final_text = f"{range_label}内未查询到有效墒情预警信息，无对应处置数据。"
+        else:
+            status_lines = "，".join(f"{name} {int(stats.get(name) or 0)} 条" for name in status_order)
+            final_text = (
+                f"{range_label}内共出现 {total} 条墒情预警信息，处置情况如下：\n"
+                f"{status_lines}。"
+            )
+
+        block_id = f"block_warning_disposal_{turn_id}"
+        block = {
+            "block_id": block_id,
+            "block_type": "warning_disposal_card",
+            "display_mode": "evidence_only",
+            "title": "预警处置统计",
+            "total": total,
+            "stats": {name: int(stats.get(name) or 0) for name in status_order},
+            "time_window": time_window,
+            "region": {"city": city, "county": county},
+        }
+        audit_sql = self.repository.build_warning_disposal_audit_sql(
+            city=city,
+            county=county,
+            start_time=time_window.get("start_time"),
+            end_time=time_window.get("end_time"),
+        )
+        route_metadata = self._query_profile_route_metadata(route="warning_disposal", action="stats")
+        follow_up_mode = self._query_profile_follow_up_mode(
+            route_metadata=route_metadata,
+            operation=resolution_meta["operation"],
+        )
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route_metadata=route_metadata,
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=follow_up_mode,
+        )
+        query_spec = {
+            "spec_id": f"qs_{turn_id}_warning_disposal",
+            "dataset": "warning_disposal_record",
+            "capability": "warning_disposal",
+            "grain": "aggregate",
+            "time_window": time_window,
+            "entities": {
+                "city": [city] if city else [],
+                "county": [county] if county else [],
+                "sn": [],
+            },
+            "filters": {},
+            "sort": {},
+            "page": {"page": 1, "page_size": 1},
+            "provenance": {
+                "source_turn_id": turn_id,
+                "follow_up_mode": follow_up_mode,
+            },
+        }
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="warning_disposal",
+            grain="aggregate",
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=resolution_meta["parent_target_key"],
+            result_refs=self._build_result_refs(turn_id=turn_id, block=block),
+            replace_history=resolution_meta["operation"] == "correct_slot",
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "business",
+            "capability": "warning_disposal",
+            "final_text": final_text,
+            "blocks": [block],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type="warning_disposal",
+                    query_spec=query_spec,
+                    executed_sql_text=audit_sql,
+                    row_count=1,
+                    snapshot_id=None,
+                    time_window=time_window,
+                    filters={"city": city, "county": county},
+                    executed_result=stats,
+                    result_digest={"total": total},
                 )
             ],
         }

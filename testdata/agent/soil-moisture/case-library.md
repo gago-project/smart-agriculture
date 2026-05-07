@@ -1,15 +1,15 @@
-# 墒情 Agent Case Library（90 条正式验收 Case）
+# 墒情 Agent Case Library（94 条正式验收 Case）
 
 > **架构版本**：deterministic `/chat-v2` 数据回答链路（`InputGuard → RouteDecision → QueryProfile/ParameterResolver → DataAnswerService → QueryLog`）。
 >  
 > **唯一正式入口**：本文件是当前 `soil-moisture` Agent 的唯一正式验收库。所有正式 Case 的新增、删减、修订都只改这里。
 >
 > **测试原则**：
-> - 每次验收都全量跑完全部 `90` 条 Case。
+> - 每次验收都全量跑完全部 `94` 条 Case。
 > - 每条 Case 都保留完整的 `当前回答` 长文本样例。
 > - 每条业务 Case 都必须带 `数据库校验断言` 与 `是否符合事实`。
 > - 正式通过的业务 Case，`是否符合事实` 必须为 `是`。
-> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 90 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
+> - 高频口语变体、轻量错字、`summary/latest_record/detail/list/group/count/compare/field` 的机制冲突，不直接塞入正式 94 条，而是优先沉淀到 deterministic 路由矩阵与 `QueryProfile` 回归单测。
 >
 > **业务时间锚点**：
 > - 全库统一以 `2026-04-13 23:59:59` 作为"数据库最新业务时间（latest_business_time）"。
@@ -46,14 +46,14 @@
 | Detail Cases | `SM-DETAIL-001 ~ SM-DETAIL-013` | 13 | 全部 `soil_detail_answer` |
 | Fallback Cases | `SM-FB-001 ~ SM-FB-010` | 10 | 全部 `fallback_answer` |
 | Device Registry Cases | `SM-DEV-001 ~ SM-DEV-011` | 11 | 10 条 `device_registry_answer` + 1 条 `guidance_answer`（SM-DEV-006）|
-| Warning Cases | `SM-WARN-001 ~ SM-WARN-005` | 5 | 2 条 `device_registry_answer`（规则说明复用）+ 3 条 `soil_summary_answer` |
+| Warning Cases | `SM-WARN-001 ~ SM-WARN-009` | 9 | 2 条 `device_registry_answer`（规则说明复用）+ 7 条 `soil_summary_answer` |
 
 ### 按一级 `answer_type` 维度
 
 | 一级 `answer_type` | 说明 | 数量 |
 |---|---|---:|
 | `guidance_answer` | 引导 / 澄清 / 非业务回复 | 32 |
-| `soil_summary_answer` | 墒情概览（全局或区域汇总，含 `SM-CONV-009 / SM-CONV-011` 两条多轮业务回答，以及 Warning Cases 中的预警记录查询） | 15 |
+| `soil_summary_answer` | 墒情概览（全局或区域汇总，含 `SM-CONV-009 / SM-CONV-011` 两条多轮业务回答，以及 Warning Cases 中的预警记录 / 处置查询） | 19 |
 | `soil_ranking_answer` | 排名对比（区域风险排行） | 8 |
 | `soil_detail_answer` | 地区 / 设备详情及异常分析 | 13 |
 | `fallback_answer` | 无数据 / 找不到对象 / 兜底 | 10 |
@@ -2154,7 +2154,7 @@
 - `是否符合事实`：`是`
 - `备注`：城市名归一化与口语变体验证
 
-## Warning Cases（5）
+## Warning Cases（9）
 
 ### SM-WARN-001
 
@@ -2285,3 +2285,107 @@
 - `禁止事实`：`重旱条件`
 - `是否符合事实`：`是`
 - `备注`：涝渍预警存在性查询
+
+### SM-WARN-006
+
+- `CaseID`：`SM-WARN-006`
+- `用户问题`：最近30天全省预警处置情况怎么样？
+- `当前回答`：最近 30 天全省范围内，应返回处置总量，并按固定顺序展示四类处置状态：已处理、待处理、超时已处理、超时待处理。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否（内部 repo 直查）
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_disposal`；回答必须包含总条数 + 四种处置状态数量；状态顺序固定为 `已处理 → 待处理 → 超时已处理 → 超时待处理`
+- `结构化证据断言`：`answer_kind=business`；`capability=warning_disposal`；`blocks[0].block_type=warning_disposal_card`
+- `数据库校验断言`：`SELECT COUNT(*) AS total, SUM(pub_status=3) AS status_done, SUM(pub_status=1) AS status_pending, SUM(pub_status=4) AS status_overtime_done, SUM(pub_status=2) AS status_overtime_pending FROM warning_disposal_record WHERE pub_status IN (1,2,3,4) AND warn_time >= '2026-03-15 00:00:00' AND warn_time <= '2026-04-13 23:59:59'`
+- `预期实体`：`无`
+- `预期时间窗`：`2026-03-15 00:00:00 ~ 2026-04-13 23:59:59`
+- `必含事实`：`已处理`、`待处理`、`超时已处理`、`超时待处理`
+- `禁止事实`：`调整状态顺序`
+- `是否符合事实`：`是`
+- `备注`：处置统计基础用例
+
+### SM-WARN-007
+
+- `CaseID`：`SM-WARN-007`
+- `用户问题`：上周南通市的预警处置进度如何？
+- `当前回答`：应限定在南通市上周时间窗内，返回处置总量与四类处置状态数量，并保持固定顺序。
+- `上下文`：无
+- `预期 input_type`：`business_colloquial`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_disposal`；过滤条件必须包含 `city='南通市'`；回答中四种状态必须齐全
+- `结构化证据断言`：`capability=warning_disposal`；`query_log_entries[0].filters.city='南通市'`
+- `数据库校验断言`：`SELECT COUNT(*) AS total, SUM(pub_status=3) AS status_done, SUM(pub_status=1) AS status_pending, SUM(pub_status=4) AS status_overtime_done, SUM(pub_status=2) AS status_overtime_pending FROM warning_disposal_record WHERE pub_status IN (1,2,3,4) AND city='南通市' AND warn_time >= '2026-04-07 00:00:00' AND warn_time <= '2026-04-13 23:59:59'`
+- `预期实体`：`南通市`
+- `预期时间窗`：`2026-04-07 00:00:00 ~ 2026-04-13 23:59:59`
+- `必含事实`：`南通市`
+- `禁止事实`：`跨市混算`
+- `是否符合事实`：`是`
+- `备注`：城市范围处置进度查询
+
+### SM-WARN-008
+
+- `CaseID`：`SM-WARN-008`
+- `用户问题`：2026年4月份徐州市处理了多少条预警？
+- `当前回答`：应按 2026 年 4 月徐州市范围统计预警处置情况，回答里至少要包含总条数和“已处理 X 条”，并保持四种状态的完整展示。
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：路由到 `warning_disposal`；`city='徐州市'`；时间窗为 `2026-04-01 00:00:00 ~ 2026-04-30 23:59:59`
+- `结构化证据断言`：`capability=warning_disposal`
+- `数据库校验断言`：`SELECT COUNT(*) AS total, SUM(pub_status=3) AS status_done, SUM(pub_status=1) AS status_pending, SUM(pub_status=4) AS status_overtime_done, SUM(pub_status=2) AS status_overtime_pending FROM warning_disposal_record WHERE pub_status IN (1,2,3,4) AND city='徐州市' AND warn_time >= '2026-04-01 00:00:00' AND warn_time <= '2026-04-30 23:59:59'`
+- `预期实体`：`徐州市`
+- `预期时间窗`：`2026-04-01 00:00:00 ~ 2026-04-30 23:59:59`
+- `必含事实`：`已处理`
+- `禁止事实`：`只返回单一状态、不展示完整处置结构`
+- `是否符合事实`：`是`
+- `备注`：绝对月份 + 城市过滤
+
+### SM-WARN-009
+
+- `CaseID`：`SM-WARN-009`
+- `用户问题`：2099年1月1日到1月31日全省预警处置情况？
+- `当前回答`：应返回无数据应答：“未查询到有效墒情预警信息，无对应处置数据。”
+- `上下文`：无
+- `预期 input_type`：`business_direct`
+- `是否域内业务问题`：是
+- `是否必须命中 Tool`：否
+- `预期 Tool`：`无`
+- `预期拦截层`：`none`
+- `预期 answer_type`：`soil_summary_answer`
+- `预期 output_mode`：`normal`
+- `预期 guidance_reason`：`无`
+- `预期 fallback_reason`：`无`
+- `是否写查询日志`：是
+- `关键断言`：允许未来时间窗进入查询；命中 `warning_disposal` 路由；当无数据时返回固定空结果文案而不是时间澄清
+- `结构化证据断言`：`answer_kind=business`；`capability=warning_disposal`；`blocks[0].total=0`
+- `数据库校验断言`：`SELECT COUNT(*) AS total, SUM(pub_status=3) AS status_done, SUM(pub_status=1) AS status_pending, SUM(pub_status=4) AS status_overtime_done, SUM(pub_status=2) AS status_overtime_pending FROM warning_disposal_record WHERE pub_status IN (1,2,3,4) AND warn_time >= '2099-01-01 00:00:00' AND warn_time <= '2099-01-31 23:59:59'`
+- `预期实体`：`无`
+- `预期时间窗`：`2099-01-01 00:00:00 ~ 2099-01-31 23:59:59`
+- `必含事实`：`未查询到有效墒情预警信息`
+- `禁止事实`：`结束时间超出了当前可用数据范围`
+- `是否符合事实`：`是`
+- `备注`：未来时间窗空数据处理
