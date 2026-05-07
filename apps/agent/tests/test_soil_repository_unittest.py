@@ -83,6 +83,18 @@ class SoilRepositoryPathTest(unittest.TestCase):
         self.assertEqual(rows[0]["warning_level"], "heavy_drought")
         self.assertEqual(connection.last_cursor.params, ("2026-04-01 00:00:00", "2026-04-13 23:59:59", 50))
 
+    def test_warning_record_query_with_seasonal_override_escapes_date_format_percent_for_pyformat(self):
+        """Verify seasonal warning predicates also survive pyformat rendering."""
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        connection = SeasonalWarningRecordConnection()
+        with patch.object(repository, "_connect", return_value=connection):
+            rows = repository.query_warning_records(start_time="2026-04-01 00:00:00", end_time="2026-04-13 23:59:59")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["warning_level"], "heavy_drought")
+        self.assertEqual(connection.last_cursor.params, ("2026-04-01 00:00:00", "2026-04-13 23:59:59", 50))
+
     def test_warning_disposal_audit_sql_uses_fixed_status_order_and_filters(self):
         """Verify warning disposal audit SQL keeps the fixed status mapping and literal filters."""
         sql = SoilRepository.build_warning_disposal_audit_sql(
@@ -408,6 +420,40 @@ class WarningRecordConnection:
 
     def cursor(self):
         self.last_cursor = WarningRecordCursor()
+        return self.last_cursor
+
+    def close(self):
+        return None
+
+
+class SeasonalWarningRecordCursor(WarningRecordCursor):
+    """Test double that mimics one warning-record lookup with seasonal overrides."""
+
+    def fetchone(self):
+        return {
+            "rule_code": "soil_warning_v1",
+            "rule_name": "土壤墒情预警规则",
+            "rule_scope": "soil",
+            "rule_definition_json": (
+                '{"rules":[{"warning_level":"heavy_drought","condition":"water20cm < 50"},'
+                '{"warning_level":"waterlogging","condition":"water20cm >= 150"},'
+                '{"warning_level":"device_fault","condition":"water20cm = 0 and t20cm = 0"}],'
+                '"seasonal_overrides":[{"period":{"month_start":6,"day_start":1,"month_end":10,"day_end":31},'
+                '"suspended_warning_levels":["waterlogging"]}]}'
+            ),
+            "enabled": 1,
+            "updated_at": "2026-04-30 00:00:00",
+        }
+
+
+class SeasonalWarningRecordConnection:
+    """Connection wrapper for warning-record lookup tests with seasonal overrides."""
+
+    def __init__(self):
+        self.last_cursor: SeasonalWarningRecordCursor | None = None
+
+    def cursor(self):
+        self.last_cursor = SeasonalWarningRecordCursor()
         return self.last_cursor
 
     def close(self):

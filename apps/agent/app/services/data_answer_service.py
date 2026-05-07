@@ -106,6 +106,7 @@ CONTEXTUAL_FOLLOW_UP_MARKERS = ("这些", "这里", "这里的", "上面的", "�
 GLOBAL_SCOPE_RESET_MARKERS = ("整体", "全省", "整个", "全部", "哪里", "哪个地方", "最严重", "排名", "排行", "top", "Top", "哪些地方", "哪些地区")
 LLM_GUARD_CONFIDENCE_THRESHOLD = 0.8
 SAFE_HINT_TEXT = "我可以帮你查墒情概况、地区/点位/记录明细、按地区汇总，以及查看预警规则和模板。你可以直接说地区、设备或时间范围，例如：南京最近7天墒情怎么样，或最近30天按地区汇总墒情数据。"
+NON_SOIL_DEVICE_HINT_TEXT = "您好，很抱歉，当前系统主要支持土壤墒情相关数据的查询，暂不支持虫情监测设备的数量统计。如您需要了解土壤墒情仪的接入总数，欢迎直接提问。"
 UNSUPPORTED_DERIVED_ANALYSIS_TEXT = "当前查询只支持原始墒情数据和直接统计，不支持“异常最多、风险最高、预警排序”这类衍生判断。你可以改问：最近30天按地区汇总墒情数据，或直接查看当前预警规则。"
 LLM_GUARD_DOMAIN_TOKENS = DOMAIN_INTENT_TOKENS + ("土壤", "含水量")
 QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需要", "最近", "最新")
@@ -420,6 +421,14 @@ class DataAnswerService:
             return self._build_guidance_response(
                 turn_id=turn_id,
                 text=SAFE_HINT_TEXT,
+                current_context=context,
+                guidance_reason="safe_hint",
+            )
+
+        if route_decision.route == "non_soil_device_hint":
+            return self._build_guidance_response(
+                turn_id=turn_id,
+                text=NON_SOIL_DEVICE_HINT_TEXT,
                 current_context=context,
                 guidance_reason="safe_hint",
             )

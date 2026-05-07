@@ -1950,8 +1950,8 @@
 
 - `CaseID`：`SM-DEV-004`
 - `用户问题`：目前平台接入了多少台土壤墒情仪？
-- `当前回答`：抱歉，当前设备台账暂时不可用，无法查询接入设备数量，请稍后重试。
-- `上下文`：无（模拟 subject_device_record 表不可用 / DB 故障场景）
+- `当前回答`：当前设备台账暂时不可用，请联系管理员检查配置。
+- `上下文`：无（模拟 total_soil_device_count_async 返回 None / DB 故障场景）
 - `预期 input_type`：`business_direct`
 - `是否域内业务问题`：是
 - `是否必须命中 Tool`：否
@@ -1961,7 +1961,7 @@
 - `预期 output_mode`：`normal`
 - `预期 guidance_reason`：`无`
 - `预期 fallback_reason`：`no_data`
-- `是否写查询日志`：是（即使 DB 不可用也应记录到 agent_query_log，capability=device_registry_count）
+- `是否写查询日志`：否（fallback 路径不写 query_log_entries）
 - `关键断言`：`total_soil_device_count_async()` 返回 `None` 时触发 fallback；`capability=device_registry_count`；`fallback_reason=no_data`
 - `结构化证据断言`：`answer_kind=fallback`；`capability=device_registry_count`；`fallback_reason=no_data`
 - `数据库校验断言`：不适用（DB 不可用场景）

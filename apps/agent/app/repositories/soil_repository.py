@@ -911,7 +911,11 @@ class SoilRepository:
                 clauses.append(f"{col} {op} %s")
                 params.append(val)
 
-        clauses.append(self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type))
+        clauses.append(
+            self._pyformat_safe_sql_fragment(
+                self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type)
+            )
+        )
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         select_sql = self._warning_record_select_sql(
             rule_row=rule_row,

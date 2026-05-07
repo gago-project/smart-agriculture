@@ -325,6 +325,31 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertFalse(Svc._is_device_registry_count_request("平台有多少台摄像头"))
         self.assertFalse(Svc._is_device_registry_count_request("监控摄像头总共多少个"))
 
+    def test_non_soil_device_query_routes_to_non_soil_device_hint(self) -> None:
+        """SM-DEV-006: 非土壤设备查询路由到 non_soil_device_hint，不进 count 流程"""
+        result = self.service.decide(
+            message="接入了多少台虫情监测设备",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "non_soil_device_hint")
+        self.assertEqual(result.query_shape.subject, "non_soil_device")
+
+    def test_device_registry_county_detail_with_soil_device_token(self) -> None:
+        """SM-DEV-011: 「墒情设备」触发 device_registry_county_detail（has_city_entity=True）"""
+        result = self.service.decide(
+            message="南通的墒情设备各县区有多少台",
+            current_context={},
+            entities=_entities(city="南通市"),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.grain, "county")
+
     def test_device_registry_count_regional_query_routes_to_registry(self) -> None:
         """SM-DEV-007: 带城市名的设备数量查询仍路由到 device_registry_count，由执行层落到地区范围"""
         result = self.service.decide(
