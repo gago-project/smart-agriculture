@@ -549,6 +549,37 @@ class SoilRepository:
         return await asyncio.to_thread(self.warning_rule_row, rule_code)
 
     @staticmethod
+    def is_warning_level_active(
+        warning_level: str,
+        rule_definition: dict,
+        check_date: "datetime.date | None" = None,
+    ) -> bool:
+        """Return False if warning_level is suspended on check_date per seasonal_overrides.
+
+        Reads the ``seasonal_overrides`` array from rule_definition_json and checks
+        whether the given warning_level appears in any override whose period contains
+        check_date.  Defaults to today when check_date is None.
+        """
+        import datetime
+
+        date = check_date or datetime.date.today()
+        for override in rule_definition.get("seasonal_overrides") or []:
+            period = override.get("period") or {}
+            ms, ds = period.get("month_start"), period.get("day_start")
+            me, de = period.get("month_end"), period.get("day_end")
+            if None in (ms, ds, me, de):
+                continue
+            try:
+                start = datetime.date(date.year, int(ms), int(ds))
+                end = datetime.date(date.year, int(me), int(de))
+            except ValueError:
+                continue
+            if start <= date <= end:
+                if warning_level in (override.get("suspended_warning_levels") or []):
+                    return False
+        return True
+
+    @staticmethod
     def build_warning_template_audit_sql(domain: str = "soil_moisture") -> str:
         """Return the fixed SQL used to read the latest enabled warning template."""
         normalized = SoilRepository._normalize_sql_literal(domain)
@@ -773,6 +804,22 @@ class SoilRepository:
         return "(water20cm < 50 OR water20cm >= 150 OR (water20cm = 0 AND t20cm = 0))"
 
     @staticmethod
+    def _warning_record_select_sql(*, escape_percent_for_pyformat: bool = False) -> str:
+        sql = (
+            "SELECT sn, city, county,\n"
+            "       DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,\n"
+            "       water20cm, water40cm,\n"
+            "       CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'\n"
+            "            WHEN water20cm < 50 THEN 'heavy_drought'\n"
+            "            WHEN water20cm >= 150 THEN 'waterlogging'\n"
+            "            ELSE 'normal' END AS warning_level\n"
+            "FROM fact_soil_moisture"
+        )
+        if escape_percent_for_pyformat:
+            return sql.replace("%", "%%")
+        return sql
+
+    @staticmethod
     def build_warning_records_audit_sql(
         city: str | None = None,
         county: str | None = None,
@@ -796,13 +843,7 @@ class SoilRepository:
         clauses.append(SoilRepository._warning_filter_sql(warning_type))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
         return (
-            "SELECT sn, city, county, DATE_FORMAT(create_time,'%Y-%m-%d %H:%i:%s') AS create_time,\n"
-            "       water20cm, water40cm,\n"
-            "       CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'\n"
-            "            WHEN water20cm < 50 THEN 'heavy_drought'\n"
-            "            WHEN water20cm >= 150 THEN 'waterlogging'\n"
-            "            ELSE 'normal' END AS warning_level\n"
-            "FROM fact_soil_moisture\n"
+            f"{SoilRepository._warning_record_select_sql()}\n"
             f"{where}\n"
             "ORDER BY create_time DESC\n"
             f"LIMIT {int(limit)}"
@@ -834,15 +875,9 @@ class SoilRepository:
 
         clauses.append(self._warning_filter_sql(warning_type))
         where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        select_sql = self._warning_record_select_sql(escape_percent_for_pyformat=True)
         sql = f"""
-        SELECT sn, city, county,
-               DATE_FORMAT(create_time, '%Y-%m-%d %H:%i:%s') AS create_time,
-               water20cm, water40cm,
-               CASE WHEN water20cm = 0 AND t20cm = 0 THEN 'device_fault'
-                    WHEN water20cm < 50 THEN 'heavy_drought'
-                    WHEN water20cm >= 150 THEN 'waterlogging'
-                    ELSE 'normal' END AS warning_level
-        FROM fact_soil_moisture
+        {select_sql}
         {where}
         ORDER BY create_time DESC
         LIMIT %s

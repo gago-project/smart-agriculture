@@ -2,9 +2,9 @@
 
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
-**Goal:** Add a separate real-conversation QA corpus for soil-moisture so natural user questions can be accumulated, reviewed, and regression-tested without overloading the 56-case formal gate.
+**Goal:** Add a separate real-conversation QA corpus for soil-moisture so natural user questions can be accumulated, reviewed, and regression-tested without overloading the 90-case formal gate.
 
-**Architecture:** Keep the existing 56-case formal acceptance library as the hard contract gate. Add a sibling real-conversations corpus with one file per sample, a shared schema, and a failure-regression bucket for newly discovered bugs. The corpus should be easy to read by humans and simple to automate later.
+**Architecture:** Keep the existing 90-case formal acceptance library as the hard contract gate. Add a sibling real-conversations corpus with one file per sample, a shared schema, and a failure-regression bucket for newly discovered bugs. The corpus should be easy to read by humans and simple to automate later.
 
 **Tech Stack:** Markdown docs, repository conventions, existing soil-moisture QA scripts/tests.
 
@@ -23,7 +23,7 @@ Define the purpose, directory layout, and naming rules for real user questions a
 
 **Step 2: Keep the formal gate separate**
 
-State clearly that the 56-case formal library remains the hard gate and the new corpus is a growth dataset.
+State clearly that the 90-case formal library remains the hard gate and the new corpus is a growth dataset.
 
 ### Task 2: Define the field schema
 
@@ -51,4 +51,3 @@ Document the new real-conversations folder alongside the existing formal library
 **Step 2: Explain the three-layer QA model**
 
 Summarize the separation between `core-gate`, `real-conversations`, and `failure-regressions`.
-

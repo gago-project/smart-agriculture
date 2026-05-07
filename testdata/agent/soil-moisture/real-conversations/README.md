@@ -1,6 +1,6 @@
 # Soil Moisture Real Conversations
 
-这是一套独立于 56 条正式验收 Case 的真实问答资产。
+这是一套独立于 90 条正式验收 Case 的真实问答资产。
 
 ## 目标
 
@@ -8,9 +8,9 @@
 - 覆盖自然追问、省略表达、纠错、下钻、列表、规则/模板、UI 证据展示
 - 把每次新翻车的问题沉淀成可复用的回归样本
 
-## 和 56 Case 的关系
+## 和 90 Case 的关系
 
-- `56` 条正式 Case 继续作为硬门禁
+- `90` 条正式 Case 继续作为硬门禁
 - 本目录专门承载“真实对话”和“失败回归”
 - 真实问答可以增长，不要求固定总数
 
@@ -24,7 +24,7 @@ real-conversations/
   analysis-60.md
   cases/
     README.md
-    real-60-case-library.md
+    real-case-library.md
   regressions/
     README.md
 ```
@@ -33,7 +33,7 @@ real-conversations/
 
 - 一个真实问答 = 一个独立样本文件
 - 一个样本只描述一条真实对话或一个明确失败点
-- 不在这里重复写 56 条正式 Case 的内容
+- 不在这里重复写 90 条正式 Case 的内容
 - 新发现的 bug 优先进入 `regressions/`
 
 ## 推荐命名
@@ -43,6 +43,6 @@ real-conversations/
 
 ## 现有资产
 
-- [60 条真实问答库](./cases/real-60-case-library.md)
-- [60 条实跑分析](./analysis-60.md)
+- [当前真实问答主库](./cases/real-case-library.md)
+- [60 条基线实跑分析](./analysis-60.md)
 - 旧的 `soil-case-input-output-summary.xlsx` 已退役，后续以本目录和 `live-real-60-*` 实跑产物为准

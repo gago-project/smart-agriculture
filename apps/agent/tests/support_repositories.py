@@ -103,6 +103,14 @@ class SeedSoilRepository(SoilRepository):
             {"city": "宿迁市", "device_count": 38},
         ]
         self.device_county_distribution_rows = {
+            "南京市": [
+                {"county": "江宁区", "device_count": 12},
+                {"county": "六合区", "device_count": 10},
+                {"county": "浦口区", "device_count": 8},
+                {"county": "溧水区", "device_count": 7},
+                {"county": "高淳区", "device_count": 6},
+                {"county": "栖霞区", "device_count": 5},
+            ],
             "南通市": [
                 {"county": "如东县", "device_count": 9},
                 {"county": "启东市", "device_count": 8},

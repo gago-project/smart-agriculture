@@ -71,6 +71,18 @@ class SoilRepositoryPathTest(unittest.TestCase):
         self.assertEqual(row["domain"], "soil_moisture")
         self.assertEqual(connection.last_cursor.params, ("soil_moisture",))
 
+    def test_warning_record_query_escapes_date_format_percent_for_pyformat(self):
+        """Verify warning-record query does not treat DATE_FORMAT markers as pyformat placeholders."""
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+
+        connection = WarningRecordConnection()
+        with patch.object(repository, "_connect", return_value=connection):
+            rows = repository.query_warning_records(start_time="2026-04-01 00:00:00", end_time="2026-04-13 23:59:59")
+
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["warning_level"], "heavy_drought")
+        self.assertEqual(connection.last_cursor.params, ("2026-04-01 00:00:00", "2026-04-13 23:59:59", 50))
+
 
 class EmptyResultCursor:
     """Test double for empty result cursor."""
@@ -275,6 +287,49 @@ class TemplateRowConnection:
 
     def cursor(self):
         self.last_cursor = TemplateRowCursor()
+        return self.last_cursor
+
+    def close(self):
+        return None
+
+
+class WarningRecordCursor:
+    """Test double that mimics one warning-record lookup."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, traceback):
+        return False
+
+    def execute(self, sql, params=None):
+        self.sql = sql
+        self.params = params
+        rendered = sql % params
+        self.rendered = rendered
+
+    def fetchall(self):
+        return [
+            {
+                "sn": "SNS00000001",
+                "city": "南通市",
+                "county": "如东县",
+                "create_time": "2026-04-13 23:59:17",
+                "water20cm": 42.1,
+                "water40cm": 45.0,
+                "warning_level": "heavy_drought",
+            }
+        ]
+
+
+class WarningRecordConnection:
+    """Connection wrapper for warning-record lookup tests."""
+
+    def __init__(self):
+        self.last_cursor: WarningRecordCursor | None = None
+
+    def cursor(self):
+        self.last_cursor = WarningRecordCursor()
         return self.last_cursor
 
     def close(self):

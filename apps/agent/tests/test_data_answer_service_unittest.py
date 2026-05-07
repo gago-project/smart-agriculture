@@ -1826,10 +1826,11 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(result["answer_kind"], "business")
-        self.assertEqual(result["capability"], "device_registry_count")
+        self.assertEqual(result["capability"], "device_registry_county_detail")
         self.assertIn("南京市", result["final_text"])
         self.assertIn("48", result["final_text"])
         self.assertNotIn("528", result["final_text"])
+        self.assertIn("江宁区", result["final_text"])
 
     async def test_device_registry_count_city_query_log_contains_city_filter(self) -> None:
         result = await self.service.reply(
@@ -1845,6 +1846,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("subject_device_record", log_entries[0].get("executed_sql_text", ""))
         self.assertEqual(log_entries[0]["executed_result_json"]["total_count"], 48)
         self.assertEqual(log_entries[0]["filters_json"]["city"], "南京市")
+        self.assertEqual(log_entries[0]["query_type"], "device_registry_county_detail")
 
     async def test_device_registry_distribution_returns_city_breakdown(self) -> None:
         result = await self.service.reply(
@@ -1857,7 +1859,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result["answer_kind"], "business")
         self.assertEqual(result["capability"], "device_registry_distribution")
-        self.assertIn("528 台", result["final_text"])
+        self.assertIn("528 套", result["final_text"])
         self.assertIn("南京市", result["final_text"])
         self.assertIn("南通市", result["final_text"])
         self.assertIn("宿迁市", result["final_text"])
@@ -1909,7 +1911,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["answer_kind"], "business")
         self.assertEqual(result["capability"], "warning_list")
         self.assertIn("预警记录", result["final_text"])
-        self.assertIn("当前预警规则", result["final_text"])
+        self.assertIn("涉及", result["final_text"])
+        self.assertIn("涝渍预警", result["final_text"])
         self.assertIn("water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
         self.assertGreater(result["query_log_entries"][0]["row_count"], 0)
 

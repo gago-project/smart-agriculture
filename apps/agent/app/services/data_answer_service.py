@@ -4771,9 +4771,9 @@ class DataAnswerService:
             )
 
         total = sum(int(row.get("device_count") or 0) for row in rows)
-        lines = [f"- {row.get('city') or '（未知）'}：{int(row.get('device_count') or 0)} 台" for row in rows]
+        lines = [f"- {row.get('city') or '（未知）'}：{int(row.get('device_count') or 0)} 套" for row in rows]
         final_text = (
-            f"目前全省共接入土壤墒情仪 {total} 台，分布在 {len(rows)} 个地市：\n\n"
+            f"目前全省共接入土壤墒情仪 {total} 套，分布在 {len(rows)} 个地市：\n\n"
             + "\n".join(lines)
         )
         block_id = f"block_device_registry_distribution_{turn_id}"
@@ -4963,10 +4963,30 @@ class DataAnswerService:
             level = self._warning_level_label(rule.get("warning_level"))
             condition = str(rule.get("condition") or "")
             lines.append(f"- {level}：{condition_desc.get(condition, condition)}")
+        # Render seasonal overrides if present
+        seasonal_lines: list[str] = []
+        if rule_row:
+            rule_def = rule_row.get("rule_definition_json") or {}
+            if isinstance(rule_def, str):
+                try:
+                    rule_def = json.loads(rule_def)
+                except (json.JSONDecodeError, TypeError):
+                    rule_def = {}
+            for override in (rule_def.get("seasonal_overrides") or []):
+                name = str(override.get("name") or "")
+                desc = str(override.get("description") or "")
+                if name or desc:
+                    seasonal_lines.append(f"- {desc or name}")
+        seasonal_section = (
+            "\n\n**季节性规则**：\n" + "\n".join(seasonal_lines)
+            if seasonal_lines
+            else ""
+        )
         final_text = (
             f"当前预警规则（{rule_code}，更新于 {updated_at}）如下：\n\n"
             + "\n".join(lines)
-            + "\n\n触发预警后，系统将按模板组织告警信息。"
+            + seasonal_section
+            + "\n\n触发预警后，系统将按模版发送告警信息至相关主体。"
         )
         block_id = f"block_warning_rule_{turn_id}"
         block = {
@@ -5206,17 +5226,28 @@ class DataAnswerService:
         scope_label = self._entity_label(resolved_entities) or "全省"
         range_label = self._scoped_range_label(scope_label, time_window)
         warning_scope_label = self._warning_level_label(warning_type) if warning_type else "预警"
-        final_text = (
-            f"{range_label}满足预警规则的{warning_scope_label}记录共有 {total_count} 条。"
-            if total_count > 0
-            else f"{range_label}没有命中{warning_scope_label}记录。"
-        )
-        level_summary = self._warning_level_summary_text(by_warning_level)
-        if level_summary:
-            final_text += f" 其中：{level_summary}。"
-        final_text += f" 当前预警规则：{warning_rule_brief}。"
         if total_count > 0:
-            final_text += f" 已展示前 {min(len(block['rows']), LIST_TABLE_PAGE_SIZE)} 条记录。"
+            seen_regions: set[str] = set()
+            region_labels: list[str] = []
+            for r in records:
+                city = str(r.get("city") or "").strip()
+                county = str(r.get("county") or "").strip()
+                label = f"{city}{county}".strip()
+                if label and label not in seen_regions:
+                    seen_regions.add(label)
+                    region_labels.append(label)
+            region_count = len(region_labels)
+            region_preview = "、".join(region_labels[:5])
+            final_text = (
+                f"{range_label}共有 {total_count} 条{warning_scope_label}记录，"
+                f"涉及 {region_count} 个区域"
+                + (f"，包括：{region_preview} 等。" if region_count > 5 else f"：{region_preview}。")
+            )
+            level_summary = self._warning_level_summary_text(by_warning_level)
+            if level_summary:
+                final_text += f" 其中：{level_summary}。"
+        else:
+            final_text = f"{range_label}没有命中{warning_scope_label}记录。"
         return {
             "turn_id": turn_id,
             "answer_kind": "business",

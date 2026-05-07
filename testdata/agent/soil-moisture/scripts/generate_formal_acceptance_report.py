@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Generate the 56-case formal acceptance report for the soil-moisture Agent."""
+"""Generate the 90-case formal acceptance report for the soil-moisture Agent."""
 
 from __future__ import annotations
 
@@ -1692,7 +1692,7 @@ def render_report(
     summary: dict[str, Any],
 ) -> str:
     lines: list[str] = []
-    lines.append("# 墒情 Agent 56 条正式验收测试报告")
+    lines.append("# 墒情 Agent 90 条正式验收测试报告")
     lines.append("")
     lines.append("## 1. 测试概览")
     lines.append(f"- 测试时间：{env_meta['timestamp']}")

@@ -533,11 +533,10 @@ class TurnRouteDecisionService:
 
     @staticmethod
     def _is_device_registry_county_detail_request(text: str, has_city_entity: bool) -> bool:
-        has_distribution_word = any(token in text for token in _DEVICE_REGISTRY_COUNTY_TOKENS) or (
-            any(token in text for token in _DEVICE_REGISTRY_DISTRIBUTION_TOKENS) and has_city_entity
-        )
+        # Per biz req #6: any city-scoped device query must show county breakdown, even when
+        # the user only asks for the total count ("南通市接入了多少台").
         has_device_word = any(token in text for token in _DEVICE_REGISTRY_COUNT_TOKENS)
-        return has_city_entity and has_distribution_word and has_device_word
+        return has_city_entity and has_device_word
 
     @staticmethod
     def _is_device_registry_count_request(text: str) -> bool:
