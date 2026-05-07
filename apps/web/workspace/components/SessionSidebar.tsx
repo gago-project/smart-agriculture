@@ -123,7 +123,7 @@ export function SessionSidebar({
         <div className="sidebar-brand-mark">DC</div>
         <div className="sidebar-brand-copy">
           <span className="sidebar-brand-eyebrow">Smart Agriculture</span>
-          <strong>AI 农情工作台</strong>
+          <strong>苏农云指挥调度智能</strong>
           <p>本地会话</p>
         </div>
       </div>

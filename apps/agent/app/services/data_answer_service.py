@@ -5095,9 +5095,12 @@ class DataAnswerService:
             )
 
         total = sum(int(row.get("device_count") or 0) for row in rows)
-        lines = [f"- {row.get('city') or '（未知）'}：{int(row.get('device_count') or 0)} 套" for row in rows]
+        lines = [
+            f"{index}. {row.get('city') or '（未知）'}：{int(row.get('device_count') or 0)} 套"
+            for index, row in enumerate(rows, 1)
+        ]
         final_text = (
-            f"目前全省共接入土壤墒情仪 {total} 套，分布在 {len(rows)} 个地市：\n\n"
+            f"全省 {total} 套土壤墒情仪分布在 {len(rows)} 个设区市，具体分布信息如下：\n"
             + "\n".join(lines)
         )
         follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
@@ -5211,9 +5214,12 @@ class DataAnswerService:
             )
 
         total = sum(int(row.get("device_count") or 0) for row in rows)
-        lines = [f"- {row.get('county') or '（未知）'}：{int(row.get('device_count') or 0)} 台" for row in rows]
+        lines = [
+            f"{index}. {row.get('county') or '（未知）'}：{int(row.get('device_count') or 0)} 套"
+            for index, row in enumerate(rows, 1)
+        ]
         final_text = (
-            f"{city}共接入土壤墒情仪 {total} 台，分布在 {len(rows)} 个县区：\n\n"
+            f"{city}共接入了 {total} 套土壤墒情仪，具体区县分布信息如下：\n"
             + "\n".join(lines)
         )
         follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
@@ -5327,36 +5333,20 @@ class DataAnswerService:
                 current_context=current_context,
             )
         rules, thresholds, rule_code, updated_at = self._warning_rule_thresholds(rule_row)
-        lines = []
-        for rule in rules:
-            level = self._warning_level_label(rule.get("warning_level"))
-            condition = str(rule.get("condition") or "")
-            lines.append(f"- {level}：{self._condition_to_chinese(condition)}")
-        # Render seasonal overrides if present
-        seasonal_lines: list[str] = []
-        if rule_row:
-            rule_def = rule_row.get("rule_definition_json") or {}
-            if isinstance(rule_def, str):
-                try:
-                    rule_def = json.loads(rule_def)
-                except (json.JSONDecodeError, TypeError):
-                    rule_def = {}
-            for override in (rule_def.get("seasonal_overrides") or []):
-                name = str(override.get("name") or "")
-                desc = str(override.get("description") or "")
-                if name or desc:
-                    seasonal_lines.append(f"- {desc or name}")
-        seasonal_section = (
-            "\n\n**季节性规则**：\n" + "\n".join(seasonal_lines)
-            if seasonal_lines
-            else ""
-        )
-        final_text = (
-            f"当前预警规则（{rule_code}，更新于 {updated_at}）如下：\n\n"
-            + "\n".join(lines)
-            + seasonal_section
-            + "\n\n触发预警后，系统将按模版发送告警信息至相关主体。"
-        )
+        sections = [
+            "苏农云土壤墒情预警触发规则及判定标准如下：",
+            "",
+            "**一、预警触发场景**",
+            "- 当土壤墒情仪监测到表层土壤（0-20cm）相对含水量符合涝渍、重旱判定标准，或设备出现故障状态时，自动触发预警。",
+            "",
+            "**二、墒情等级判定标准（基于表层土壤相对含水量 SRWC）**",
+            "- 涝渍预警：SRWC>=150%",
+            "- 重旱预警：SRWC<50%",
+            "",
+            "**三、特殊规则**",
+            "- 每年 6 月 1 日至 10 月 31 日期间，暂停涝渍预警推送与判定，仅保留重旱预警与设备故障预警。",
+        ]
+        final_text = "\n".join(sections).replace("SRWC>=150%", "SRWC≥150%").replace("SRWC<50%", "SRWC＜50%")
         block_id = f"block_warning_rule_{turn_id}"
         block = {
             "block_id": block_id,
@@ -5835,11 +5825,10 @@ class DataAnswerService:
         if not rows:
             scope_label = self._entity_label(resolved_entities) or "全省"
             range_label = self._scoped_range_label(scope_label, time_window)
-            warning_scope_label = self._warning_level_label(warning_type) if warning_type else "墒情预警"
             return self._build_fallback_response(
                 turn_id=turn_id,
                 capability="warning_group",
-                text=f"{range_label}内未查询到满足当前预警规则的{warning_scope_label}信息。",
+                text=f"{range_label}内未查询到有效墒情预警信息。",
                 current_context=current_context,
             )
 
@@ -5985,37 +5974,28 @@ class DataAnswerService:
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
 
-        preview_parts: list[str] = []
-        for row in table_rows[:5]:
+        detail_lines: list[str] = []
+        for index, row in enumerate(table_rows, 1):
             label = f"{row.get('city') or ''}{row.get('county') or ''}".strip()
             if not label:
                 continue
             type_parts: list[str] = []
             if int(row.get("heavy_drought_count") or 0) > 0:
-                type_parts.append(f"重旱 {int(row.get('heavy_drought_count') or 0)} 条")
+                type_parts.append(f"重旱预警 {int(row.get('heavy_drought_count') or 0)} 条")
             if int(row.get("waterlogging_count") or 0) > 0:
-                type_parts.append(f"涝渍 {int(row.get('waterlogging_count') or 0)} 条")
+                type_parts.append(f"涝渍预警 {int(row.get('waterlogging_count') or 0)} 条")
             if int(row.get("device_fault_count") or 0) > 0:
-                type_parts.append(f"设备故障 {int(row.get('device_fault_count') or 0)} 条")
-            type_parts.append(f"共 {int(row.get('total_count') or 0)} 条")
-            if row.get("latest_create_time"):
-                type_parts.append(f"最新 {row.get('latest_create_time')}")
-            preview_parts.append(f"{label}（{'，'.join(type_parts)}）")
+                type_parts.append(f"设备故障预警 {int(row.get('device_fault_count') or 0)} 条")
+            if not type_parts:
+                continue
+            detail_lines.append(f"{index}. {label}：{'，'.join(type_parts)}")
 
         scope_label = self._entity_label(resolved_entities) or "全省"
         range_label = self._scoped_range_label(scope_label, time_window)
-        warning_scope_label = self._warning_level_label(warning_type) if warning_type else "墒情预警"
-        lead = table_rows[0]
-        lead_label = f"{lead.get('city') or ''}{lead.get('county') or ''}".strip() or "当前首位区域"
         final_text = (
-            f"{range_label}内共有 {total_count} 条满足当前预警规则的{warning_scope_label}信息，"
-            f"涉及 {len(table_rows)} 个区县。"
-            f" 最需要关注的是 {lead_label}，共 {int(lead.get('total_count') or 0)} 条，"
-            f"最新时间为 {lead.get('latest_create_time') or '暂无'}。"
+            f"{range_label}内共出现 {total_count} 条墒情预警信息，具体分布信息如下：\n"
         )
-        if preview_parts:
-            final_text += f" 当前重点区域：{'、'.join(preview_parts)}。"
-        final_text += f" 当前预警规则：{warning_rule_brief}。"
+        final_text += "\n".join(detail_lines)
 
         return {
             "turn_id": turn_id,

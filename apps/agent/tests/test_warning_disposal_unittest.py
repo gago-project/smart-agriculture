@@ -97,8 +97,8 @@ class TestWarningDisposalRouting(unittest.TestCase):
             action_result=FollowUpActionResult(),
         )
         self.assertEqual(result.route, "warning_disposal")
-        self.assertEqual(result.query_shape.subject, "warning_disposal")
-        self.assertEqual(result.query_shape.action, "stats")
+        self.assertEqual(result.query_shape.subject, "warning")
+        self.assertEqual(result.query_shape.action, "disposal")
 
     def test_disposal_with_city_entity(self) -> None:
         result = self.service.decide(

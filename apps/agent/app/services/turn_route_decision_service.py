@@ -79,6 +79,21 @@ _WARNING_RECORD_INTENT_TOKENS = (
 _WARNING_DISPOSAL_SUBJECT_TOKENS = ("处置", "处理情况", "处置情况", "处置进度", "处置状态")
 _WARNING_DISPOSAL_INTENT_TOKENS = ("已处理", "待处理", "超时", "处置了多少", "处理了多少", "进度")
 _WARNING_GROUP_REGION_TOKENS = ("哪些区域", "哪些地区", "哪些地方", "哪些县区", "哪些区县", "有哪些区域", "有哪些地区", "有哪些地方")
+JIANGSU_CITY_NAMES = (
+    "南京市",
+    "无锡市",
+    "常州市",
+    "苏州市",
+    "镇江市",
+    "南通市",
+    "扬州市",
+    "泰州市",
+    "徐州市",
+    "连云港市",
+    "淮安市",
+    "盐城市",
+    "宿迁市",
+)
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
     re.compile(r"((?:有|又)?哪些|哪[0-9一二两三四五六七八九十百]*个).*(地方|地区|区域)"),
@@ -131,7 +146,8 @@ class TurnRouteDecisionService:
         normalized_text = self._normalize_text(message)
         normalized_changed = normalized_text != str(message or "").strip()
         city_entities = extracted_entities.get("city", [])
-        has_city_entity = len(city_entities) > 0
+        inline_city = self._extract_inline_city_name(normalized_text)
+        has_city_entity = len(city_entities) > 0 or inline_city is not None
         has_time_signal = bool(getattr(time_evidence, "has_time_signal", False))
 
         subject = self._classify_subject(
@@ -237,7 +253,7 @@ class TurnRouteDecisionService:
                 },
             )
         if subject == "device_registry_county_detail":
-            city = city_entities[0] if city_entities else None
+            city = city_entities[0] if city_entities else inline_city
             return self._decision(
                 route="device_registry_county_detail",
                 normalized_text=normalized_text,
@@ -628,11 +644,17 @@ class TurnRouteDecisionService:
         has_warning_word = any(token in text for token in _WARNING_RECORD_QUERY_TOKENS)
         if not has_warning_word:
             return False
+        if any(token in text for token in ("点位", "设备", "记录详情", "预警明细", "详情", "明细")):
+            return False
         if any(token in text for token in ("多少条", "多少个", "数量", "总共", "总计")):
             return False
         if QueryProfileResolverService.is_compare_request(text):
             return False
-        return any(token in text for token in _WARNING_GROUP_REGION_TOKENS) or (
+        if any(token in text for token in _WARNING_GROUP_REGION_TOKENS):
+            return True
+        if any(token in text for token in ("预警有哪些", "墒情预警情况")):
+            return True
+        return (
             has_time_signal and "预警" in text and any(token in text for token in ("区域", "地区", "地方", "县区", "区县"))
         )
 
@@ -664,6 +686,14 @@ class TurnRouteDecisionService:
         if not any(t in text for t in _NON_SOIL_DEVICE_TOKENS):
             return False
         return any(t in text for t in _DEVICE_REGISTRY_COUNT_QUANTITY_TOKENS) or "接入" in text
+
+    @staticmethod
+    def _extract_inline_city_name(text: str) -> str | None:
+        normalized = str(text or "")
+        for city in JIANGSU_CITY_NAMES:
+            if city in normalized:
+                return city
+        return None
 
     def _contextual_follow_up_subject(
         self,

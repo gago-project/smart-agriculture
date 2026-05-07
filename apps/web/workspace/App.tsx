@@ -128,7 +128,7 @@ export default function App() {
       <main className="main">
         <header className="workspace-header">
           <div>
-            <h1 className="workspace-title">AI 农情工作台</h1>
+            <h1 className="workspace-title">苏农云指挥调度智能</h1>
           </div>
           <WorkspaceUserMenu
             username={authUser.username}

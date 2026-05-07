@@ -400,6 +400,17 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.action, "distribution")
         self.assertEqual(result.query_shape.grain, "county")
 
+    def test_device_registry_county_detail_routes_with_inline_city_suffix_even_without_entity(self) -> None:
+        result = self.service.decide(
+            message="南通市接入了多少台土壤墒情仪",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+        self.assertEqual(result.extra["target_city"], "南通市")
+
     def test_device_registry_county_detail_not_triggered_without_city_entity(self) -> None:
         result = self.service.decide(
             message="土壤墒情仪各县区分布",
@@ -464,6 +475,16 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.route, "warning_group")
         self.assertEqual(result.query_shape.subject, "warning")
         self.assertEqual(result.query_shape.action, "group")
+
+    def test_warning_group_route_accepts_prewarning_summary_variant(self) -> None:
+        result = self.service.decide(
+            message="最近7天的预警有哪些",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
 
     def test_warning_count_route(self) -> None:
         result = self.service.decide(

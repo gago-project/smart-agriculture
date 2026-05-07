@@ -103,6 +103,7 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
       city: '淮安市',
       county: '金湖县',
       alert_device_count: 3,
+      latest_create_time: '2026-04-13 23:59:17',
     },
   ]);
   assert.equal('alert_records_snapshot_id' in cleaned[0], false);
@@ -141,7 +142,7 @@ test('sanitizeTurnBlocks keeps only raw soil columns in stored chat blocks', asy
   ]);
   assert.doesNotMatch(
     JSON.stringify(cleaned),
-    /max_risk_score|alert_record_count|warning_level|entity_key|latest_create_time|risk_score|source_file|source_sheet|source_row/,
+    /max_risk_score|alert_record_count|warning_level|entity_key|risk_score|source_file|source_sheet|source_row/,
   );
 });
 
