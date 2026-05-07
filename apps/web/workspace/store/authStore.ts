@@ -9,6 +9,7 @@ interface AuthState {
   token: string | null;
   user: AuthUser | null;
   status: AuthStatus;
+  lastLoginAt: number | null;
   initAuth: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
@@ -20,7 +21,8 @@ const STORAGE_KEY = 'doc-frontend-auth-v1';
 const initialState = {
   token: null as string | null,
   user: null as AuthUser | null,
-  status: 'idle' as AuthStatus
+  status: 'idle' as AuthStatus,
+  lastLoginAt: null as number | null,
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -30,7 +32,7 @@ export const useAuthStore = create<AuthState>()(
       initAuth: async () => {
         const { token, user } = get();
         if (!token) {
-          set({ token: null, user: null, status: 'anonymous' });
+          set({ token: null, user: null, status: 'anonymous', lastLoginAt: null });
           return;
         }
         if (user) {
@@ -42,7 +44,7 @@ export const useAuthStore = create<AuthState>()(
           const currentUser = await fetchCurrentUser(token);
           set({ user: currentUser, status: 'authenticated' });
         } catch {
-          set({ token: null, user: null, status: 'anonymous' });
+          set({ token: null, user: null, status: 'anonymous', lastLoginAt: null });
         }
       },
       login: async (username, password) => {
@@ -52,10 +54,11 @@ export const useAuthStore = create<AuthState>()(
           set({
             token: session.token,
             user: session.user,
-            status: 'authenticated'
+            status: 'authenticated',
+            lastLoginAt: Date.now(),
           });
         } catch (error) {
-          set({ token: null, user: null, status: 'anonymous' });
+          set({ token: null, user: null, status: 'anonymous', lastLoginAt: null });
           throw error;
         }
       },
@@ -66,11 +69,11 @@ export const useAuthStore = create<AuthState>()(
             await logoutRequest(token);
           }
         } finally {
-          set({ token: null, user: null, status: 'anonymous' });
+          set({ token: null, user: null, status: 'anonymous', lastLoginAt: null });
         }
       },
       clearSession: () => {
-        set({ token: null, user: null, status: 'anonymous' });
+        set({ token: null, user: null, status: 'anonymous', lastLoginAt: null });
       }
     }),
     {

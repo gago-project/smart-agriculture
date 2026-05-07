@@ -58,6 +58,14 @@ function buildLocalSession(title = '新会话'): Session {
   };
 }
 
+interface CreateSessionOptions {
+  activate?: boolean;
+}
+
+interface SendQuestionOptions {
+  focusSession?: boolean;
+}
+
 export function useChatActions() {
   const {
     sessions,
@@ -112,10 +120,12 @@ export function useChatActions() {
     selectedAssistantMessage,
   ]);
 
-  const createSession = useCallback(async (title?: string) => {
+  const createSession = useCallback(async (title?: string, options?: CreateSessionOptions) => {
     const session = buildLocalSession(title || '新会话');
     upsertSession(session);
-    switchSession(session.id);
+    if (options?.activate !== false) {
+      switchSession(session.id);
+    }
     return session.id;
   }, [switchSession, upsertSession]);
 
@@ -143,7 +153,7 @@ export function useChatActions() {
   }, [activeSessionId, selectAssistantMessageInStore]);
 
   const sendQuestion = useCallback(
-    async (rawQuestion: string, targetSessionId?: string) => {
+    async (rawQuestion: string, targetSessionId?: string, options?: SendQuestionOptions) => {
       const question = rawQuestion.trim();
       if (!question || isSending) {
         return;
@@ -155,7 +165,7 @@ export function useChatActions() {
       let sessionId = targetSessionId ?? activeSessionId;
       if (!sessionId) {
         sessionId = await createSession(buildSessionTitle(question));
-      } else if (targetSessionId) {
+      } else if (targetSessionId && options?.focusSession !== false) {
         switchSession(targetSessionId);
       }
 

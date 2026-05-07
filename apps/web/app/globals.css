@@ -511,8 +511,50 @@ body,
 .chat-column {
   min-height: 0;
   display: grid;
-  grid-template-rows: minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 12px;
+}
+
+.auto-run-banner {
+  display: grid;
+  gap: 6px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  background: linear-gradient(135deg, rgba(16, 163, 127, 0.08), rgba(15, 23, 42, 0.02));
+}
+
+.auto-run-banner strong,
+.auto-run-banner span,
+.auto-run-banner p,
+.auto-run-banner small {
+  margin: 0;
+}
+
+.auto-run-banner strong {
+  font-size: 14px;
+}
+
+.auto-run-banner span,
+.auto-run-banner small {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.auto-run-banner p {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.auto-run-banner--error {
+  border-color: rgba(239, 68, 68, 0.18);
+  background: rgba(239, 68, 68, 0.08);
+}
+
+.auto-run-banner--done {
+  border-color: rgba(16, 163, 127, 0.18);
+  background: rgba(16, 163, 127, 0.08);
 }
 
 .chat-panel {

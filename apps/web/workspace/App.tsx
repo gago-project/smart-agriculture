@@ -11,6 +11,7 @@ import { AgentLogPage } from './components/AgentLogPage';
 import { SoilAdminPage } from './components/SoilAdminPage';
 import { WorkspaceUserMenu } from './components/WorkspaceUserMenu';
 import { useChatActions } from './hooks/useChatActions';
+import { useGagoDevAutoRunner } from './hooks/useGagoDevAutoRunner';
 import { useAuthStore } from './store/authStore';
 
 const SHOW_ADMIN_QUERY_EVIDENCE = false;
@@ -20,6 +21,7 @@ export default function App() {
   const router = useRouter();
   const authStatus = useAuthStore((state) => state.status);
   const authUser = useAuthStore((state) => state.user);
+  const lastLoginAt = useAuthStore((state) => state.lastLoginAt);
   const initAuth = useAuthStore((state) => state.initAuth);
   const login = useAuthStore((state) => state.login);
   const logout = useAuthStore((state) => state.logout);
@@ -57,6 +59,14 @@ export default function App() {
       : pathname === '/query-logs' && canViewAgentLogs
         ? 'agent-logs'
         : 'chat';
+  const gagoDevAutoRun = useGagoDevAutoRunner({
+    username: authUser?.username ?? null,
+    lastLoginAt,
+    enabled: currentView === 'chat',
+    createSession,
+    sendQuestion,
+    switchSession,
+  });
 
   useEffect(() => {
     void initAuth();
@@ -148,6 +158,18 @@ export default function App() {
         ) : (
           <div className={`chat-workspace ${showChatEvidence ? 'with-query-evidence' : ''}`}>
             <div className="chat-column">
+              {gagoDevAutoRun.enabled ? (
+                <section className={`auto-run-banner auto-run-banner--${gagoDevAutoRun.phase}`}>
+                  <strong>gago-dev 自动真实问答回归</strong>
+                  <span>
+                    {gagoDevAutoRun.phase === 'running' || gagoDevAutoRun.phase === 'done'
+                      ? `${gagoDevAutoRun.completedCases}/${gagoDevAutoRun.totalCases}`
+                      : '准备中'}
+                  </span>
+                  {gagoDevAutoRun.message ? <p>{gagoDevAutoRun.message}</p> : null}
+                  {gagoDevAutoRun.currentLabel ? <small>当前：{gagoDevAutoRun.currentLabel}</small> : null}
+                </section>
+              ) : null}
               <ChatPanel
                 session={activeSession}
                 error={error}
