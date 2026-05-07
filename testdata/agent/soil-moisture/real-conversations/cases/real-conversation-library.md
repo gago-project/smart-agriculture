@@ -1,6 +1,7 @@
-# 102 条真实问答库
+# 126 条真实问答库
 
-> 这份文件是 102 条真实问答的落库版本，和 94 条正式验收库分开维护。
+> 这份文件是 126 条真实问答的落库版本，和 94 条正式验收库分开维护。
+> 本轮补充重点不是堆数量，而是补齐 `warning_group` 下钻、`warning_disposal` 复合追问、`summary/group/count` 互转、`device ↔ soil` 话题往返，以及模板、纠错、closing/reset、compare follow-up 等易漏类型。
 
 | ID | 分类 | 测试问题 | 主测能力 | 预期 |
 |---:|---|---|---|---|
@@ -106,3 +107,27 @@
 | 100 | 多轮 | 最近30天全省预警处置情况怎么样 → 那待处理多少条呢 | warning_disposal status focus follow-up | 重点支持 |
 | 101 | 多轮 | 最近30天全省预警处置情况怎么样 → 目前预警规则是什么 | warning_disposal -> rule topic switch | 重点支持 |
 | 102 | 多轮 | 最近30天全省预警处置情况怎么样 → 目前平台接入了多少台土壤墒情仪 | warning_disposal -> device topic switch | 重点支持 |
+| 103 | 多轮 | 最近7天哪些区域出现了预警信息？ → 点位详情呢 | warning_group -> warning_device_list 下钻 | 重点支持 |
+| 104 | 多轮 | 最近7天哪些区域出现了预警信息？ → 记录详情呢 | warning_group -> warning_record_list 下钻 | 高风险 |
+| 105 | 多轮 | 最近7天哪些区域出现了预警信息？ → 有多少条呢 | warning_group -> warning_count 总量追问 | 重点支持 |
+| 106 | 多轮 | 最近7天哪些区域出现了预警信息？ → 哪些设备有预警 | warning_group -> warning_device_list 自然别名追问 | 重点支持 |
+| 107 | 多轮 | 3月20号全省出现墒情预警信息的记录有多少条 → 哪些区域出现了预警信息 | warning_count -> warning_group 能力切换 | 高风险 |
+| 108 | 多轮 | 最近30天按地区汇总墒情数据 → 涉及多少个区县 | group -> count 覆盖区县数 | 高风险 |
+| 109 | 多轮 | 最近30天按地区汇总墒情数据 → 点位详情呢 | group -> device list 下钻 | 高风险 |
+| 110 | 多轮 | 最近30天全省预警处置情况怎么样 → 那徐州市待处理多少条呢 | warning_disposal 地区 + 状态复合收窄 | 高风险 |
+| 111 | 多轮 | 最近30天全省预警处置情况怎么样 → 那最近7天呢 | warning_disposal 时间收窄追问 | 重点支持 |
+| 112 | 多轮 | 土壤墒情仪分布在哪里？ → 那南京呢？ → 那最近7天南京墒情怎么样？ → 那设备分布呢 | device -> soil -> device 话题往返 | 高风险 |
+| 113 | 多轮 | 目前预警规则是什么 → 那设备故障预警呢？ → 最近7天哪些区域有这种预警 | rule clause -> warning_type -> warning_group | 高风险 |
+| 114 | 多轮 | 最近7天全省整体墒情怎么样 → 涉及多少个点位 | summary -> count device follow-up | 重点支持 |
+| 115 | 预警/排名/模板 | 南通市最近7天详情 → 按模板输出预警 | detail -> template | 高风险 |
+| 116 | 预警/排名/模板 | 按模板输出 SNS00204333 最近7天预警，没有的话也告诉我 | template no-warning path | 高风险 |
+| 117 | 多轮 | 最近7天哪些区域出现了预警信息？ → 按模板输出最新一条预警 | warning_group -> template | 高风险 |
+| 118 | 多轮 | 最近7天哪些区域出现了预警信息？ → 不是徐州，是南通 | warning_group 纠错型追问 | 重点支持 |
+| 119 | 多轮 | 最近30天全省预警处置情况怎么样 → 不是待处理，是已处理 | warning_disposal 状态纠错追问 | 高风险 |
+| 120 | 多轮 | 土壤墒情仪分布在哪里？ → 不是南京，是南通 | device_registry 城市纠错追问 | 重点支持 |
+| 121 | 多轮 | 土壤墒情仪分布在哪里？ → 好的先这样 → 最近7天整体墒情怎么样 | device topic closing 后新开 soil 话题 | 重点支持 |
+| 122 | 多轮 | 最近30天全省预警处置情况怎么样 → 行，先这样吧 → 那设备分布呢 | warning_disposal closing 后新开 device 话题 | 重点支持 |
+| 123 | 预警处置 | 最近30天全省已处理多少条预警 | warning_disposal 单轮状态聚焦 | 支持 |
+| 124 | 预警处置 | 上周南通还有多少条待处理预警 | warning_disposal 城市 + 相对时间 + 状态聚焦 | 支持 |
+| 125 | 多轮 | 徐州和南通最近30天对比一下 → 那更差那边的点位呢 | compare -> list follow-up | 高风险 |
+| 126 | 多轮 | 徐州和南通最近30天对比一下 → 那更差那边有多少条预警记录 | compare -> count follow-up | 高风险 |

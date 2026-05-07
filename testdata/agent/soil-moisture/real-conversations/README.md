@@ -24,7 +24,7 @@ real-conversations/
   analysis-60.md
   cases/
     README.md
-    real-case-library.md
+    real-conversation-library.md
   regressions/
     README.md
 ```
@@ -43,6 +43,6 @@ real-conversations/
 
 ## 现有资产
 
-- [当前真实问答主库](./cases/real-case-library.md)
+- [当前真实问答主库](./cases/real-conversation-library.md)
 - [60 条基线实跑分析](./analysis-60.md)
 - 旧的 `soil-case-input-output-summary.xlsx` 已退役，后续以本目录和 `live-real-60-*` 实跑产物为准

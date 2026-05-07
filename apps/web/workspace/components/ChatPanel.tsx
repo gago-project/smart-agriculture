@@ -7,8 +7,9 @@ interface ChatPanelProps {
   session: Session | null;
   error: string | null;
   onRetry: (message: Message) => Promise<void>;
-  selectedAssistantMessageId: string | null;
-  onSelectAssistantMessage: (message: Message) => void;
+  evidenceSelectionEnabled?: boolean;
+  selectedAssistantMessageId?: string | null;
+  onSelectAssistantMessage?: (message: Message) => void;
 }
 
 function findPreviousUserMessage(messages: Message[], index: number): Message | null {
@@ -82,6 +83,7 @@ export function ChatPanel({
   session,
   error,
   onRetry,
+  evidenceSelectionEnabled = false,
   selectedAssistantMessageId,
   onSelectAssistantMessage,
 }: ChatPanelProps) {
@@ -118,7 +120,8 @@ export function ChatPanel({
       <div className="messages" aria-label="消息列表">
         {session.messages.map((message, index) => {
           const retryMessage = message.status === 'error' ? findPreviousUserMessage(session.messages, index) : null;
-          const isSelectable = message.role === 'assistant' && message.status === 'done' && Boolean(message.meta);
+          const isSelectable =
+            evidenceSelectionEnabled && message.role === 'assistant' && message.status === 'done' && Boolean(message.meta);
           const isSelected = isSelectable && selectedAssistantMessageId === message.id;
 
           return (
@@ -130,7 +133,7 @@ export function ChatPanel({
               <div
                 className={`message ${message.role} ${isSelectable ? 'selectable' : ''} ${isSelected ? 'selected' : ''}`}
                 onClick={() => {
-                  if (message.role === 'assistant' && isSelectable) {
+                  if (message.role === 'assistant' && isSelectable && onSelectAssistantMessage) {
                     onSelectAssistantMessage(message);
                   }
                 }}
