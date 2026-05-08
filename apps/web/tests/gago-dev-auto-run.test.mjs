@@ -10,7 +10,7 @@ import {
 test('real conversation library parser keeps markdown as the single source of truth', async () => {
   const cases = await listRealConversationCases();
 
-  assert.equal(cases.length, 126);
+  assert.equal(cases.length, 125);
   assert.equal(cases[0].id, 1);
   assert.equal(cases[0].turns.length, 1);
 

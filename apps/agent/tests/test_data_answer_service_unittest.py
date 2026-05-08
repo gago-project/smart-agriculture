@@ -581,6 +581,57 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("当前这轮可继续展开的是", follow_up["final_text"])
         self.assertIn("重点关注地区", follow_up["final_text"])
 
+    async def test_overall_summary_uses_structured_output_template(self) -> None:
+        result = await self.service.reply(
+            message="最近7天全省整体墒情怎么样",
+            session_id="overall-summary-structured-template",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertIn("- 时间：2026-04-07至2026-04-13", result["final_text"])
+        self.assertIn("- 20cm平均含水量：约93.77%", result["final_text"])
+        self.assertIn("- 记录：3689条", result["final_text"])
+        self.assertIn("- 墒情仪：527套", result["final_text"])
+        self.assertIn("- 地区：80个", result["final_text"])
+        self.assertIn("- 最新记录时间：2026-04-13 23:59:17", result["final_text"])
+        self.assertIn("- 注：如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。", result["final_text"])
+
+    async def test_warning_summary_uses_structured_output_template(self) -> None:
+        result = await self.service.reply(
+            message="最近30天有没有需要重点关注的地区",
+            session_id="warning-summary-structured-template",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertIn("- 时间：2026-03-15至2026-04-13", result["final_text"])
+        self.assertIn("- 预警记录：252条", result["final_text"])
+        self.assertIn("- 墒情仪：42套", result["final_text"])
+        self.assertIn("- 地区：26个", result["final_text"])
+        self.assertIn("- 最新预警时间：2026-04-13 23:59:17", result["final_text"])
+        self.assertIn("重点关注地区包括：", result["final_text"])
+        self.assertIn("徐州市睢宁县", result["final_text"])
+        self.assertIn("- 注：如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。", result["final_text"])
+
+    async def test_single_device_summary_omits_redundant_device_count_line(self) -> None:
+        result = await self.service.reply(
+            message="SNS00204333最近7天怎么样",
+            session_id="single-device-summary-structured-template",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertIn("- 设备号：SNS00204333", result["final_text"])
+        self.assertIn("- 时间：2026-04-07至2026-04-13", result["final_text"])
+        self.assertIn("- 20cm平均含水量：约93.99%", result["final_text"])
+        self.assertIn("- 记录：7条", result["final_text"])
+        self.assertIn("- 地区：1个", result["final_text"])
+        self.assertNotIn("- 墒情仪：1套", result["final_text"])
+
     async def test_standalone_group_query_runs_without_prior_context(self) -> None:
         grouped = await self.service.reply(
             message="最近30天按地区汇总墒情数据",
@@ -775,7 +826,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail["answer_kind"], "business")
         self.assertEqual(detail["capability"], "detail")
         self.assertEqual(detail["blocks"][0]["block_type"], "detail_card")
-        self.assertIn("仪征市2026-04-06至2026-04-12", detail["final_text"])
+        self.assertIn("- 对象：仪征市", detail["final_text"])
+        self.assertIn("- 时间：2026-04-06至2026-04-12", detail["final_text"])
         self.assertNotIn("最新详情如下", detail["final_text"])
         self.assertNotIn("最近一条记录时间为", detail["final_text"])
 
@@ -2309,3 +2361,19 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["time_window"]["source"], "history_inherited")
         self.assertIn("徐州市", follow_up["final_text"])
         self.assertNotIn("全省", follow_up["final_text"])
+
+    async def test_generic_compare_digest_includes_warning_record_count(self) -> None:
+        compared = await self.service.reply(
+            message="徐州和南通最近30天对比一下",
+            session_id="generic-compare-digest-warning-count",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(compared["answer_kind"], "business")
+        self.assertEqual(compared["capability"], "compare")
+        self.assertIn("徐州市：", compared["final_text"])
+        self.assertIn("南通市：", compared["final_text"])
+        self.assertIn("- 预警记录：", compared["final_text"])
+        self.assertIn("- 记录：1830条", compared["final_text"])
