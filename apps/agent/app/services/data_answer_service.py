@@ -38,6 +38,7 @@ from app.services.parameter_resolver_service import (
 from app.services.query_profile_resolver_service import QueryProfileResolverService
 from app.services.time_window_service import TimeWindowService
 from app.services.turn_route_decision_service import TurnRouteDecisionService
+from app.services.fact_check_service import FactCheckService
 from app.services.warning_predicate_service import WarningPredicateService
 
 
@@ -171,6 +172,7 @@ class DataAnswerService:
         turn_route_decision_service: TurnRouteDecisionService | None = None,
         query_profile_resolver: QueryProfileResolverService | None = None,
         warning_predicate_service: WarningPredicateService | None = None,
+        fact_check_service: FactCheckService | None = None,
     ) -> None:
         self.repository = repository or SoilRepository.from_env()
         self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
@@ -184,6 +186,7 @@ class DataAnswerService:
         self.turn_route_decision_service = turn_route_decision_service or TurnRouteDecisionService()
         self.query_profile_resolver = query_profile_resolver or QueryProfileResolverService()
         self.warning_predicate_service = warning_predicate_service or WarningPredicateService()
+        self.fact_check_service = fact_check_service or FactCheckService()
         self._business_time_cache: str | None = None
         self._business_time_cache_at: float = 0.0
 
@@ -197,6 +200,25 @@ class DataAnswerService:
         timezone: str = "Asia/Shanghai",
     ) -> dict[str, Any]:
         """Handle one deterministic data-answer turn."""
+        response = await self._reply_impl(
+            message=message,
+            session_id=session_id,
+            turn_id=turn_id,
+            current_context=current_context,
+            timezone=timezone,
+        )
+        self.fact_check_service.verify(response)
+        return response
+
+    async def _reply_impl(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any] | None,
+        timezone: str = "Asia/Shanghai",
+    ) -> dict[str, Any]:
         del timezone
         text = (message or "").strip()
         context = self._normalize_context(current_context)
@@ -1664,7 +1686,7 @@ class DataAnswerService:
             alias_name = str(row.get("alias_name") or "").strip()
             if not alias_name:
                 continue
-            match_start = text.rfind(alias_name)
+            match_start = text.find(alias_name)
             if match_start < 0:
                 continue
             region_level = str(row.get("region_level") or "").strip()
@@ -1707,8 +1729,22 @@ class DataAnswerService:
                 )
                 seen.add(province_key)
 
-        cities = [item["alias_name"] for item in deduped if item["region_level"] == "city"]
-        counties = [item["alias_name"] for item in deduped if item["region_level"] == "county"]
+        inline_city = TurnRouteDecisionService._extract_inline_city_name(text)
+        if inline_city:
+            city_key = (inline_city, "city", None)
+            if city_key not in seen:
+                deduped.append(
+                    {
+                        "alias_name": inline_city,
+                        "canonical_name": inline_city,
+                        "region_level": "city",
+                        "parent_city_name": None,
+                    }
+                )
+                seen.add(city_key)
+
+        cities = [item["canonical_name"] for item in deduped if item["region_level"] == "city"]
+        counties = [item["canonical_name"] for item in deduped if item["region_level"] == "county"]
         provinces = [item["canonical_name"] for item in deduped if item["region_level"] == "province"]
         sns = [match.group(0).upper() for match in SN_PATTERN.finditer(text)]
         return {
@@ -2143,8 +2179,38 @@ class DataAnswerService:
             "end_time": resolved_args.get("end_time"),
         }
 
-    async def _query_records(self, resolved_args: dict[str, Any]) -> list[dict[str, Any]]:
-        return await self.repository.filter_records_async(**self._query_filters_from_args(resolved_args))
+    async def _query_records(
+        self,
+        resolved_args: dict[str, Any],
+        *,
+        alert_only: bool = False,
+        warning_type: str | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        filters = self._query_filters_from_args(resolved_args)
+        if alert_only:
+            return await self.repository.filter_warning_records_async(
+                **filters,
+                warning_type=warning_type,
+                rule_row=rule_row,
+            )
+        return await self.repository.filter_records_async(**filters)
+
+    async def _query_warning_records(
+        self,
+        resolved_args: dict[str, Any],
+        *,
+        warning_type: str | None = None,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
+        rule_row_getter = getattr(self.repository, "warning_rule_row_async", None)
+        rule_row = await rule_row_getter() if callable(rule_row_getter) else None
+        records = await self._query_records(
+            resolved_args,
+            alert_only=True,
+            warning_type=warning_type,
+            rule_row=rule_row,
+        )
+        return records, rule_row
 
     @staticmethod
     def _raw_row(row: dict[str, Any]) -> dict[str, Any]:
@@ -2493,16 +2559,12 @@ class DataAnswerService:
             rows.append(row)
 
         if data_focus == "warning_only":
-            rows.sort(
-                key=lambda item: (
-                    -int(item.get("alert_device_count") or 0),
-                    -int(item.get("alert_record_count") or 0),
-                    str(item.get("latest_alert_time") or ""),
-                    str(item.get("county") or ""),
-                    str(item.get("city") or ""),
-                ),
-                reverse=False,
-            )
+            # Keep warning-focused regional highlights aligned with business ordering:
+            # record count first, then latest alert time, and finally region name.
+            rows.sort(key=lambda item: str(item.get("county") or ""))
+            rows.sort(key=lambda item: str(item.get("city") or ""))
+            rows.sort(key=lambda item: str(item.get("latest_alert_time") or ""), reverse=True)
+            rows.sort(key=lambda item: int(item.get("alert_record_count") or 0), reverse=True)
         else:
             rows.sort(key=lambda item: (str(item.get("county") or ""), str(item.get("city") or "")))
         return rows[:top_n] if top_n else rows
@@ -2909,6 +2971,10 @@ class DataAnswerService:
         self._apply_recovered_region_slot(slots=slots, resolution=direct_resolution)
         if not slots:
             self._apply_literal_region_slot(slots=slots, raw_name=candidate_text)
+        if not slots:
+            inline_city = TurnRouteDecisionService._extract_inline_city_name(candidate_text)
+            if inline_city:
+                slots["city"] = inline_city
         if slots.get("county") or slots.get("city"):
             return slots
 
@@ -2953,7 +3019,13 @@ class DataAnswerService:
         if not resolved_args:
             return None, None
 
-        records = await self._query_records(resolved_args)
+        primary_filters = (primary_query_spec.get("filters") or {})
+        alert_only = bool(primary_filters.get("alert_only"))
+        rule_row = None
+        if alert_only:
+            records, rule_row = await self._query_warning_records(resolved_args)
+        else:
+            records = await self._query_records(resolved_args)
         rows = self._alert_record_rows(records) if snapshot_config["grain"] == "record_list" else self._focus_device_rows(records)
         if not rows:
             return None, None
@@ -2976,7 +3048,14 @@ class DataAnswerService:
             rows=rows,
             snapshot_kind=snapshot_config["snapshot_kind"],
         )
-        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        audit_sql = (
+            self.repository.build_filter_warning_records_audit_sql(
+                **self._query_filters_from_args(resolved_args),
+                rule_row=rule_row,
+            )
+            if alert_only
+            else self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        )
         return snapshot, audit_sql
 
     async def _reply_summary(
@@ -3018,11 +3097,12 @@ class DataAnswerService:
             follow_up_mode=follow_up_mode,
         )
         base_records = await self._query_records(resolved_args)
-        records = list(base_records)
         warning_only = query_profile.get("data_focus") == "warning_only"
         rule_row = None
         if warning_only:
-            records, rule_row = await self._warning_filtered_records(records)
+            records, rule_row = await self._query_warning_records(resolved_args)
+        else:
+            records = list(base_records)
         if not base_records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -3130,9 +3210,14 @@ class DataAnswerService:
             "record_snapshot_id": record_snapshot["snapshot_id"],
             **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
         }
-        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
-        if warning_only:
-            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
+        audit_sql = (
+            self.repository.build_filter_warning_records_audit_sql(
+                **self._query_filters_from_args(resolved_args),
+                rule_row=rule_row,
+            )
+            if warning_only
+            else self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -3201,11 +3286,12 @@ class DataAnswerService:
             follow_up_mode=follow_up_mode,
         )
         base_records = await self._query_records(resolved_args)
-        records = list(base_records)
         warning_only = query_profile["data_focus"] == "warning_only"
         rule_row = None
         if warning_only:
-            records, rule_row = await self._warning_filtered_records(records)
+            records, rule_row = await self._query_warning_records(resolved_args)
+        else:
+            records = list(base_records)
         if not base_records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -3317,9 +3403,14 @@ class DataAnswerService:
                 f"{scope_label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
                 f"共有 {measure_phrase}。"
             )
-        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
-        if warning_only:
-            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
+        audit_sql = (
+            self.repository.build_filter_warning_records_audit_sql(
+                **self._query_filters_from_args(resolved_args),
+                rule_row=rule_row,
+            )
+            if warning_only
+            else self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -3544,16 +3635,16 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=follow_up_mode,
         )
-        records = await self._query_records(resolved_args)
-        if not records:
-            return self._build_fallback_response(
-                turn_id=turn_id,
-                capability="field",
-                text="当前条件下没有查到对应的数据字段结果，你可以换一个地区、设备或时间范围再试。",
-                current_context=current_context,
-            )
-
-        block_id = f"block_field_{turn_id}"
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="field",
+            grain=str(query_profile.get("result_grain") or "entity_detail"),
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            slot_confidence=resolution_meta["slot_confidence"],
+            slot_source=resolution_meta["slot_source"],
+            query_profile=query_profile,
+        )
         query_spec = self._build_query_spec(
             capability="field",
             grain=str(query_profile.get("result_grain") or "entity_detail"),
@@ -3562,6 +3653,31 @@ class DataAnswerService:
             source_turn_id=turn_id,
             follow_up_mode=follow_up_mode,
         )
+        records = await self._query_records(resolved_args)
+        if not records:
+            return self._build_audited_fallback_response(
+                session_id=session_id,
+                turn_id=turn_id,
+                capability="field",
+                text="当前条件下没有查到对应的数据字段结果，你可以换一个地区、设备或时间范围再试。",
+                current_context=current_context,
+                query_spec=query_spec,
+                time_window=time_window,
+                resolved_entities=resolved_entities,
+                query_state=query_state,
+                parent_target_key=resolution_meta["parent_target_key"],
+                replace_history=resolution_meta["operation"] == "correct_slot",
+                query_type="field",
+                executed_sql_text=self.repository.build_filter_records_audit_sql(
+                    **self._query_filters_from_args(resolved_args)
+                ),
+                row_count=0,
+                filters=query_spec["filters"],
+                executed_result={"rows": [], "field_mode": field_mode},
+                result_digest={"row_count": 0, "field_mode": field_mode},
+            )
+
+        block_id = f"block_field_{turn_id}"
         base_context = {
             "topic_family": "data",
             "active_topic_turn_id": turn_id,
@@ -3579,11 +3695,35 @@ class DataAnswerService:
             values = [_safe_float(record.get(metric)) for record in records]
             valid = [value for value in values if value is not None]
             if not valid:
-                return self._build_fallback_response(
+                aggregation = str(query_profile.get("aggregation") or "avg")
+                return self._build_audited_fallback_response(
+                    session_id=session_id,
                     turn_id=turn_id,
                     capability="field",
                     text="当前条件下没有可用于聚合的数值字段结果。",
                     current_context=current_context,
+                    query_spec=query_spec,
+                    time_window=time_window,
+                    resolved_entities=resolved_entities,
+                    query_state=query_state,
+                    parent_target_key=resolution_meta["parent_target_key"],
+                    replace_history=resolution_meta["operation"] == "correct_slot",
+                    query_type="field",
+                    executed_sql_text=self.repository.build_filter_records_audit_sql(
+                        **self._query_filters_from_args(resolved_args)
+                    ),
+                    row_count=len(records),
+                    filters=query_spec["filters"],
+                    executed_result={
+                        "field": metric,
+                        "aggregation": aggregation,
+                        "valid_values": [],
+                    },
+                    result_digest={
+                        "field": metric,
+                        "aggregation": aggregation,
+                        "valid_count": 0,
+                    },
                 )
             aggregation = str(query_profile.get("aggregation") or "avg")
             if aggregation == "min":
@@ -3673,16 +3813,6 @@ class DataAnswerService:
             action_targets = []
             result_refs = []
 
-        query_state = self._build_query_state(
-            turn_id=turn_id,
-            capability="field",
-            grain=str(query_profile.get("result_grain") or "entity_detail"),
-            slots=resolution_meta["slots"],
-            time_window=time_window,
-            slot_confidence=resolution_meta["slot_confidence"],
-            slot_source=resolution_meta["slot_source"],
-            query_profile=query_profile,
-        )
         turn_context = self._finalize_context(
             base_context=base_context,
             current_context=current_context,
@@ -3997,9 +4127,10 @@ class DataAnswerService:
         )
         warning_only = query_profile.get("data_focus") == "warning_only"
         rule_row = None
-        records = await self._query_records(resolved_args)
         if warning_only:
-            records, rule_row = await self._warning_filtered_records(records)
+            records, rule_row = await self._query_warning_records(resolved_args)
+        else:
+            records = await self._query_records(resolved_args)
         if not records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -4105,9 +4236,14 @@ class DataAnswerService:
                 if list_target == LIST_TARGET_ALERT_RECORDS
                 else f"已列出当前条件下的 {len(rows)} 套墒情仪。"
             )
-        audit_sql = self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
-        if warning_only:
-            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
+        audit_sql = (
+            self.repository.build_filter_warning_records_audit_sql(
+                **self._query_filters_from_args(resolved_args),
+                rule_row=rule_row,
+            )
+            if warning_only
+            else self.repository.build_filter_records_audit_sql(**self._query_filters_from_args(resolved_args))
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -4347,7 +4483,8 @@ class DataAnswerService:
                 grain="region_group",
                 clarify_text=str(exc),
             )
-        records = await self._query_records(resolved_args)
+        base_records = await self._query_records(resolved_args)
+        records = list(base_records)
         if not records:
             return self._build_fallback_response(
                 turn_id=turn_id,
@@ -4376,7 +4513,7 @@ class DataAnswerService:
         warning_only = query_profile.get("data_focus") == "warning_only"
         rule_row = None
         if warning_only:
-            records, rule_row = await self._warning_filtered_records(records)
+            records, rule_row = await self._query_warning_records(resolved_args)
             if not records:
                 return self._build_fallback_response(
                     turn_id=turn_id,
@@ -4503,11 +4640,16 @@ class DataAnswerService:
             if warning_only
             else "、".join(preview_items)
         )
-        audit_sql = self.repository.build_filter_records_audit_sql(
-            **self._query_filters_from_args(resolved_args)
+        audit_sql = (
+            self.repository.build_filter_warning_records_audit_sql(
+                **self._query_filters_from_args(resolved_args),
+                rule_row=rule_row,
+            )
+            if warning_only
+            else self.repository.build_filter_records_audit_sql(
+                **self._query_filters_from_args(resolved_args)
+            )
         )
-        if warning_only:
-            audit_sql = self._warning_query_audit_sql(audit_sql, rule_row)
         if warning_only:
             range_label = self._time_window_range_label(time_window)
             group_label = self._group_label(group_by)
@@ -4890,16 +5032,24 @@ class DataAnswerService:
                     "start_time": current_window["start_time"],
                     "end_time": current_window["end_time"],
                 }
-                records = await self.repository.filter_records_async(**filters)
                 if query_profile.get("data_focus") == "warning_only":
-                    records, current_rule_row = await self._warning_filtered_records(records)
+                    current_rule_row = warning_rule_row or await self.repository.warning_rule_row_async()
+                    records = await self.repository.filter_warning_records_async(
+                        **filters,
+                        rule_row=current_rule_row,
+                    )
                     warning_rule_row = warning_rule_row or current_rule_row
+                else:
+                    records = await self.repository.filter_records_async(**filters)
                 records_by_entity[label] = list(records)
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
-                warning_records, current_rule_row = await self._warning_filtered_records(list(records))
-                warning_rule_row = warning_rule_row or current_rule_row
+                if query_profile.get("data_focus") == "warning_only":
+                    warning_records = list(records)
+                else:
+                    warning_records, current_rule_row = await self._warning_filtered_records(list(records))
+                    warning_rule_row = warning_rule_row or current_rule_row
                 compared.append(
                     {
                         "entity": label,
@@ -4933,16 +5083,24 @@ class DataAnswerService:
                     "start_time": time_window["start_time"],
                     "end_time": time_window["end_time"],
                 }
-                records = await self.repository.filter_records_async(**filters)
                 if query_profile.get("data_focus") == "warning_only":
-                    records, current_rule_row = await self._warning_filtered_records(records)
+                    current_rule_row = warning_rule_row or await self.repository.warning_rule_row_async()
+                    records = await self.repository.filter_warning_records_async(
+                        **filters,
+                        rule_row=current_rule_row,
+                    )
                     warning_rule_row = warning_rule_row or current_rule_row
+                else:
+                    records = await self.repository.filter_records_async(**filters)
                 records_by_entity[name] = list(records)
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
-                warning_records, current_rule_row = await self._warning_filtered_records(list(records))
-                warning_rule_row = warning_rule_row or current_rule_row
+                if query_profile.get("data_focus") == "warning_only":
+                    warning_records = list(records)
+                else:
+                    warning_records, current_rule_row = await self._warning_filtered_records(list(records))
+                    warning_rule_row = warning_rule_row or current_rule_row
                 compared.append(
                     {
                         "entity": name,
@@ -5158,20 +5316,24 @@ class DataAnswerService:
                     query_spec=query_spec,
                     executed_sql_text=";\n\n".join(
                         (
-                            self._warning_query_audit_sql(base_sql, warning_rule_row)
+                            self.repository.build_filter_warning_records_audit_sql(
+                                city=(item.get("canonical_name") if item.get("kind") == "city" else None),
+                                county=(item.get("canonical_name") if item.get("kind") == "county" else None),
+                                sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
+                                start_time=time_window["start_time"],
+                                end_time=time_window["end_time"],
+                                rule_row=warning_rule_row,
+                            )
                             if query_profile.get("data_focus") == "warning_only"
-                            else base_sql
-                        )
-                        for base_sql in (
-                            self.repository.build_filter_records_audit_sql(
+                            else self.repository.build_filter_records_audit_sql(
                                 city=(item.get("canonical_name") if item.get("kind") == "city" else None),
                                 county=(item.get("canonical_name") if item.get("kind") == "county" else None),
                                 sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
                                 start_time=time_window["start_time"],
                                 end_time=time_window["end_time"],
                             )
-                            for item in resolved_entities[:2]
                         )
+                        for item in resolved_entities[:2]
                     ),
                     row_count=sum(int(item["record_count"]) for item in compared),
                     snapshot_id=None,
@@ -5994,11 +6156,12 @@ class DataAnswerService:
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
         try:
-            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters(
+            resolved_args, time_window, resolved_entities, resolution_meta = await self._resolve_filters_with_policy(
                 message=message,
                 tool_name="query_soil_group",
                 current_context=current_context,
                 turn_id=turn_id,
+                allow_future_end_time=True,
             )
         except ValueError as exc:
             inherited = self._inherit_resolution_from_context(current_context=current_context)
@@ -6070,6 +6233,17 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=follow_up_mode,
         )
+        query_spec = self._build_query_spec(
+            capability="warning_group",
+            grain="region_group",
+            time_window=time_window,
+            resolved_args=resolved_args,
+            source_turn_id=turn_id,
+            follow_up_mode=follow_up_mode,
+        )
+        query_spec["filters"]["alert_only"] = True
+        if warning_type:
+            query_spec["filters"]["warning_type"] = warning_type
         rows = await self.repository.query_warning_group_by_region_async(
             city=resolved_args.get("city"),
             county=resolved_args.get("county"),
@@ -6079,14 +6253,54 @@ class DataAnswerService:
             warning_type=warning_type,
             rule_row=rule_row,
         )
+        warning_rule_brief = self._warning_rule_brief(rule_row)
         if not rows:
             scope_label = self._entity_label(resolved_entities) or "全省"
             range_label = self._scoped_range_label(scope_label, time_window)
-            return self._build_fallback_response(
+            query_state = self._build_query_state(
                 turn_id=turn_id,
                 capability="warning_group",
-                text=f"{range_label}内未查询到有效墒情预警信息。",
+                grain="region_group",
+                slots=resolution_meta["slots"],
+                time_window=time_window,
+                slot_confidence=resolution_meta["slot_confidence"],
+                slot_source=resolution_meta["slot_source"],
+                query_profile=query_profile,
+            )
+            final_text = f"{range_label}内未查询到有效墒情预警信息。"
+            return self._build_audited_fallback_response(
+                session_id=session_id,
+                turn_id=turn_id,
+                capability="warning_group",
+                text=final_text,
                 current_context=current_context,
+                query_spec=query_spec,
+                time_window=time_window,
+                resolved_entities=resolved_entities,
+                query_state=query_state,
+                parent_target_key=resolution_meta["parent_target_key"],
+                replace_history=resolution_meta["operation"] == "correct_slot",
+                query_type="warning_group",
+                executed_sql_text=self.repository.build_warning_group_audit_sql(
+                    city=resolved_args.get("city"),
+                    county=resolved_args.get("county"),
+                    sn=resolved_args.get("sn"),
+                    start_time=time_window.get("start_time"),
+                    end_time=time_window.get("end_time"),
+                    warning_type=warning_type,
+                    rule_row=rule_row,
+                ),
+                row_count=0,
+                filters=query_spec["filters"],
+                executed_result={
+                    "rows": [],
+                    "warning_rule_brief": warning_rule_brief,
+                    "total_count": 0,
+                },
+                result_digest={
+                    "group_count": 0,
+                    "total_count": 0,
+                },
             )
 
         total_count = sum(int(row.get("total_count") or 0) for row in rows)
@@ -6124,19 +6338,7 @@ class DataAnswerService:
             }
             for row in record_rows
         ]
-        warning_rule_brief = self._warning_rule_brief(rule_row)
         block_id = f"block_warning_group_{turn_id}"
-        query_spec = self._build_query_spec(
-            capability="warning_group",
-            grain="region_group",
-            time_window=time_window,
-            resolved_args=resolved_args,
-            source_turn_id=turn_id,
-            follow_up_mode=follow_up_mode,
-        )
-        query_spec["filters"]["alert_only"] = True
-        if warning_type:
-            query_spec["filters"]["warning_type"] = warning_type
         record_snapshot = await self._create_focus_snapshot(
             session_id=session_id,
             turn_id=turn_id,
@@ -7323,6 +7525,83 @@ class DataAnswerService:
             "conversation_closed": False,
             "session_reset": False,
             "query_log_entries": [],
+        }
+
+    def _build_audited_fallback_response(
+        self,
+        *,
+        session_id: str,
+        turn_id: int,
+        capability: str,
+        text: str,
+        current_context: dict[str, Any],
+        query_spec: dict[str, Any],
+        time_window: dict[str, Any],
+        resolved_entities: list[dict[str, Any]],
+        query_state: dict[str, Any],
+        query_type: str,
+        executed_sql_text: str,
+        row_count: int,
+        filters: dict[str, Any],
+        executed_result: dict[str, Any],
+        result_digest: dict[str, Any],
+        parent_target_key: str | None = None,
+        replace_history: bool = False,
+    ) -> dict[str, Any]:
+        block_id = f"block_fallback_{turn_id}"
+        base_context = {
+            "topic_family": "data",
+            "active_topic_turn_id": turn_id,
+            "primary_block_id": block_id,
+            "primary_query_spec": query_spec,
+            "time_window": time_window,
+            "resolved_entities": resolved_entities,
+            "derived_sets": {},
+            "compare_winner_entity": None,
+            "closed": False,
+        }
+        turn_context = self._finalize_context(
+            base_context=base_context,
+            current_context=current_context,
+            turn_id=turn_id,
+            query_state=query_state,
+            parent_target_key=parent_target_key,
+            replace_history=replace_history,
+        )
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "fallback",
+            "capability": capability,
+            "final_text": text,
+            "blocks": [
+                {
+                    "block_id": block_id,
+                    "block_type": "fallback_card",
+                    "text": text,
+                    "reason": "no_data",
+                }
+            ],
+            "topic": self._topic_payload(turn_context),
+            "turn_context": turn_context,
+            "query_ref": {"has_query": True, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [
+                self._build_query_log_entry(
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    query_index=1,
+                    query_type=query_type,
+                    query_spec=query_spec,
+                    executed_sql_text=executed_sql_text,
+                    row_count=row_count,
+                    snapshot_id=None,
+                    time_window=time_window,
+                    filters=filters,
+                    executed_result=executed_result,
+                    result_digest=result_digest,
+                )
+            ],
         }
 
     @staticmethod
