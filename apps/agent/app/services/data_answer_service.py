@@ -2571,17 +2571,9 @@ class DataAnswerService:
 
     @staticmethod
     def _group_preview_text(rows: list[dict[str, Any]], *, group_by: str, limit: int = 5) -> str:
-        preview: list[str] = []
-        for row in rows[:limit]:
-            if group_by == "city":
-                label = str(row.get("city") or "").strip()
-            else:
-                city = str(row.get("city") or "").strip()
-                county = str(row.get("county") or "").strip()
-                label = f"{city}{county}" if city or county else ""
-            if label:
-                preview.append(label)
-        return "、".join(preview)
+        return "、".join(
+            DataAnswerService._group_preview_items(rows, group_by=group_by, limit=limit)
+        )
 
     @staticmethod
     def _compare_metric_value(records: list[dict[str, Any]], metric: str | None) -> float | int | None:
@@ -2672,9 +2664,10 @@ class DataAnswerService:
         compared: list[dict[str, Any]],
         winner: str | None,
         warning_rule_brief: str = "",
+        warning_only: bool = False,
     ) -> str:
         if len(compared) < 2:
-            return cls._render_compare_digest(compared, [])
+            return cls._render_compare_digest(compared, [], warning_only=warning_only)
         left = compared[0]
         right = compared[1]
         measure_label = cls._compare_measure_label(metric)
@@ -2692,14 +2685,24 @@ class DataAnswerService:
             )
         sections = []
         for entity_row, metric_value_text in ((left, left_value_text), (right, right_value_text)):
-            lines = [
-                f"{measure_label}：{metric_value_text}",
-                f"记录：{cls._count_text(entity_row.get('record_count'), '条')}",
-                f"墒情仪：{cls._count_text(entity_row.get('device_count'), '套')}",
-                f"20cm平均含水量：{cls._compare_value_text('avg_water20cm', entity_row.get('avg_water20cm'))}",
-            ]
-            if metric != "alert_record_count" and entity_row.get("warning_record_count") is not None:
-                lines.append(f"预警记录：{cls._count_text(entity_row.get('warning_record_count'), '条')}")
+            lines = [f"{measure_label}：{metric_value_text}"]
+            if warning_only:
+                if metric != "alert_record_count" and entity_row.get("warning_record_count") is not None:
+                    lines.append(f"预警记录：{cls._count_text(entity_row.get('warning_record_count'), '条')}")
+                if metric != "alert_device_count":
+                    lines.append(f"预警墒情仪：{cls._count_text(entity_row.get('device_count'), '套')}")
+            else:
+                lines.extend(
+                    [
+                        f"记录：{cls._count_text(entity_row.get('record_count'), '条')}",
+                        f"墒情仪：{cls._count_text(entity_row.get('device_count'), '套')}",
+                    ]
+                )
+                if metric != "alert_record_count" and entity_row.get("warning_record_count") is not None:
+                    lines.append(f"预警记录：{cls._count_text(entity_row.get('warning_record_count'), '条')}")
+            lines.append(
+                f"20cm平均含水量：{cls._compare_value_text('avg_water20cm', entity_row.get('avg_water20cm'))}"
+            )
             sections.append((f"{entity_row.get('entity')}：", lines))
         return cls._render_structured_answer(intro=lead, sections=sections)
 
@@ -4421,14 +4424,16 @@ class DataAnswerService:
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
             action_targets=[],
         )
-        preview = self._group_preview_text(rows, group_by=group_by)
+        visible_rows = list(block.get("rows") or [])
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "group",
-            "final_text": (
-                f"已按{self._group_label(group_by)}完成汇总，共 {len(rows)} 组。"
-                f"{f' 当前可见：{preview}。' if preview else ''}"
+            "final_text": self._render_group_follow_up_text(
+                group_by=group_by,
+                total_count=len(rows),
+                visible_rows=visible_rows,
+                page=int((block.get("pagination") or {}).get("page") or 1),
             ),
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
@@ -4756,6 +4761,74 @@ class DataAnswerService:
         if group_by == "city":
             return str(row.get("city") or "未知")
         return str(row.get(group_by) or "未知")
+
+    @staticmethod
+    def _group_count_field_label(group_by: str) -> str:
+        if group_by == "region":
+            return "涉及地区"
+        if group_by == "county":
+            return "涉及县区"
+        if group_by == "city":
+            return "涉及城市"
+        return "分组数"
+
+    @staticmethod
+    def _group_count_value_text(group_by: str, count: int) -> str:
+        if group_by in {"region", "county", "city"}:
+            return f"{count}个"
+        return f"{count}组"
+
+    @classmethod
+    def _group_preview_items(cls, rows: list[dict[str, Any]], *, group_by: str, limit: int) -> list[str]:
+        preview: list[str] = []
+        for row in rows[:limit]:
+            label = cls._group_key_for_row(row, group_by)
+            if label and label != "未知":
+                preview.append(label.replace("-", ""))
+        return preview
+
+    @classmethod
+    def _group_preview_heading(cls, *, group_by: str, preview_count: int) -> str:
+        if preview_count <= 0:
+            return "预览："
+        if group_by in {"region", "county", "city"}:
+            return f"{cls._group_label(group_by)}预览（前{preview_count}项）："
+        return f"当前展示（前{preview_count}组）："
+
+    @classmethod
+    def _group_page_item_text(cls, *, group_by: str, count: int) -> str:
+        if group_by in {"region", "county", "city"}:
+            return f"{count}个{cls._group_label(group_by)}"
+        return f"{count}组"
+
+    @classmethod
+    def _render_group_follow_up_text(
+        cls,
+        *,
+        group_by: str,
+        total_count: int,
+        visible_rows: list[dict[str, Any]],
+        page: int,
+    ) -> str:
+        preview_items = cls._group_preview_items(
+            visible_rows,
+            group_by=group_by,
+            limit=len(visible_rows),
+        )
+        lines = [
+            f"已切换到{cls._group_label(group_by)}汇总表格明细。",
+            f"- {cls._group_count_field_label(group_by)}：{cls._group_count_value_text(group_by, total_count)}",
+            f"- 当前页：第{page}页（{cls._group_page_item_text(group_by=group_by, count=len(visible_rows))}）",
+        ]
+        if preview_items:
+            lines.extend(
+                [
+                    "",
+                    f"- {cls._group_preview_heading(group_by=group_by, preview_count=len(preview_items))}",
+                    *cls._render_markdown_bullets(preview_items),
+                ]
+            )
+        return "\n".join(lines).strip()
 
     @staticmethod
     def _group_label(group_by: str) -> str:
@@ -5319,6 +5392,7 @@ class DataAnswerService:
                 compared=compared,
                 winner=winner,
                 warning_rule_brief=warning_rule_brief,
+                warning_only=query_profile.get("data_focus") == "warning_only",
             )
         else:
             prefix = (
@@ -5326,7 +5400,11 @@ class DataAnswerService:
                 if self._time_window_range_label(time_window)
                 else ""
             )
-            final_text = prefix + self._render_compare_digest(compared, resolved_entities)
+            final_text = prefix + self._render_compare_digest(
+                compared,
+                resolved_entities,
+                warning_only=query_profile.get("data_focus") == "warning_only",
+            )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -8000,18 +8078,6 @@ class DataAnswerService:
         return text
 
     @staticmethod
-    def _latest_record_brief(latest_record: dict[str, Any]) -> str:
-        location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
-        parts: list[str] = []
-        if location:
-            parts.append(f"位于 {location}")
-        if latest_record.get("water20cm") is not None:
-            parts.append(f"20cm含水量 {latest_record.get('water20cm')}%")
-        if latest_record.get("t20cm") is not None:
-            parts.append(f"土壤温度 {latest_record.get('t20cm')}℃")
-        return "，".join(parts) if parts else "暂无更多原始字段信息"
-
-    @staticmethod
     def _render_latest_record_text(
         label: str,
         time_window: dict[str, Any],
@@ -8053,6 +8119,7 @@ class DataAnswerService:
     def _render_compare_digest(
         compared: list[dict[str, Any]],
         resolved_entities: list[dict[str, Any]],
+        warning_only: bool = False,
     ) -> str:
         entity_names = " 和 ".join(item["canonical_name"] for item in resolved_entities[:2]) or "两个对象"
         if not compared:
@@ -8060,12 +8127,19 @@ class DataAnswerService:
         sections: list[tuple[str, list[str]]] = []
         for row in compared[:2]:
             avg_text = DataAnswerService._percent_text(row.get("avg_water20cm"))
-            section_lines = [
-                f"记录：{DataAnswerService._count_text(row.get('record_count'), '条')}",
-                f"墒情仪：{DataAnswerService._count_text(row.get('device_count'), '套')}",
-                f"20cm平均含水量：{avg_text}",
-            ]
-            if row.get("warning_record_count") is not None:
+            if warning_only:
+                section_lines = [
+                    f"预警记录：{DataAnswerService._count_text(row.get('record_count'), '条')}",
+                    f"预警墒情仪：{DataAnswerService._count_text(row.get('device_count'), '套')}",
+                    f"20cm平均含水量：{avg_text}",
+                ]
+            else:
+                section_lines = [
+                    f"记录：{DataAnswerService._count_text(row.get('record_count'), '条')}",
+                    f"墒情仪：{DataAnswerService._count_text(row.get('device_count'), '套')}",
+                    f"20cm平均含水量：{avg_text}",
+                ]
+            if not warning_only and row.get("warning_record_count") is not None:
                 section_lines.append(
                     f"预警记录：{DataAnswerService._count_text(row.get('warning_record_count'), '条')}"
                 )
@@ -8095,6 +8169,7 @@ class DataAnswerService:
         avg_text = DataAnswerService._percent_text(metrics.get("avg_water20cm"), approx=True)
         time_label = DataAnswerService._time_window_range_label(time_window) or "暂无"
         single_device = label.startswith("SNS")
+        location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
         fields: list[tuple[str, str | None]] = []
         if single_device:
             fields.append(("设备号", label))
@@ -8106,6 +8181,8 @@ class DataAnswerService:
                 ("记录", DataAnswerService._count_text(metrics.get("record_count"), "条")),
             ]
         )
+        if single_device:
+            fields.append(("地区", location or None))
         if not single_device:
             fields.append(("墒情仪", DataAnswerService._count_text(metrics.get("device_count"), "套")))
         fields.extend(
@@ -8114,13 +8191,8 @@ class DataAnswerService:
                 ("最新记录时间", latest_time),
             ]
         )
-        latest_brief = DataAnswerService._latest_record_brief(latest_record)
-        note = None
-        if latest_brief and latest_brief != "暂无更多原始字段信息":
-            note = f"监测字段参考：{latest_brief}"
         text = DataAnswerService._render_structured_answer(
             fields=fields,
-            note=note,
         )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
@@ -8141,10 +8213,16 @@ class DataAnswerService:
             f"- 范围：{normalized_label}",
             f"- 时间：{DataAnswerService._time_window_range_label(time_window) or '暂无'}",
             f"- 汇总维度：{DataAnswerService._group_label(group_by)}",
-            f"- 分组：{group_count}组",
+            f"- {DataAnswerService._group_count_field_label(group_by)}：{DataAnswerService._group_count_value_text(group_by, group_count)}",
         ]
         if preview_items:
-            lines.extend(["", "- 当前可见：", *DataAnswerService._render_markdown_bullets(preview_items)])
+            lines.extend(
+                [
+                    "",
+                    f"- {DataAnswerService._group_preview_heading(group_by=group_by, preview_count=len(preview_items))}",
+                    *DataAnswerService._render_markdown_bullets(preview_items),
+                ]
+            )
         text = "\n".join(lines).strip()
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
