@@ -2628,21 +2628,18 @@ class DataAnswerService:
             lead = (
                 f"{prefix}按{measure_label}对比，{left.get('entity')}和{right.get('entity')}持平。"
             )
-        bullet_lines = [
-            (
-                f"{left.get('entity')}：{left_value_text}；"
-                f"{int(left.get('record_count') or 0)}条记录，"
-                f"{cls._soil_device_count_text(int(left.get('device_count') or 0))}，"
-                f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', left.get('avg_water20cm'))}"
-            ),
-            (
-                f"{right.get('entity')}：{right_value_text}；"
-                f"{int(right.get('record_count') or 0)}条记录，"
-                f"{cls._soil_device_count_text(int(right.get('device_count') or 0))}，"
-                f"20cm平均相对含水量 {cls._compare_value_text('avg_water20cm', right.get('avg_water20cm'))}"
-            ),
-        ]
-        return cls._render_markdown_answer(lead=lead, bullet_lines=bullet_lines)
+        sections = []
+        for entity_row, metric_value_text in ((left, left_value_text), (right, right_value_text)):
+            lines = [
+                f"{measure_label}：{metric_value_text}",
+                f"记录：{cls._count_text(entity_row.get('record_count'), '条')}",
+                f"墒情仪：{cls._count_text(entity_row.get('device_count'), '套')}",
+                f"20cm平均含水量：{cls._compare_value_text('avg_water20cm', entity_row.get('avg_water20cm'))}",
+            ]
+            if metric != "alert_record_count" and entity_row.get("warning_record_count") is not None:
+                lines.append(f"预警记录：{cls._count_text(entity_row.get('warning_record_count'), '条')}")
+            sections.append((f"{entity_row.get('entity')}：", lines))
+        return cls._render_structured_answer(intro=lead, sections=sections)
 
     @classmethod
     def _render_time_compare_text(
@@ -4893,6 +4890,8 @@ class DataAnswerService:
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
+                warning_records, current_rule_row = await self._warning_filtered_records(list(records))
+                warning_rule_row = warning_rule_row or current_rule_row
                 compared.append(
                     {
                         "entity": label,
@@ -4901,6 +4900,7 @@ class DataAnswerService:
                         "region_count": metrics["region_count"],
                         "avg_water20cm": metrics["avg_water20cm"],
                         "latest_create_time": metrics["latest_create_time"],
+                        "warning_record_count": len(warning_records),
                         "metric_value": metric_value,
                         "window": current_window,
                     }
@@ -4933,6 +4933,8 @@ class DataAnswerService:
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
                 metric_value = self._compare_metric_value(records, query_profile.get("measure"))
+                warning_records, current_rule_row = await self._warning_filtered_records(list(records))
+                warning_rule_row = warning_rule_row or current_rule_row
                 compared.append(
                     {
                         "entity": name,
@@ -4941,6 +4943,7 @@ class DataAnswerService:
                         "region_count": metrics["region_count"],
                         "avg_water20cm": metrics["avg_water20cm"],
                         "latest_create_time": metrics["latest_create_time"],
+                        "warning_record_count": len(warning_records),
                         "metric_value": metric_value,
                     }
                 )
@@ -7537,6 +7540,80 @@ class DataAnswerService:
         return "\n".join(parts)
 
     @staticmethod
+    def _count_text(value: Any, unit: str) -> str:
+        return f"{int(value or 0)}{unit}"
+
+    @staticmethod
+    def _percent_text(value: Any, *, approx: bool = False) -> str:
+        if value is None:
+            return "暂无"
+        prefix = "约" if approx else ""
+        return f"{prefix}{value}%"
+
+    @staticmethod
+    def _summary_follow_up_note() -> str:
+        return "如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。"
+
+    @staticmethod
+    def _is_single_device_entity(resolved_entities: list[dict[str, Any]]) -> bool:
+        return len(resolved_entities) == 1 and resolved_entities[0].get("kind") == "device"
+
+    @classmethod
+    def _warning_region_preview_lines(cls, rows: list[dict[str, Any]], limit: int = 3) -> list[str]:
+        preview: list[str] = []
+        for row in rows[:limit]:
+            city = str(row.get("city") or "").strip()
+            county = str(row.get("county") or "").strip()
+            label = f"{city}{county}" if city or county else ""
+            if not label:
+                continue
+            details: list[str] = []
+            device_count = row.get("alert_device_count")
+            if device_count is not None:
+                details.append(f"{int(device_count)}套墒情仪")
+            record_count = row.get("alert_record_count")
+            if record_count is not None:
+                details.append(f"{int(record_count)}条记录")
+            latest_time = str(row.get("latest_alert_time") or "").strip()
+            if latest_time:
+                details.append(f"最新{latest_time}")
+            preview.append(f"{label}（{'，'.join(details)}）" if details else label)
+        return preview
+
+    @classmethod
+    def _render_structured_answer(
+        cls,
+        *,
+        intro: str | None = None,
+        fields: list[tuple[str, str | None]] | None = None,
+        sections: list[tuple[str, list[str]]] | None = None,
+        note: str | None = None,
+    ) -> str:
+        lines: list[str] = []
+        if intro and intro.strip():
+            lines.append(intro.strip())
+        for label, value in fields or []:
+            if value is None:
+                continue
+            normalized = str(value).strip()
+            if not normalized:
+                continue
+            lines.append(f"- {label}：{normalized}")
+        for heading, items in sections or []:
+            normalized_items = [str(item).strip() for item in items if str(item).strip()]
+            if not normalized_items:
+                continue
+            if lines:
+                lines.append("")
+            lines.append(heading.strip())
+            lines.extend(cls._render_markdown_bullets(normalized_items))
+        if note:
+            if lines:
+                lines.append("")
+            lines.append(f"- 注：{note.strip()}")
+        return "\n".join(lines).strip()
+
+    @staticmethod
     def _render_summary_text(
         *,
         label: str,
@@ -7549,34 +7626,69 @@ class DataAnswerService:
         warning_rule_brief: str = "",
     ) -> str:
         scope = label or "当前整体墒情"
-        avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
+        avg_text = DataAnswerService._percent_text(metrics.get("avg_water20cm"), approx=True)
         latest_time = str(metrics.get("latest_create_time") or "暂无")
-        range_label = DataAnswerService._scoped_range_label(scope, time_window)
+        time_label = DataAnswerService._time_window_range_label(time_window) or "暂无"
+        single_device = DataAnswerService._is_single_device_entity(resolved_entities)
+        fields: list[tuple[str, str | None]] = []
+        if single_device:
+            fields.append(("设备号", scope))
+        elif scope not in {"当前整体墒情", "当前查询范围"}:
+            fields.append(("范围", scope))
         if warning_only:
-            preview = DataAnswerService._warning_region_preview(top_regions or [])
+            preview_lines = DataAnswerService._warning_region_preview_lines(top_regions or [])
             if int(metrics.get("record_count") or 0) > 0:
-                text = (
-                    f"{range_label}命中预警记录 "
-                    f"{metrics['record_count']} 条，涉及 {metrics['device_count']} 套预警墒情仪，"
-                    f"覆盖 {metrics['region_count']} 个预警地区，最新预警时间为 {latest_time}。"
+                fields.extend(
+                    [
+                        ("时间", time_label),
+                        ("预警记录", DataAnswerService._count_text(metrics.get("record_count"), "条")),
+                        ("墒情仪", DataAnswerService._count_text(metrics.get("device_count"), "套")),
+                        ("地区", DataAnswerService._count_text(metrics.get("region_count"), "个")),
+                        ("最新预警时间", latest_time),
+                    ]
                 )
-                if preview:
-                    text += f" 重点关注地区包括：{preview}。"
+                text = DataAnswerService._render_structured_answer(
+                    fields=fields,
+                    sections=[("重点关注地区包括：", preview_lines)] if preview_lines else None,
+                    note=DataAnswerService._summary_follow_up_note(),
+                )
             else:
-                text = (
-                    f"{range_label}"
-                    "当前没有命中预警条件的记录。"
+                empty_fields = list(fields)
+                empty_fields.extend(
+                    [
+                        ("时间", time_label),
+                        ("预警记录", "0条"),
+                        ("墒情仪", "0套"),
+                        ("地区", "0个"),
+                        ("最新预警时间", latest_time),
+                    ]
+                )
+                text = DataAnswerService._render_structured_answer(
+                    fields=empty_fields,
+                    note="当前没有命中预警条件的记录。",
                 )
         else:
-            text = (
-                f"{range_label}的墒情概况如下："
-                f"20cm平均相对含水量约 {avg_text}，"
-                f"共有 {metrics['record_count']} 条记录，涉及 {metrics['device_count']} 套墒情仪，"
-                f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
+            fields.extend(
+                [
+                    ("时间", time_label),
+                    ("20cm平均含水量", avg_text),
+                    ("记录", DataAnswerService._count_text(metrics.get("record_count"), "条")),
+                ]
+            )
+            if not single_device:
+                fields.append(("墒情仪", DataAnswerService._count_text(metrics.get("device_count"), "套")))
+            fields.extend(
+                [
+                    ("地区", DataAnswerService._count_text(metrics.get("region_count"), "个")),
+                    ("最新记录时间", latest_time),
+                ]
+            )
+            text = DataAnswerService._render_structured_answer(
+                fields=fields,
+                note=DataAnswerService._summary_follow_up_note(),
             )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
-            text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
-        text += " 如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。"
+            text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
         return text
 
     @staticmethod
@@ -7599,15 +7711,24 @@ class DataAnswerService:
         entity_names = " 和 ".join(item["canonical_name"] for item in resolved_entities[:2]) or "两个对象"
         if not compared:
             return f"已按相同时间范围整理 {entity_names} 的对比结果。"
-        bullet_lines = []
+        sections: list[tuple[str, list[str]]] = []
         for row in compared[:2]:
-            avg_text = "暂无" if row.get("avg_water20cm") is None else f"{row.get('avg_water20cm')}%"
-            bullet_lines.append(
-                f"{row.get('entity')}：{row.get('record_count')}条记录，{row.get('device_count')}套墒情仪，20cm平均含水量 {avg_text}"
+            avg_text = DataAnswerService._percent_text(row.get("avg_water20cm"))
+            section_lines = [
+                f"记录：{DataAnswerService._count_text(row.get('record_count'), '条')}",
+                f"墒情仪：{DataAnswerService._count_text(row.get('device_count'), '套')}",
+                f"20cm平均含水量：{avg_text}",
+            ]
+            if row.get("warning_record_count") is not None:
+                section_lines.append(
+                    f"预警记录：{DataAnswerService._count_text(row.get('warning_record_count'), '条')}"
+                )
+            sections.append(
+                (f"{row.get('entity')}：", section_lines)
             )
-        return DataAnswerService._render_markdown_answer(
-            lead=f"已按相同时间范围整理 {entity_names} 的对比结果。",
-            bullet_lines=bullet_lines,
+        return DataAnswerService._render_structured_answer(
+            intro=f"已按相同时间范围整理 {entity_names} 的对比结果。",
+            sections=sections,
         )
 
     @staticmethod
@@ -7625,31 +7746,38 @@ class DataAnswerService:
             or latest_record.get("latest_create_time")
             or "暂无"
         )
-        avg_text = "暂无" if metrics.get("avg_water20cm") is None else f"{metrics['avg_water20cm']}%"
-        window_start = str(time_window.get("start_time") or "")[:10]
-        window_end = str(time_window.get("end_time") or "")[:10]
-        range_label = DataAnswerService._scoped_range_label(label, time_window)
-        if window_start and window_end:
-            text = (
-                f"{range_label}的详情如下："
-                f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
-                f"涉及 {int(metrics.get('device_count') or 0)} 套墒情仪，"
-                f"20cm平均相对含水量约 {avg_text}，"
-                f"最新记录时间为 {latest_time}。"
-            )
-        else:
-            text = (
-                f"{label}的详情如下："
-                f"共有 {int(metrics.get('record_count') or 0)} 条记录，"
-                f"涉及 {int(metrics.get('device_count') or 0)} 套墒情仪，"
-                f"20cm平均相对含水量约 {avg_text}，"
-                f"最新记录时间为 {latest_time}。"
-            )
+        avg_text = DataAnswerService._percent_text(metrics.get("avg_water20cm"), approx=True)
+        time_label = DataAnswerService._time_window_range_label(time_window) or "暂无"
+        single_device = label.startswith("SNS")
+        fields: list[tuple[str, str | None]] = []
+        if single_device:
+            fields.append(("设备号", label))
+        elif label and label not in {"当前查询范围", "当前详情"}:
+            fields.append(("对象", label))
+        fields.extend(
+            [
+                ("时间", time_label),
+                ("记录", DataAnswerService._count_text(metrics.get("record_count"), "条")),
+            ]
+        )
+        if not single_device:
+            fields.append(("墒情仪", DataAnswerService._count_text(metrics.get("device_count"), "套")))
+        fields.extend(
+            [
+                ("20cm平均含水量", avg_text),
+                ("最新记录时间", latest_time),
+            ]
+        )
         latest_brief = DataAnswerService._latest_record_brief(latest_record)
+        note = None
         if latest_brief and latest_brief != "暂无更多原始字段信息":
-            text += f" 可参考监测字段：{latest_brief}。"
+            note = f"监测字段参考：{latest_brief}"
+        text = DataAnswerService._render_structured_answer(
+            fields=fields,
+            note=note,
+        )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
-            text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+            text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
         return text
 
     @staticmethod
