@@ -102,7 +102,6 @@ smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.c
 
 > **chat smoke 是基础发布门禁**，不能只看 `/api/health` 就算完成。
 
-如需全量墒情正式 Case 回归（非发布必做），见 `.claude/skills/soil-moisture-qa/SKILL.md`，或仓库根目录执行 `npm run qa:soil:formal`。
 
 ## Quick Reference
 
@@ -110,7 +109,6 @@ smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.c
 - Agent port: `.runtime/local-agent-port`, default `18010`
 - Start agent: `bash scripts/dev/start-local-agent.sh`
 - Start web: `bash scripts/dev/start-local-web.sh`
-- Optional formal soil QA: `npm run qa:soil:formal`（见 `soil-moisture-qa` 技能）
 - Local web health: `http://localhost:3000/api/health`
 - Live web health: `https://ai.luyaxiang.com/api/health`
 

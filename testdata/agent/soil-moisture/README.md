@@ -1,111 +1,27 @@
 # 墒情 Agent 测试数据目录
 
-本目录存放 `soil-moisture` Agent 的正式验收库、真实对话库与对应维护说明。
+本目录存放 `soil-moisture` Agent 的真实对话库与回归样本。
 
-## 正式入口
+## 快速回归入口（unit tests）
 
-- `testdata/agent/soil-moisture/formal-acceptance-library.md`
+```bash
+PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m pytest apps/agent/tests/ -q
+```
 
-## 真实问答资产
-
-- `testdata/agent/soil-moisture/real-conversations/README.md`
-- `testdata/agent/soil-moisture/real-conversations/cases/real-conversation-library.md`
-- `testdata/agent/soil-moisture/real-conversations/analysis-60.md`
-
-## 快速回归入口
-
+重点测试文件：
 - `apps/agent/tests/test_turn_route_decision_service_unittest.py`
 - `apps/agent/tests/test_turn_route_query_shape_matrix_unittest.py`
 - `apps/agent/tests/test_query_profile_governance_unittest.py`
+- `apps/agent/tests/test_data_answer_service_unittest.py`
 
-## 正式规模
+## 真实问答资产
 
-- 正式 Case 总数：`94`
-- 测试方式：**每次全量跑完 94 条**
-- 测试定位：**单元测试导向**
-- 当前回答样例：**保留完整长文本**
-- 数据真实性：**每条业务 Case 都必须带数据库校验断言，并标记 `是否符合事实`**
+- `real-conversations/cases/real-conversation-library.md` — 真实用户问法库
+- `real-conversations/analysis-60.md` — 60 条真实问答分析
+- `outputs/` — 历次真实问答测试输出结果
 
-## 分布结构
+## 说明
 
-| 章节 | 数量 | CaseID |
-|---|---:|---|
-| Guidance Cases | 33 | `SM-CONV-001 ~ SM-CONV-033` |
-| Summary Cases | 10 | `SM-SUM-001 ~ SM-SUM-010` |
-| Ranking Cases | 8 | `SM-RANK-001 ~ SM-RANK-008` |
-| Detail Cases | 13 | `SM-DETAIL-001 ~ SM-DETAIL-013` |
-| Fallback Cases | 10 | `SM-FB-001 ~ SM-FB-010` |
-| Device Registry Cases | 11 | `SM-DEV-001 ~ SM-DEV-011` |
-| Warning Cases | 9 | `SM-WARN-001 ~ SM-WARN-009` |
-
-## 维护原则
-
-- 只维护这一套正式 Case 主库
-- 正式 Case 总数当前为 `94`
-- 正式 Case 编号统一使用 `SM-*` 体系
-- 正式 Case 的新增、删减、修订只改 `formal-acceptance-library.md`
-- 真实问法变体、轻量错字、路由冲突优先补到 `TurnRouteDecisionService` 路由矩阵单测，而不是直接扩正式主库
-- 真实用户问法和失败回归单独沉淀到 `real-conversations/`，不要挤进正式库
-- 当前真实问答主库已落到 `real-conversations/cases/real-conversation-library.md`
-
-## 命名约定
-
-- `formal-acceptance-library.md`：正式验收库，只用于 94 条硬门禁验收
-- `real-conversation-library.md`：真实对话库，用于沉淀自然问法、多轮追问和失败回归样本
-
-## 推荐的三层 QA 模型
-
-- `core-gate`：94 条正式 Case，负责硬门禁
-- `real-conversations`：真实问答资产，负责覆盖自然问法和追问链
-- `failure-regressions`：失败样本回归，负责锁住已知翻车点
-
-## Case 设计要求
-
-每条正式 Case 至少保留以下字段：
-
-- `CaseID`
-- `用户问题`
-- `当前回答`
-- `上下文`
-- `预期 input_type`
-- `是否域内业务问题`
-- `是否必须命中 Tool`
-- `预期 Tool`
-- `预期 answer_type`
-- `预期 output_mode`
-- `预期 guidance_reason`
-- `预期 fallback_reason`
-- `是否写查询日志`
-- `关键断言`
-- `结构化证据断言`
-- `数据库校验断言`
-- `是否符合事实`
-- `备注`
-
-## 数据真实性要求
-
-- `guidance_answer` 等非业务 Case 不要求查库，但不得包含事实性业务断言
-- 每条业务 Case 都必须能落到：
-  - `问题 -> Agent 回答 -> 回查数据库 -> 事实比对`
-- 对正式通过样例：
-  - 业务 Case：`是否符合事实=是`
-  - 非业务 guidance Case：若不含事实性业务断言，也记为 `是`
-
-## 相关 QA 入口
-
-- `.claude/skills/soil-moisture-qa/SKILL.md`
-- `.codex/skills/soil-moisture-qa/SKILL.md`
-- `.agents/skills/soil-moisture-qa/SKILL.md`
-- `.cursor/rules/soil-moisture-qa.mdc`
-- 快速路由回归：`PYTHONPATH=apps/agent:apps/agent/tests .venv/bin/python -m unittest apps.agent.tests.test_turn_route_decision_service_unittest apps.agent.tests.test_turn_route_query_shape_matrix_unittest -v`
-- 全量正式验收（可选）：见 `.claude/skills/soil-moisture-qa/SKILL.md`「全量正式验收（一键流程，回归用）」；仓库根目录可执行 `npm run qa:soil:formal`
-
-## 其他说明
-
-- `outputs/` 仍只放一次性测试结果，不作为长期规则源
-- 当前正式库已覆盖 `最近13天 / 近2周 / 近3月 / 过去21天 / 两周 / 三个月` 等相对时间，以及 `这几天 / 最近400天 / 开始时间晚于结束时间` 的统一澄清口径
-- 当前 deterministic `/chat-v2` 顶层查询路由由 `TurnRouteDecisionService` 的中心 `QueryShape` 分类层负责；新增问法时先补该层与路由矩阵
-- 当前 deterministic `/chat-v2` 的真正执行真相由 `QueryProfile` 统一承载；多轮继承、`warning_only` 数据焦点、`count/field/latest_record/compare` 等能力回归优先补到 `test_query_profile_governance_unittest.py`
-- 设备台账查询（`device_registry_count / device_registry_distribution / device_registry_county_detail`）从 `subject_device_record` 表读取，不受时间窗过滤
-- 预警规则说明从 `metric_rule` 表读取；预警记录与预警统计从 `fact_soil_moisture` 实时筛选
-- 如未来确实需要结构化导出，再考虑新增 `json/csv/xlsx` 副本；当前仍以 Markdown 主库为准
+- 答案质量通过直接看真实问答判断，不依赖自动化 case 对比
+- 新增问法变体、路由冲突优先补到 unit test 路由矩阵
+- 失败回归样本沉淀到 `real-conversations/regressions/`

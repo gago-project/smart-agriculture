@@ -628,6 +628,9 @@ class TurnRouteDecisionService:
         # "需要发预警吗" is asking about advisory/eligibility, not querying warning records
         if "需要" in text and "预警" in text:
             return False
+        # "从预警角度看" / "从预警视角" are meta-framing phrases → summary route, not record list
+        if any(token in text for token in ("从预警角度", "从预警视角", "预警视角来看", "预警角度来看")):
+            return False
         return has_warning_word and (has_record_intent or has_time_signal)
 
     @staticmethod
@@ -828,7 +831,7 @@ class TurnRouteDecisionService:
             return LIST_TARGET_FOCUS_DEVICES
         if has_data_context and prior_grain == "record_list" and has_follow_up_reference:
             return LIST_TARGET_ALERT_RECORDS
-        if mentions_device and any(token in text for token in DETAIL_HINT_TOKENS):
+        if mentions_device and not SN_PATTERN.search(text) and any(token in text for token in DETAIL_HINT_TOKENS):
             return LIST_TARGET_FOCUS_DEVICES
         if mentions_device and (
             has_list_verb

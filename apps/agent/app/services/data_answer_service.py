@@ -1403,6 +1403,7 @@ class DataAnswerService:
             "turn_id": turn_id,
             "answer_kind": "guidance",
             "capability": "none",
+            "output_mode": "normal",
             "final_text": text,
             "blocks": [
                 {
@@ -2478,13 +2479,38 @@ class DataAnswerService:
             "latest_create_time": latest_create_time,
         }
 
+    @staticmethod
+    def _compute_output_mode(
+        message: str,
+        capability: str,
+        query_profile: dict[str, Any],
+        warning_ratio: float = 0.0,
+    ) -> str:
+        if capability == "group":
+            return "normal"
+        text = str(message or "")
+        if any(token in text for token in ("需要注意", "注意什么", "该注意")):
+            return "advice_mode"
+        data_focus = query_profile.get("data_focus")
+        if data_focus == "warning_only":
+            if any(token in text for token in ("异常", "怎么回事", "具体怎么")):
+                return "anomaly_focus"
+            return "warning_mode"
+        if warning_ratio >= 1.0 and capability == "detail":
+            return "anomaly_focus"
+        return "normal"
+
     async def _warning_filtered_records(
         self,
         records: list[dict[str, Any]],
     ) -> tuple[list[dict[str, Any]], dict[str, Any] | None]:
         rule_row_getter = getattr(self.repository, "warning_rule_row_async", None)
         rule_row = await rule_row_getter() if callable(rule_row_getter) else None
-        return self.warning_predicate_service.filter_records(records, rule_row), rule_row
+        if rule_row:
+            return self.warning_predicate_service.filter_records(records, rule_row), rule_row
+        # Fall back to pre-computed soil_status when no rule is available
+        filtered = [r for r in records if r.get("soil_status") and r.get("soil_status") != "not_triggered"]
+        return filtered, rule_row
 
     @staticmethod
     def _count_value(records: list[dict[str, Any]], measure: str | None) -> int:
@@ -3148,6 +3174,30 @@ class DataAnswerService:
         top_regions = self._top_regions_from_focus_rows(record_rows, warning_only=warning_only)
         warning_rule_brief = self._warning_rule_brief(rule_row) if warning_only else ""
         label = self._entity_label(resolved_entities) or "当前整体墒情"
+        # For normal (non-warning) summaries, compute top alert regions for disclosure
+        alert_top_regions: list[dict[str, Any]] = []
+        if not warning_only:
+            alert_records_in_data = [r for r in records if r.get("soil_status") and r.get("soil_status") != "not_triggered"]
+            if alert_records_in_data:
+                alert_top_regions = self._top_regions_from_focus_rows(alert_records_in_data, warning_only=True)
+        output_mode = self._compute_output_mode(
+            message=message,
+            capability="summary",
+            query_profile=query_profile,
+        )
+        # For warning-mode summaries, compute dominant warning type and top alert record
+        warning_level_label_sum = ""
+        top_alert_record_sum: dict[str, Any] | None = None
+        if warning_only and records:
+            from collections import Counter as _Counter
+            _wl_counts: _Counter = _Counter(r.get("soil_status") for r in records if r.get("soil_status") and r.get("soil_status") != "not_triggered")
+            if _wl_counts:
+                _WL = {"heavy_drought": "重旱", "waterlogging": "涝渍", "device_fault": "设备故障"}
+                warning_level_label_sum = _WL.get(_wl_counts.most_common(1)[0][0], "")
+            _alert_recs = [r for r in records if r.get("soil_status") and r.get("soil_status") != "not_triggered"]
+            if _alert_recs:
+                _alert_recs_sorted = sorted(_alert_recs, key=lambda r: float(r.get("water20cm") or 0), reverse=True)
+                top_alert_record_sum = _alert_recs_sorted[0]
         summary_text = self._render_summary_text(
             label=label,
             time_window=time_window,
@@ -3157,6 +3207,10 @@ class DataAnswerService:
             warning_only=warning_only,
             top_regions=top_regions,
             warning_rule_brief=warning_rule_brief,
+            alert_top_regions=alert_top_regions,
+            output_mode=output_mode,
+            warning_level_label=warning_level_label_sum,
+            top_alert_record=top_alert_record_sum,
         )
         block = {
             "block_id": block_id,
@@ -3225,6 +3279,7 @@ class DataAnswerService:
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "summary",
+            "output_mode": output_mode,
             "final_text": summary_text,
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
@@ -4515,7 +4570,7 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=follow_up_mode,
         )
-        warning_only = query_profile.get("data_focus") == "warning_only"
+        warning_only = query_profile.get("data_focus") == "warning_only" or bool(query_profile.get("top_n"))
         rule_row = None
         if warning_only:
             records, rule_row = await self._query_warning_records(resolved_args)
@@ -4706,6 +4761,7 @@ class DataAnswerService:
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "group",
+            "output_mode": "normal",
             "final_text": final_text,
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
@@ -4909,6 +4965,64 @@ class DataAnswerService:
             route_metadata=route_metadata,
             operation=resolution_meta["operation"],
         )
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route_metadata=route_metadata,
+            current_context=current_context,
+            slots=resolution_meta["slots"],
+            time_window=time_window,
+            follow_up_mode=follow_up_mode,
+        )
+        warning_records, _ = await self._warning_filtered_records(records)
+        warning_ratio = len(warning_records) / len(records) if records else 0.0
+        output_mode = self._compute_output_mode(
+            message=message,
+            capability="detail",
+            query_profile=query_profile,
+            warning_ratio=warning_ratio,
+        )
+        single_device = label.startswith("SNS")
+        latest_sn = latest_record.get("sn") if not single_device else None
+        alert_sn: str | None = None
+        warning_level_label: str | None = None
+        top_alert_water: str | None = None
+        alert_date_range: str | None = None
+        if warning_records:
+            from collections import Counter
+            sn_counts: Counter = Counter(r.get("sn") for r in warning_records if r.get("sn"))
+            if sn_counts:
+                alert_sn = sn_counts.most_common(1)[0][0]
+            wl_counts: Counter = Counter(r.get("soil_status") for r in warning_records if r.get("soil_status"))
+            if wl_counts:
+                _WL_LABELS = {"heavy_drought": "重旱", "waterlogging": "涝渍", "device_fault": "设备故障"}
+                top_wl = wl_counts.most_common(1)[0][0]
+                warning_level_label = _WL_LABELS.get(top_wl, top_wl)
+            # Top alert water value: highest water20cm among warning records
+            _sorted_by_water = sorted(warning_records, key=lambda r: abs(float(r.get("water20cm") or 0) - 50), reverse=True)
+            if _sorted_by_water:
+                _top_water = _sorted_by_water[0].get("water20cm")
+                if _top_water is not None:
+                    top_alert_water = self._percent_text(_top_water)
+            # Alert date range
+            _dates = sorted(str(r.get("create_time") or "")[:10] for r in warning_records if r.get("create_time"))
+            if len(_dates) >= 2 and _dates[0] != _dates[-1]:
+                alert_date_range = f"{_dates[0]} 至 {_dates[-1]}"
+            elif _dates:
+                alert_date_range = _dates[0]
+        operation = resolution_meta.get("operation", "standalone")
+        slot_source = resolution_meta.get("slot_source") or {}
+        context_note = ""
+        if operation in {"inherit", "drilldown_ref", "replace_slot", "switch_capability"} and slot_source.get("time") == "inherited":
+            start_str = str(time_window.get("start_time") or "")[:10]
+            end_str = str(time_window.get("end_time") or "")[:10]
+            try:
+                from datetime import datetime as _dt
+                days = (_dt.strptime(end_str, "%Y-%m-%d") - _dt.strptime(start_str, "%Y-%m-%d")).days + 1
+                context_note = f"沿用最近{days}天时间窗，"
+            except (ValueError, TypeError):
+                pass
+        elif operation == "correct_slot":
+            context_note = f"好的，已切换到{label}。"
         query_spec = self._build_query_spec(
             capability="detail",
             grain="entity_detail",
@@ -4941,14 +5055,6 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
-        query_profile = self._resolve_query_profile(
-            message=message,
-            route_metadata=route_metadata,
-            current_context=current_context,
-            slots=resolution_meta["slots"],
-            time_window=time_window,
-            follow_up_mode=follow_up_mode,
-        )
         query_state = self._build_query_state(
             turn_id=turn_id,
             capability="detail",
@@ -4968,18 +5074,26 @@ class DataAnswerService:
             result_refs=self._build_result_refs(turn_id=turn_id, block=block),
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
-        final_text = self._render_detail_text(
+        detail_text = self._render_detail_text(
             label,
             time_window,
             metrics,
             latest_record,
             resolution_meta["entity_confidence"],
             resolved_entities,
+            latest_sn=latest_sn,
+            alert_sn=alert_sn,
+            warning_level_label=warning_level_label,
+            output_mode=output_mode,
+            top_alert_water=top_alert_water,
+            alert_date_range=alert_date_range,
         )
+        final_text = (context_note + detail_text) if context_note else detail_text
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
             "capability": "detail",
+            "output_mode": output_mode,
             "final_text": final_text,
             "blocks": [block],
             "topic": self._topic_payload(turn_context),
@@ -6153,9 +6267,10 @@ class DataAnswerService:
                 if level_summary:
                     detail_lines.append(f"预警类型分布：{level_summary}")
                 lead_scope = f"出现{warning_scope_label}的" if warning_type else "出现预警的"
+                record_total_note = f"，共 {total_count} 条预警记录" if total_count > 0 else ""
                 final_text = self._render_markdown_answer(
                     lead=(
-                        f"{range_label}共筛出 {device_total} 套{lead_scope}墒情仪，涉及 {region_count} 个区域。"
+                        f"{range_label}共筛出 {device_total} 套{lead_scope}墒情仪，涉及 {region_count} 个区域{record_total_note}。"
                     ),
                     bullet_lines=detail_lines,
                 )
@@ -7609,6 +7724,7 @@ class DataAnswerService:
             "turn_id": turn_id,
             "answer_kind": "fallback",
             "capability": capability,
+            "output_mode": "normal",
             "final_text": text,
             "blocks": [
                 {
@@ -7671,6 +7787,7 @@ class DataAnswerService:
             "turn_id": turn_id,
             "answer_kind": "fallback",
             "capability": capability,
+            "output_mode": "normal",
             "final_text": text,
             "blocks": [
                 {
@@ -8010,6 +8127,10 @@ class DataAnswerService:
         warning_only: bool = False,
         top_regions: list[dict[str, Any]] | None = None,
         warning_rule_brief: str = "",
+        alert_top_regions: list[dict[str, Any]] | None = None,
+        output_mode: str = "normal",
+        warning_level_label: str | None = None,
+        top_alert_record: dict[str, Any] | None = None,
     ) -> str:
         scope = label or "当前整体墒情"
         avg_text = DataAnswerService._percent_text(metrics.get("avg_water20cm"), approx=True)
@@ -8033,6 +8154,15 @@ class DataAnswerService:
                         ("最新预警时间", latest_time),
                     ]
                 )
+                if warning_level_label:
+                    fields.append(("主要异常类型", warning_level_label))
+                if top_alert_record:
+                    sn = str(top_alert_record.get("sn") or "").strip()
+                    water = DataAnswerService._percent_text(top_alert_record.get("water20cm"))
+                    rec_time = str(top_alert_record.get("create_time") or "")[:10]
+                    loc = f"{top_alert_record.get('city') or ''}{top_alert_record.get('county') or ''}".strip()
+                    parts = [p for p in [loc, rec_time, f"含水量{water}" if water else None] if p]
+                    fields.append(("代表性预警记录", f"{sn}（{'，'.join(parts)}）" if sn and parts else sn or None))
                 text = DataAnswerService._render_structured_answer(
                     fields=fields,
                     sections=[("重点关注地区包括：", preview_lines)] if preview_lines else None,
@@ -8069,8 +8199,12 @@ class DataAnswerService:
                     ("最新记录时间", latest_time),
                 ]
             )
+            alert_preview_lines = DataAnswerService._warning_region_preview_lines(alert_top_regions or [])
+            if output_mode == "advice_mode" and not alert_preview_lines:
+                fields.append(("状态", "总体平稳，暂无预警记录"))
             text = DataAnswerService._render_structured_answer(
                 fields=fields,
+                sections=[("存在预警的地区包括：", alert_preview_lines)] if alert_preview_lines else None,
                 note=DataAnswerService._summary_follow_up_note(),
             )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
@@ -8159,6 +8293,12 @@ class DataAnswerService:
         latest_record: dict[str, Any],
         entity_confidence: str,
         resolved_entities: list[dict[str, Any]],
+        latest_sn: str | None = None,
+        alert_sn: str | None = None,
+        warning_level_label: str | None = None,
+        output_mode: str = "normal",
+        top_alert_water: str | None = None,
+        alert_date_range: str | None = None,
     ) -> str:
         latest_time = str(
             metrics.get("latest_create_time")
@@ -8191,6 +8331,15 @@ class DataAnswerService:
                 ("最新记录时间", latest_time),
             ]
         )
+        if not single_device and latest_sn:
+            fields.append(("最新设备", latest_sn))
+        if output_mode in {"anomaly_focus", "warning_mode"} and alert_sn:
+            alert_sn_text = f"{alert_sn}（含水量{top_alert_water}）" if top_alert_water else alert_sn
+            fields.append(("重点预警设备", alert_sn_text))
+        if output_mode in {"anomaly_focus", "warning_mode", "advice_mode"} and warning_level_label:
+            fields.append(("主要异常类型", warning_level_label))
+        if output_mode in {"anomaly_focus", "advice_mode"} and alert_date_range:
+            fields.append(("预警时段", alert_date_range))
         text = DataAnswerService._render_structured_answer(
             fields=fields,
         )
