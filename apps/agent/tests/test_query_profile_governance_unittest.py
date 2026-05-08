@@ -205,8 +205,9 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["capability"], "summary")
         self.assertEqual(reply["blocks"][0]["block_type"], "summary_card")
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["answer_mode"], "summary")
-        self.assertIn("共有 7 条记录", reply["final_text"])
-        self.assertIn("SNS00204333在2026-04-07至2026-04-13", reply["final_text"])
+        self.assertIn("记录：7条", reply["final_text"])
+        self.assertIn("SNS00204333", reply["final_text"])
+        self.assertIn("2026-04-07至2026-04-13", reply["final_text"])
 
     async def test_latest_record_question_does_not_fall_back_to_recent_seven_day_window(self) -> None:
         reply = await self.service.reply(
@@ -272,7 +273,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertIn("重点关注地区", reply["final_text"])
         self.assertIn("徐州市睢宁县", reply["final_text"])
-        self.assertIn("warning_rule_summary", reply["query_log_entries"][0]["executed_sql_text"])
+        self.assertIn("warning_level", reply["query_log_entries"][0]["executed_sql_text"])
         self.assertNotIn("墒情概况", reply["final_text"])
 
     async def test_warning_top_counties_question_returns_ranked_group_rows(self) -> None:
@@ -295,7 +296,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("已按县区汇总预警信息", reply["final_text"])
         self.assertIn("徐州市睢宁县", reply["final_text"])
         self.assertIn("预警墒情仪", reply["final_text"])
-        self.assertIn("warning_rule_summary", reply["query_log_entries"][0]["executed_sql_text"])
+        self.assertIn("warning_level", reply["query_log_entries"][0]["executed_sql_text"])
 
     async def test_warning_count_follow_up_device_details_inherits_warning_only_profile(self) -> None:
         counted = await self.service.reply(
@@ -341,7 +342,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertFalse(follow_up["turn_context"]["resolved_entities"])
         self.assertNotIn("徐州市2026-03-15至2026-04-13按当前预警规则筛选后", follow_up["final_text"])
-        self.assertIn("42 套预警墒情仪", follow_up["final_text"])
+        self.assertIn("墒情仪：42套", follow_up["final_text"])
 
     async def test_standalone_warning_list_resets_prior_device_scope(self) -> None:
         detail = await self.service.reply(
@@ -431,7 +432,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["answer_kind"], "business")
         self.assertEqual(follow_up["capability"], "group")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
-        self.assertIn("已按地区汇总，共 80 组", follow_up["final_text"])
+        self.assertIn("分组：80组", follow_up["final_text"])
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["answer_mode"], "group")
 
     async def test_creative_request_is_blocked_even_with_active_data_context(self) -> None:
@@ -486,7 +487,8 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("徐州市", reply["final_text"])
         self.assertIn("106.09%", reply["final_text"])
         self.assertIn("按20cm平均相对含水量对比", reply["final_text"])
-        self.assertIn("南通市：98.59%", reply["final_text"])
+        self.assertIn("南通市", reply["final_text"])
+        self.assertIn("98.59%", reply["final_text"])
         self.assertIn("2026-03-15至2026-04-13", reply["final_text"])
 
     async def test_warning_compare_metric_query_returns_winner_even_with_zero_side(self) -> None:
@@ -507,7 +509,8 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["blocks"][0]["right_value"], 0)
         self.assertIn("徐州市", reply["final_text"])
         self.assertIn("按预警墒情仪数量对比", reply["final_text"])
-        self.assertIn("南通市：0 套", reply["final_text"])
+        self.assertIn("南通市", reply["final_text"])
+        self.assertIn("0 套", reply["final_text"])
         self.assertNotIn("当前预警规则：", reply["final_text"])
 
     async def test_dual_sn_compare_query_returns_compare_card(self) -> None:
