@@ -83,6 +83,31 @@ class SoilRepositoryPathTest(unittest.TestCase):
         self.assertEqual(rows[0]["warning_level"], "heavy_drought")
         self.assertEqual(connection.last_cursor.params, ("2026-04-01 00:00:00", "2026-04-13 23:59:59", 50))
 
+    def test_warning_record_audit_sql_excludes_device_fault_from_heavy_drought_filter(self):
+        """Verify warning-type SQL matches exact rule level instead of overlapping higher-priority rules."""
+        repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")
+        rule_row = {
+            "rule_code": "soil_warning_v1",
+            "rule_definition_json": {
+                "rules": [
+                    {"warning_level": "device_fault", "condition": "water20cm = 0 and t20cm = 0", "priority": 5},
+                    {"warning_level": "heavy_drought", "condition": "water20cm < 50", "priority": 10},
+                    {"warning_level": "waterlogging", "condition": "water20cm >= 150", "priority": 20},
+                ]
+            },
+        }
+
+        sql = repository.build_warning_records_audit_sql(
+            start_time="2026-04-01 00:00:00",
+            end_time="2026-04-13 23:59:59",
+            warning_type="heavy_drought",
+            rule_row=rule_row,
+        )
+
+        self.assertIn("water20cm < 50", sql)
+        self.assertIn("NOT", sql)
+        self.assertIn("water20cm = 0 AND t20cm = 0", sql)
+
     def test_warning_record_query_with_seasonal_override_escapes_date_format_percent_for_pyformat(self):
         """Verify seasonal warning predicates also survive pyformat rendering."""
         repository = SoilRepository(mysql_host="127.0.0.1", mysql_database="smart_agriculture", mysql_user="root", mysql_password="secret")

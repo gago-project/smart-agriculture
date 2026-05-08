@@ -244,12 +244,10 @@ test('chat workspace keeps a structured visual hierarchy for title and composer 
   const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
 
   assert.match(appSource, /className="workspace-title-group"/);
-  assert.match(appSource, /className="workspace-kicker"/);
   assert.match(appSource, /className="workspace-subtitle"/);
   assert.match(composerSource, /className="composer-label"/);
   assert.match(composerSource, /className="composer-tip"/);
   assert.match(globalsSource, /\.workspace-title-group\s*\{/);
-  assert.match(globalsSource, /\.workspace-kicker\s*\{/);
   assert.match(globalsSource, /\.workspace-subtitle\s*\{/);
   assert.match(globalsSource, /\.composer-label\s*\{/);
   assert.match(globalsSource, /\.composer-tip\s*\{/);

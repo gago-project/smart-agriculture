@@ -243,7 +243,10 @@ class QueryProfileResolverService:
         normalized = str(text or "")
         if "对比" in normalized or "比较" in normalized or "谁更" in normalized:
             return True
-        if ("和" in normalized or "与" in normalized) and any(token in normalized for token in ("更多", "更高", "更低", "更少", "更大", "更小")):
+        _compare_adj = ("更多", "更高", "更低", "更少", "更大", "更小", "更差", "更严重", "更好", "更坏", "更危险", "哪边更", "哪个更")
+        if ("和" in normalized or "与" in normalized) and any(token in normalized for token in _compare_adj):
+            return True
+        if any(token in normalized for token in ("哪边更", "哪个更")) and any(token in normalized for token in ("和", "与", "还是")):
             return True
         return bool(re.search(r"(最近|近|前)\s*[0-9一二两三四五六七八九十百]+\s*天.*和.*前\s*[0-9一二两三四五六七八九十百]+\s*天", normalized))
 

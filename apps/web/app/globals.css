@@ -159,41 +159,17 @@ body,
 }
 
 .sidebar-brand {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
   padding: 6px 6px 18px;
-}
-
-.sidebar-brand-mark {
-  width: 42px;
-  height: 42px;
-  display: grid;
-  place-items: center;
-  border-radius: 14px;
-  background: linear-gradient(145deg, rgba(21, 154, 116, 0.94), rgba(74, 222, 128, 0.58));
-  font-size: 12px;
-  font-weight: 800;
-  color: white;
-  box-shadow: 0 12px 24px rgba(21, 154, 116, 0.16);
 }
 
 .sidebar-brand-copy {
   display: grid;
-  gap: 4px;
+  gap: 6px;
 }
 
 .sidebar-brand-copy strong {
   font-size: 16px;
   line-height: 1.2;
-}
-
-.sidebar-brand-eyebrow {
-  color: #128065;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
 }
 
 .sidebar-brand p {
@@ -436,14 +412,6 @@ body,
 .workspace-title-group {
   display: grid;
   gap: 6px;
-}
-
-.workspace-kicker {
-  color: #128065;
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
 }
 
 .workspace-title {

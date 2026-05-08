@@ -192,7 +192,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.repository = repository
         self.service = DataAnswerService(repository=repository)
 
-    async def test_device_time_how_question_defaults_to_summary_capability(self) -> None:
+    async def test_device_time_how_question_routes_to_detail_capability(self) -> None:
         reply = await self.service.reply(
             message="SNS00204333最近7天怎么样",
             session_id="qp-device-summary",
@@ -202,9 +202,9 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(reply["answer_kind"], "business")
-        self.assertEqual(reply["capability"], "summary")
-        self.assertEqual(reply["blocks"][0]["block_type"], "summary_card")
-        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["answer_mode"], "summary")
+        self.assertEqual(reply["capability"], "detail")
+        self.assertEqual(reply["blocks"][0]["block_type"], "detail_card")
+        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["answer_mode"], "detail")
         self.assertIn("记录：7条", reply["final_text"])
         self.assertIn("SNS00204333", reply["final_text"])
         self.assertIn("2026-04-07至2026-04-13", reply["final_text"])

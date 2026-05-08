@@ -144,9 +144,9 @@ class TurnRouteQueryShapeMatrixTest(unittest.TestCase):
                 "entities": _entities(sn="SNS00204333"),
                 "time_evidence": _time_window(matched=True, has_signal=True),
                 "action_result": FollowUpActionResult(),
-                "route": "summary",
-                "action": "summary",
-                "grain": "none",
+                "route": "explicit_detail",
+                "action": "detail",
+                "grain": "entity",
             },
             {
                 "label": "detail-region",

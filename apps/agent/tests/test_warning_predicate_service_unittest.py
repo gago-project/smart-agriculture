@@ -40,6 +40,17 @@ class WarningPredicateServiceTest(unittest.TestCase):
         self.assertIn("6", predicate)
         self.assertIn("10", predicate)
 
+    def test_build_sql_predicate_excludes_higher_priority_overlap_for_specific_warning_type(self) -> None:
+        predicate = self.service.build_sql_predicate(
+            rule_row=self.rule_row,
+            warning_type="heavy_drought",
+            time_column="create_time",
+        )
+
+        self.assertIn("water20cm < 50", predicate)
+        self.assertIn("NOT", predicate)
+        self.assertIn("water20cm = 0 AND t20cm = 0", predicate)
+
     def test_evaluate_respects_seasonal_override_for_each_record_time(self) -> None:
         july = self.service.evaluate(
             {"water20cm": 160, "t20cm": 21},

@@ -224,6 +224,91 @@ class SoilRepository:
             f"{limit_sql}"
         ).strip()
 
+    def _warning_select_columns_sql(
+        self,
+        *,
+        rule_row: dict[str, Any] | None,
+        time_column: str = "create_time",
+    ) -> str:
+        return self._soil_select_columns_sql().replace(
+            "\n        FROM fact_soil_moisture",
+            f",\n               {self._warning_case_sql(rule_row=rule_row, time_column=time_column)} AS warning_level\n"
+            "        FROM fact_soil_moisture",
+        )
+
+    def _build_filter_warning_records_query_pyformat(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> tuple[str, tuple[Any, ...]]:
+        clauses: list[str] = []
+        params: list[Any] = []
+        for column_name, operator, _param_name, value in self._filter_specs(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            if value is None:
+                continue
+            clauses.append(f"{column_name} {operator} %s")
+            params.append(value)
+        clauses.append(
+            self._pyformat_safe_sql_fragment(
+                self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type)
+            )
+        )
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_sql = f"LIMIT {int(limit)}" if limit else ""
+        sql = f"""
+        {self._warning_select_columns_sql(rule_row=rule_row).replace("%", "%%")}
+        {where_sql}
+        ORDER BY create_time DESC
+        {limit_sql}
+        """
+        return sql, tuple(params)
+
+    def build_filter_warning_records_audit_sql(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> str:
+        clauses: list[str] = []
+        for column_name, operator, _param_name, value in self._filter_specs(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            if value is None:
+                continue
+            clauses.append(f"{column_name} {operator} {self._normalize_sql_literal(value)}")
+        clauses.append(self._warning_filter_sql(rule_row=rule_row, warning_type=warning_type))
+        where_sql = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        limit_sql = f"LIMIT {int(limit)}" if limit else ""
+        return (
+            f"{self._warning_select_columns_sql(rule_row=rule_row)}\n"
+            f"{where_sql}\n"
+            "ORDER BY create_time DESC\n"
+            f"{limit_sql}"
+        ).strip()
+
     def latest_records(self, limit: int = 20) -> list[dict[str, Any]]:
         """Return latest records synchronously for legacy callers."""
         return self.filter_records(limit=limit)
@@ -291,6 +376,63 @@ class SoilRepository:
             start_time=start_time,
             end_time=end_time,
             limit=limit,
+        )
+
+    def filter_warning_records(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        connection = self._connect()
+        try:
+            sql, params = self._build_filter_warning_records_query_pyformat(
+                city=city,
+                county=county,
+                sn=sn,
+                start_time=start_time,
+                end_time=end_time,
+                warning_type=warning_type,
+                limit=limit,
+                rule_row=rule_row,
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(sql, params)
+                rows = cursor.fetchall()
+                return [dict(row) for row in rows]
+        except Exception as exc:
+            raise DatabaseQueryError(f"MySQL 预警记录过滤失败：{exc}") from exc
+        finally:
+            connection.close()
+
+    async def filter_warning_records_async(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        return await asyncio.to_thread(
+            self.filter_warning_records,
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+            warning_type=warning_type,
+            limit=limit,
+            rule_row=rule_row,
         )
 
     async def _filter_records_with_async_engine(

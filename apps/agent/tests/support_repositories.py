@@ -154,6 +154,41 @@ class SeedSoilRepository(SoilRepository):
         """Filter records async."""
         return self.filter_records(**kwargs)
 
+    def filter_warning_records(
+        self,
+        *,
+        city: str | None = None,
+        county: str | None = None,
+        sn: str | None = None,
+        start_time: str | None = None,
+        end_time: str | None = None,
+        warning_type: str | None = None,
+        limit: int | None = None,
+        rule_row: dict[str, Any] | None = None,
+    ) -> list[dict[str, Any]]:
+        filtered: list[dict[str, Any]] = []
+        for record in self.filter_records(
+            city=city,
+            county=county,
+            sn=sn,
+            start_time=start_time,
+            end_time=end_time,
+        ):
+            warning_level = self._warning_match_for_record(
+                record,
+                warning_type=warning_type,
+                rule_row=rule_row,
+            )
+            if warning_level is None:
+                continue
+            payload = dict(record)
+            payload["warning_level"] = warning_level
+            filtered.append(payload)
+        return filtered[:limit] if limit else filtered
+
+    async def filter_warning_records_async(self, **kwargs) -> list[dict[str, Any]]:
+        return self.filter_warning_records(**kwargs)
+
     def latest_business_time(self) -> str:
         """Return the latest business time."""
         latest_record = max(self.records, key=lambda item: str(item.get("create_time") or ""), default=None)
