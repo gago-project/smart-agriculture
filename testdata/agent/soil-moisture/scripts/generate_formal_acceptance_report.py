@@ -1402,6 +1402,8 @@ def infer_answer_type_from_contract(
         return "soil_detail_answer"
     if query_type == "group":
         return "soil_ranking_answer"
+    if query_type in {"warning_list", "warning_count", "warning_disposal"}:
+        return "soil_summary_answer"
     return CAPABILITY_TO_ANSWER_TYPE.get(capability or "")
 
 
@@ -1653,6 +1655,14 @@ def infer_actual_tool(logs: list[dict[str, Any]], response: dict[str, Any], case
     actual_tool = map_query_type_to_tool(query_type)
     if actual_tool:
         return actual_tool, f"根据 query_type={query_type} 归并判定。"
+
+    # For fallback answers with no query logs, infer tool from capability in HTTP response
+    answer_kind = normalized.get("answer_kind") or response.get("answer_kind")
+    if answer_kind == "fallback" and not actual_tool:
+        capability = normalized.get("capability") or response.get("capability")
+        fallback_tool = map_query_type_to_tool(capability)
+        if fallback_tool:
+            return fallback_tool, f"根据 fallback capability={capability} 推断。"
 
     tool_trace = normalized["tool_trace"]
     if tool_trace:

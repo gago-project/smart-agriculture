@@ -4996,6 +4996,8 @@ class DataAnswerService:
                 **query_profile,
                 "measure": "record_count",
             }
+        compare_measure = query_profile.get("measure")
+        compare_data_focus = query_profile.get("data_focus")
         compared: list[dict[str, Any]] = []
         winner: str | None = None
         left_value: float | int | None = None
@@ -5003,6 +5005,7 @@ class DataAnswerService:
         resolved_entities: list[dict[str, Any]] = []
         warning_rule_row: dict[str, Any] | None = None
         records_by_entity: dict[str, list[dict[str, Any]]] = {}
+        compare_audit_sql_parts: list[str] = []
 
         if compare_mode == "time_compare":
             entity_name = names[0] if names else (context_slots.get("sn") or context_slots.get("county") or context_slots.get("city"))
@@ -5032,20 +5035,39 @@ class DataAnswerService:
                     "start_time": current_window["start_time"],
                     "end_time": current_window["end_time"],
                 }
-                if query_profile.get("data_focus") == "warning_only":
+                if compare_data_focus == "warning_only":
                     current_rule_row = warning_rule_row or await self.repository.warning_rule_row_async()
                     records = await self.repository.filter_warning_records_async(
                         **filters,
                         rule_row=current_rule_row,
                     )
                     warning_rule_row = warning_rule_row or current_rule_row
+                    compare_audit_sql_parts.append(
+                        self.repository.build_filter_warning_records_audit_sql(
+                            city=filters["city"],
+                            county=filters["county"],
+                            sn=filters["sn"],
+                            start_time=filters["start_time"],
+                            end_time=filters["end_time"],
+                            rule_row=current_rule_row,
+                        )
+                    )
                 else:
                     records = await self.repository.filter_records_async(**filters)
+                    compare_audit_sql_parts.append(
+                        self.repository.build_filter_records_audit_sql(
+                            city=filters["city"],
+                            county=filters["county"],
+                            sn=filters["sn"],
+                            start_time=filters["start_time"],
+                            end_time=filters["end_time"],
+                        )
+                    )
                 records_by_entity[label] = list(records)
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
-                metric_value = self._compare_metric_value(records, query_profile.get("measure"))
-                if query_profile.get("data_focus") == "warning_only":
+                metric_value = self._compare_metric_value(records, compare_measure)
+                if compare_data_focus == "warning_only":
                     warning_records = list(records)
                 else:
                     warning_records, current_rule_row = await self._warning_filtered_records(list(records))
@@ -5083,20 +5105,39 @@ class DataAnswerService:
                     "start_time": time_window["start_time"],
                     "end_time": time_window["end_time"],
                 }
-                if query_profile.get("data_focus") == "warning_only":
+                if compare_data_focus == "warning_only":
                     current_rule_row = warning_rule_row or await self.repository.warning_rule_row_async()
                     records = await self.repository.filter_warning_records_async(
                         **filters,
                         rule_row=current_rule_row,
                     )
                     warning_rule_row = warning_rule_row or current_rule_row
+                    compare_audit_sql_parts.append(
+                        self.repository.build_filter_warning_records_audit_sql(
+                            city=filters["city"],
+                            county=filters["county"],
+                            sn=filters["sn"],
+                            start_time=filters["start_time"],
+                            end_time=filters["end_time"],
+                            rule_row=current_rule_row,
+                        )
+                    )
                 else:
                     records = await self.repository.filter_records_async(**filters)
+                    compare_audit_sql_parts.append(
+                        self.repository.build_filter_records_audit_sql(
+                            city=filters["city"],
+                            county=filters["county"],
+                            sn=filters["sn"],
+                            start_time=filters["start_time"],
+                            end_time=filters["end_time"],
+                        )
+                    )
                 records_by_entity[name] = list(records)
                 focus_rows = self._focus_device_rows(records)
                 metrics = self._summary_metrics(records, focus_rows)
-                metric_value = self._compare_metric_value(records, query_profile.get("measure"))
-                if query_profile.get("data_focus") == "warning_only":
+                metric_value = self._compare_metric_value(records, compare_measure)
+                if compare_data_focus == "warning_only":
                     warning_records = list(records)
                 else:
                     warning_records, current_rule_row = await self._warning_filtered_records(list(records))
@@ -5117,7 +5158,7 @@ class DataAnswerService:
             if len(compared) == 2:
                 left_value = compared[0].get("metric_value")
                 right_value = compared[1].get("metric_value")
-                if query_profile.get("measure") and left_value is not None and right_value is not None:
+                if compare_measure and left_value is not None and right_value is not None:
                     if left_value > right_value:
                         winner = compared[0]["entity"]
                     elif right_value > left_value:
@@ -5145,7 +5186,7 @@ class DataAnswerService:
             "display_mode": "evidence_only",
             "title": "对比结果",
             "time_window": time_window,
-            "metric": query_profile.get("measure"),
+            "metric": compare_measure,
             "compare_mode": compare_mode,
             "winner": winner,
             "left_value": left_value,
@@ -5314,34 +5355,14 @@ class DataAnswerService:
                     query_index=1,
                     query_type="compare",
                     query_spec=query_spec,
-                    executed_sql_text=";\n\n".join(
-                        (
-                            self.repository.build_filter_warning_records_audit_sql(
-                                city=(item.get("canonical_name") if item.get("kind") == "city" else None),
-                                county=(item.get("canonical_name") if item.get("kind") == "county" else None),
-                                sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
-                                start_time=time_window["start_time"],
-                                end_time=time_window["end_time"],
-                                rule_row=warning_rule_row,
-                            )
-                            if query_profile.get("data_focus") == "warning_only"
-                            else self.repository.build_filter_records_audit_sql(
-                                city=(item.get("canonical_name") if item.get("kind") == "city" else None),
-                                county=(item.get("canonical_name") if item.get("kind") == "county" else None),
-                                sn=(item.get("canonical_name") if item.get("kind") == "device" else None),
-                                start_time=time_window["start_time"],
-                                end_time=time_window["end_time"],
-                            )
-                        )
-                        for item in resolved_entities[:2]
-                    ),
+                    executed_sql_text=";\n\n".join(compare_audit_sql_parts),
                     row_count=sum(int(item["record_count"]) for item in compared),
                     snapshot_id=None,
                     time_window=time_window,
                     filters=query_spec["filters"],
                     executed_result={
                         "rows": compared,
-                        "metric": query_profile.get("measure"),
+                        "metric": compare_measure,
                         "winner": winner,
                         **({"warning_rule_brief": warning_rule_brief} if warning_rule_brief else {}),
                     },

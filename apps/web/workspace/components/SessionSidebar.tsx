@@ -120,9 +120,7 @@ export function SessionSidebar({
   return (
     <aside className="sidebar" ref={sidebarRef}>
       <div className="sidebar-brand">
-        <div className="sidebar-brand-mark">DC</div>
         <div className="sidebar-brand-copy">
-          <span className="sidebar-brand-eyebrow">Smart Agriculture</span>
           <strong>苏农云指挥调度智能</strong>
           <p>本地会话</p>
         </div>

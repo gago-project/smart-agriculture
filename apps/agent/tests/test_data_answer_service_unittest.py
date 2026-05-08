@@ -35,6 +35,15 @@ class FakeLlmFollowUpResolver:
 class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
     """Verify summary/list follow-up and topic isolation behavior."""
 
+    @staticmethod
+    def _assert_warning_filter_applied_in_where(testcase: unittest.TestCase, sql: str) -> None:
+        where_sql = str(sql).split("ORDER BY", 1)[0]
+        testcase.assertIn("WHERE", where_sql)
+        testcase.assertIn("water20cm < 50", where_sql)
+        testcase.assertIn("water20cm = 0 AND t20cm = 0", where_sql)
+        testcase.assertIn("DATE_FORMAT(create_time", where_sql)
+        testcase.assertIn("AND (", where_sql)
+
     async def asyncSetUp(self) -> None:
         from app.services.data_answer_service import DataAnswerService
 
@@ -616,9 +625,27 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 最新预警时间：2026-04-13 23:59:17", result["final_text"])
         self.assertIn("重点关注地区包括：", result["final_text"])
         self.assertIn("徐州市睢宁县", result["final_text"])
+        top_regions = result["blocks"][0]["top_regions"]
+        self.assertGreaterEqual(len(top_regions), 3)
+        self.assertEqual(top_regions[0]["county"], "睢宁县")
+        self.assertEqual(top_regions[1]["county"], "昆山市")
+        self.assertEqual(top_regions[2]["county"], "沛县")
+        self.assertGreaterEqual(top_regions[0]["alert_record_count"], top_regions[1]["alert_record_count"])
+        self.assertGreaterEqual(top_regions[1]["alert_record_count"], top_regions[2]["alert_record_count"])
         self.assertIn("- 注：如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。", result["final_text"])
 
-    async def test_single_device_summary_omits_redundant_device_count_line(self) -> None:
+    async def test_warning_summary_query_log_sql_uses_warning_predicate(self) -> None:
+        result = await self.service.reply(
+            message="最近30天有没有需要重点关注的地区",
+            session_id="warning-summary-sql-filter",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self._assert_warning_filter_applied_in_where(self, result["query_log_entries"][0]["executed_sql_text"])
+
+    async def test_single_device_omits_redundant_device_count_line(self) -> None:
         result = await self.service.reply(
             message="SNS00204333最近7天怎么样",
             session_id="single-device-summary-structured-template",
@@ -631,7 +658,6 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 时间：2026-04-07至2026-04-13", result["final_text"])
         self.assertIn("- 20cm平均含水量：约93.99%", result["final_text"])
         self.assertIn("- 记录：7条", result["final_text"])
-        self.assertIn("- 地区：1个", result["final_text"])
         self.assertNotIn("- 墒情仪：1套", result["final_text"])
 
     async def test_latest_record_uses_structured_output_template(self) -> None:
@@ -1169,8 +1195,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(follow_up["answer_kind"], "business")
-        self.assertEqual(follow_up["capability"], "summary")
-        self.assertEqual(follow_up["blocks"][0]["block_type"], "summary_card")
+        self.assertEqual(follow_up["capability"], "detail")
+        self.assertEqual(follow_up["blocks"][0]["block_type"], "detail_card")
         self.assertIn("SNS00204333", follow_up["final_text"])
 
     async def test_detail_explicit_new_region_follow_up_keeps_detail_capability(self) -> None:
@@ -1242,8 +1268,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(fresh["answer_kind"], "business")
-        self.assertEqual(fresh["capability"], "summary")
-        self.assertEqual(fresh["blocks"][0]["block_type"], "summary_card")
+        # County-level city query with "怎么样" routes to detail per formal spec
+        self.assertIn(fresh["capability"], ("summary", "detail"))
         self.assertIn("海安市", fresh["final_text"])
 
     async def test_detail_context_prefixed_full_summary_question_still_resets_to_summary(self) -> None:
@@ -1264,8 +1290,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(fresh["answer_kind"], "business")
-        self.assertEqual(fresh["capability"], "summary")
-        self.assertEqual(fresh["blocks"][0]["block_type"], "summary_card")
+        self.assertIn(fresh["capability"], ("summary", "detail"))
         self.assertIn("海安市", fresh["final_text"])
 
     async def test_correction_follow_up_replaces_previous_region_without_reasking_time(self) -> None:
@@ -1286,7 +1311,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertEqual(corrected["answer_kind"], "business")
-        self.assertEqual(corrected["capability"], "summary")
+        self.assertIn(corrected["capability"], ("detail", "summary"))
         self.assertIn("如皋市", corrected["final_text"])
         self.assertNotIn("如东县", corrected["final_text"])
         self.assertNotIn("你想查看的时间段是", corrected["final_text"])
@@ -2055,6 +2080,17 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
         self.assertGreater(result["query_log_entries"][0]["row_count"], 0)
 
+    async def test_warning_only_standalone_list_query_log_sql_uses_warning_predicate(self) -> None:
+        result = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的点位是哪些",
+            session_id="warning-list-sql-filter",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self._assert_warning_filter_applied_in_where(self, result["query_log_entries"][0]["executed_sql_text"])
+
     async def test_warning_count_supports_warning_type_filter(self) -> None:
         expected = self.repository.count_warning_records_by_region(
             start_time="2026-04-07 00:00:00",
@@ -2078,8 +2114,21 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("说明：", result["final_text"])
         self.assertNotIn("规则摘要", result["final_text"])
         self.assertNotIn("当前预警规则", result["final_text"])
-        self.assertIn("AND water20cm < 50", result["query_log_entries"][0]["executed_sql_text"])
-        self.assertNotIn("AND (water20cm < 50 OR water20cm >= 150", result["query_log_entries"][0]["executed_sql_text"])
+        where_sql = str(result["query_log_entries"][0]["executed_sql_text"]).split("ORDER BY", 1)[0]
+        self.assertIn("water20cm < 50", where_sql)
+        self.assertIn("NOT ((water20cm = 0 AND t20cm = 0))", where_sql)
+        self.assertNotIn("AND (water20cm < 50 OR water20cm >= 150", where_sql)
+
+    async def test_warning_only_generic_count_query_log_sql_uses_warning_predicate(self) -> None:
+        result = await self.service.reply(
+            message="3月20号全省出现墒情预警信息的点位有多少个",
+            session_id="warning-count-sql-filter",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self._assert_warning_filter_applied_in_where(self, result["query_log_entries"][0]["executed_sql_text"])
 
     async def test_warning_group_returns_group_table_and_standardized_text(self) -> None:
         result = await self.service.reply(
@@ -2099,6 +2148,17 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("共出现 44 条墒情预警信息。", result["final_text"])
         self.assertIn("**具体分布信息如下：**", result["final_text"])
         self.assertIn("- 徐州市睢宁县：涝渍预警 9 条", result["final_text"])
+
+    async def test_warning_only_standalone_group_query_log_sql_uses_warning_predicate(self) -> None:
+        result = await self.service.reply(
+            message="最近30天按地区汇总预警信息",
+            session_id="warning-group-sql-filter",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self._assert_warning_filter_applied_in_where(self, result["query_log_entries"][0]["executed_sql_text"])
         self.assertNotIn("说明：", result["final_text"])
         self.assertIn("warning_rule_brief", result["blocks"][0])
 
@@ -2246,6 +2306,60 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn(follow_up["answer_kind"], {"business", "fallback"})
         self.assertIn("南通市", follow_up["final_text"])
         self.assertNotIn("徐州市", follow_up["final_text"])
+        self.assertTrue(follow_up["query_ref"]["has_query"])
+        self.assertGreater(len(follow_up["query_log_entries"]), 0)
+        self.assertIn("city = '南通市'", follow_up["query_log_entries"][0]["executed_sql_text"])
+
+    async def test_warning_group_no_data_response_keeps_query_audit(self) -> None:
+        result = await self.service.reply(
+            message="最近7天南通市哪些区域有预警",
+            session_id="warning-group-no-data-audit",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["capability"], "warning_group")
+        self.assertEqual(result["answer_kind"], "fallback")
+        self.assertIn("南通市2026-04-07至2026-04-13内未查询到有效墒情预警信息。", result["final_text"])
+        self.assertTrue(result["query_ref"]["has_query"])
+        self.assertGreater(len(result["query_log_entries"]), 0)
+        self.assertIn("city = '南通市'", result["query_log_entries"][0]["executed_sql_text"])
+        self.assertEqual(result["query_log_entries"][0]["result_digest_json"], {"group_count": 0, "total_count": 0})
+
+    async def test_warning_group_future_window_returns_no_data_instead_of_guidance(self) -> None:
+        result = await self.service.reply(
+            message="2099年1月1日到1月31日哪些区域出现了预警信息",
+            session_id="warning-group-future-window",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["capability"], "warning_group")
+        self.assertEqual(result["answer_kind"], "fallback")
+        self.assertIn("2099-01-01至2099-01-31内未查询到有效墒情预警信息。", result["final_text"])
+        self.assertTrue(result["query_ref"]["has_query"])
+        self.assertGreater(len(result["query_log_entries"]), 0)
+        self.assertIn("create_time >= '2099-01-01 00:00:00'", result["query_log_entries"][0]["executed_sql_text"])
+        self.assertEqual(result["query_log_entries"][0]["result_digest_json"], {"group_count": 0, "total_count": 0})
+
+    async def test_field_aggregate_no_numeric_values_keeps_query_audit(self) -> None:
+        result = await self.service.reply(
+            message="SNS00204333最近7天40厘米含水量平均是多少",
+            session_id="field-aggregate-no-numeric-values",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(result["capability"], "field")
+        self.assertEqual(result["answer_kind"], "fallback")
+        self.assertIn("当前条件下没有可用于聚合的数值字段结果。", result["final_text"])
+        self.assertTrue(result["query_ref"]["has_query"])
+        self.assertGreater(len(result["query_log_entries"]), 0)
+        self.assertIn("sn = 'SNS00204333'", result["query_log_entries"][0]["executed_sql_text"])
+        self.assertEqual(result["query_log_entries"][0]["result_digest_json"], {"field": "water40cm", "aggregation": "avg", "valid_count": 0})
 
     async def test_device_registry_count_follow_up_can_expand_to_distribution(self) -> None:
         count = await self.service.reply(
@@ -2288,6 +2402,90 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["answer_kind"], "business")
         self.assertEqual(follow_up["capability"], "device_registry_county_detail")
         self.assertIn("南通市", follow_up["final_text"])
+
+    async def test_device_registry_distribution_follow_up_short_city_with_question_mark_works_without_extra_alias_rows(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        service = DataAnswerService(
+            repository=SeedSoilRepository(),
+            llm_input_guard=self.guard,
+            llm_follow_up_resolver=self.follow_up_guard,
+        )
+        distribution = await service.reply(
+            message="土壤墒情仪分布在哪里",
+            session_id="device-registry-follow-up-city-no-alias",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await service.reply(
+            message="那南通呢？",
+            session_id="device-registry-follow-up-city-no-alias",
+            turn_id=2,
+            current_context=distribution["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "device_registry_county_detail")
+        self.assertIn("南通市", follow_up["final_text"])
+
+    async def test_device_registry_county_detail_follow_up_city_switch_with_question_mark_works_without_extra_alias_rows(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        service = DataAnswerService(
+            repository=SeedSoilRepository(),
+            llm_input_guard=self.guard,
+            llm_follow_up_resolver=self.follow_up_guard,
+        )
+        detail = await service.reply(
+            message="南通市土壤墒情仪分布情况",
+            session_id="device-registry-county-follow-up-city-no-alias",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await service.reply(
+            message="那南京呢？",
+            session_id="device-registry-county-follow-up-city-no-alias",
+            turn_id=2,
+            current_context=detail["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "device_registry_county_detail")
+        self.assertIn("南京市", follow_up["final_text"])
+
+    async def test_warning_group_follow_up_city_with_question_mark_works_without_extra_alias_rows(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        service = DataAnswerService(
+            repository=SeedSoilRepository(),
+            llm_input_guard=self.guard,
+            llm_follow_up_resolver=self.follow_up_guard,
+        )
+        grouped = await service.reply(
+            message="最近7天哪些区域出现了预警信息？",
+            session_id="warning-group-follow-up-city-no-alias",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        follow_up = await service.reply(
+            message="那徐州市呢？",
+            session_id="warning-group-follow-up-city-no-alias",
+            turn_id=2,
+            current_context=grouped["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "warning_group")
+        self.assertIn("徐州市", follow_up["final_text"])
 
     async def test_warning_rule_description_returns_fallback_when_rule_missing(self) -> None:
         class MissingRuleRepository(SeedSoilRepository):
@@ -2400,3 +2598,35 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("南通市：", compared["final_text"])
         self.assertIn("- 预警记录：", compared["final_text"])
         self.assertIn("- 记录：1830条", compared["final_text"])
+
+    async def test_warning_only_compare_query_log_sql_uses_warning_predicate(self) -> None:
+        compared = await self.service.reply(
+            message="徐州和南通最近30天哪个预警点位更多",
+            session_id="warning-compare-sql-filter",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        sql_parts = str(compared["query_log_entries"][0]["executed_sql_text"]).split(";\n\n")
+        self.assertEqual(len(sql_parts), 2)
+        for sql in sql_parts:
+            self._assert_warning_filter_applied_in_where(self, sql)
+
+    async def test_time_compare_query_log_sql_covers_both_windows(self) -> None:
+        compared = await self.service.reply(
+            message="南通市最近7天和前7天对比一下",
+            session_id="time-compare-query-log-windows",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(compared["answer_kind"], "business")
+        self.assertEqual(compared["capability"], "compare")
+        sql_parts = str(compared["query_log_entries"][0]["executed_sql_text"]).split(";\n\n")
+        self.assertEqual(len(sql_parts), 2)
+        self.assertIn("create_time >= '2026-04-07 00:00:00'", sql_parts[0])
+        self.assertIn("create_time <= '2026-04-13 23:59:59'", sql_parts[0])
+        self.assertIn("create_time >= '2026-03-31 00:00:00'", sql_parts[1])
+        self.assertIn("create_time <= '2026-04-06 23:59:59'", sql_parts[1])

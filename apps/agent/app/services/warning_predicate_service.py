@@ -41,13 +41,16 @@ class WarningPredicateService:
         time_column: str,
     ) -> str:
         rule_definition = self._rule_definition(rule_row)
+        ordered_rules = self._ordered_rules(rule_definition)
         fragments: list[str] = []
-        for rule in self._ordered_rules(rule_definition):
+        for index, rule in enumerate(ordered_rules):
             level = str(rule.get("warning_level") or "").strip()
             if warning_type and level != warning_type:
                 continue
-            predicate = self._rule_sql_predicate(
+            predicate = self._exact_rule_sql_predicate(
                 rule=rule,
+                ordered_rules=ordered_rules,
+                rule_index=index,
                 rule_definition=rule_definition,
                 time_column=time_column,
             )
@@ -156,6 +159,39 @@ class WarningPredicateService:
         if not inactive_sql:
             return condition
         return f"({condition} AND NOT ({inactive_sql}))"
+
+    def _exact_rule_sql_predicate(
+        self,
+        *,
+        rule: dict[str, Any],
+        ordered_rules: list[dict[str, Any]],
+        rule_index: int,
+        rule_definition: dict[str, Any],
+        time_column: str,
+    ) -> str:
+        current_predicate = self._rule_sql_predicate(
+            rule=rule,
+            rule_definition=rule_definition,
+            time_column=time_column,
+        )
+        if not current_predicate:
+            return ""
+
+        prior_predicates: list[str] = []
+        for prior_rule in ordered_rules[:rule_index]:
+            predicate = self._rule_sql_predicate(
+                rule=prior_rule,
+                rule_definition=rule_definition,
+                time_column=time_column,
+            )
+            if predicate:
+                prior_predicates.append(predicate)
+
+        if not prior_predicates:
+            return current_predicate
+
+        joined_prior = " OR ".join(f"({predicate})" for predicate in prior_predicates)
+        return f"({current_predicate} AND NOT ({joined_prior}))"
 
     @staticmethod
     def _normalize_sql_condition(condition: str) -> str:

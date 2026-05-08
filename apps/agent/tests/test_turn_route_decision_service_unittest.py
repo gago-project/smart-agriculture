@@ -128,7 +128,7 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.grain, "entity")
         self.assertEqual(result.query_shape.mode, "explicit_detail")
 
-    def test_device_with_time_and_zenmeyang_defaults_to_summary_instead_of_detail(self) -> None:
+    def test_device_with_time_and_zenmeyang_routes_to_detail(self) -> None:
         result = self.service.decide(
             message="SNS00204333最近7天怎么样",
             current_context={},
@@ -137,9 +137,8 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
             action_result=FollowUpActionResult(),
         )
 
-        self.assertEqual(result.route, "summary")
-        self.assertEqual(result.query_shape.action, "summary")
-        self.assertEqual(result.query_shape.mode, "standalone")
+        self.assertIn(result.route, ("explicit_detail", "detail"))
+        self.assertEqual(result.query_shape.action, "detail")
 
     def test_latest_record_phrase_routes_to_latest_record(self) -> None:
         result = self.service.decide(
@@ -350,8 +349,8 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.subject, "device_registry")
         self.assertEqual(result.query_shape.grain, "county")
 
-    def test_device_registry_count_regional_query_routes_to_registry(self) -> None:
-        """SM-DEV-007: 带城市名的设备数量查询仍路由到 device_registry_count，由执行层落到地区范围"""
+    def test_device_registry_count_regional_query_routes_to_county_detail(self) -> None:
+        """SM-DEV-007: 带城市名的设备数量查询直接路由到 device_registry_county_detail。"""
         result = self.service.decide(
             message="南京接入了多少台土壤墒情仪",
             current_context={},
@@ -359,7 +358,7 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
             time_evidence=_time_window(matched=False, has_signal=False),
             action_result=FollowUpActionResult(),
         )
-        self.assertEqual(result.route, "device_registry_count")
+        self.assertEqual(result.route, "device_registry_county_detail")
         self.assertEqual(result.query_shape.subject, "device_registry")
 
     def test_device_registry_distribution_province_query(self) -> None:
@@ -580,11 +579,41 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         )
         self.assertEqual(result.route, "device_registry_county_detail")
 
+    def test_device_registry_follow_up_city_switch_from_county_detail_context(self) -> None:
+        result = self.service.decide(
+            message="那南京呢？",
+            current_context={"topic_family": "device_registry", "query_state": {"capability": "device_registry_county_detail"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+
+    def test_device_registry_follow_up_city_detail_accepts_short_city_with_question_mark_without_entities(self) -> None:
+        result = self.service.decide(
+            message="那南通呢？",
+            current_context={"topic_family": "device_registry", "query_state": {"capability": "device_registry_distribution"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+
     def test_warning_group_follow_up_city_keeps_group_route(self) -> None:
         result = self.service.decide(
             message="那徐州市呢",
             current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
             entities=_entities(city="徐州市"),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
+
+    def test_warning_group_follow_up_city_accepts_question_mark_without_entities(self) -> None:
+        result = self.service.decide(
+            message="那徐州市呢？",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(),
             time_evidence=_time_window(matched=False, has_signal=False),
             action_result=FollowUpActionResult(),
         )

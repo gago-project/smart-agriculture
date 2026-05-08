@@ -33,10 +33,10 @@ TIME_ONLY_FOLLOW_UP_PATTERNS = (
     re.compile(r"^(?:最近|近|过去|前)?\s*[0-9一二两三四五六七八九十百]+\s*(?:天|周|月|年|个月)\s*(?:呢)?$", re.IGNORECASE),
     re.compile(r"^(?:今天|昨天|前天|上周|这周|本周|这个月|本月|上个月|今年|最近)\s*(?:呢)?$", re.IGNORECASE),
 )
-CONTEXTUAL_FOLLOW_UP_MARKERS = ("这些", "这里", "这里的", "上面的", "刚才", "那个情况", "这种情况", "那边", "这边")
+CONTEXTUAL_FOLLOW_UP_MARKERS = ("这些", "这里", "这里的", "上面的", "刚才", "那个情况", "这种情况", "那边", "这边", "不是")
 GLOBAL_SCOPE_RESET_MARKERS = ("整体", "全省", "整个", "全部", "哪里", "哪个地方", "最严重", "排名", "排行", "top", "Top", "哪些地方", "哪些地区")
 QUERY_CUE_TOKENS = ("查", "看", "情况", "怎么样", "有没有问题", "需要", "最近", "最新")
-DETAIL_HINT_TOKENS = ("详情", "明细")
+DETAIL_HINT_TOKENS = ("详情", "明细", "详细")
 LIST_ENUMERATION_TOKENS = ("哪些", "哪几个", "有哪些")
 TEMPLATE_TOKENS = ("模板", "模版")
 RANKING_MARKERS = ("最多", "最少", "最高", "最低", "排名", "排行", "top")
@@ -93,6 +93,9 @@ JIANGSU_CITY_NAMES = (
     "淮安市",
     "盐城市",
     "宿迁市",
+)
+JIANGSU_CITY_ALIASES = tuple(
+    dict.fromkeys([*JIANGSU_CITY_NAMES, *(city.removesuffix("市") for city in JIANGSU_CITY_NAMES)])
 )
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
@@ -622,6 +625,9 @@ class TurnRouteDecisionService:
             token in text for token in ("点位", "设备", "地区", "地方", "区域")
         ):
             return False
+        # "需要发预警吗" is asking about advisory/eligibility, not querying warning records
+        if "需要" in text and "预警" in text:
+            return False
         return has_warning_word and (has_record_intent or has_time_signal)
 
     @staticmethod
@@ -689,11 +695,18 @@ class TurnRouteDecisionService:
 
     @staticmethod
     def _extract_inline_city_name(text: str) -> str | None:
-        normalized = str(text or "")
-        for city in JIANGSU_CITY_NAMES:
-            if city in normalized:
-                return city
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
+        for alias in JIANGSU_CITY_ALIASES:
+            if alias and alias in normalized:
+                return alias if alias.endswith("市") else f"{alias}市"
         return None
+
+    @classmethod
+    def _has_inline_region_scope(cls, text: str) -> bool:
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
+        if cls._extract_inline_city_name(normalized):
+            return True
+        return bool(re.search(r"[\u4e00-\u9fa5]{2,8}(市|县|区)(?:呢)?$", normalized))
 
     def _contextual_follow_up_subject(
         self,
@@ -706,14 +719,14 @@ class TurnRouteDecisionService:
         topic_family = str(current_context.get("topic_family") or "")
         query_state = current_context.get("query_state") or {}
         capability = str(query_state.get("capability") or "")
-        has_explicit_scope = any(entities.get(key) for key in ("province", "city", "county", "sn"))
+        has_explicit_scope = any(entities.get(key) for key in ("province", "city", "county", "sn")) or self._has_inline_region_scope(text)
         has_time_signal = bool(getattr(time_evidence, "has_time_signal", False))
         has_soil_business_signal = any(token in text for token in ("墒情", "含水量", "记录", "详情", "明细", "汇总"))
 
         if topic_family == "device_registry":
             if capability == "device_registry_count" and self._is_device_registry_distribution_follow_up(text):
                 return "device_registry_distribution"
-            if capability == "device_registry_distribution" and has_explicit_scope and not has_time_signal and not has_soil_business_signal:
+            if capability in {"device_registry_distribution", "device_registry_county_detail"} and has_explicit_scope and not has_time_signal and not has_soil_business_signal:
                 return "device_registry_county_detail"
 
         if topic_family == "data" and capability == "warning_group":
@@ -745,7 +758,7 @@ class TurnRouteDecisionService:
         has_explicit_scope: bool,
         has_time_signal: bool,
     ) -> bool:
-        normalized = str(text or "").strip()
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
         if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
             return True
         if has_explicit_scope and normalized.startswith("不是") and "是" in normalized:
@@ -763,7 +776,7 @@ class TurnRouteDecisionService:
         has_explicit_scope: bool,
         has_time_signal: bool,
     ) -> bool:
-        normalized = str(text or "").strip()
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
         if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
             return True
         if any(token in normalized for token in _WARNING_DISPOSAL_INTENT_TOKENS):
@@ -836,9 +849,18 @@ class TurnRouteDecisionService:
         if TurnRouteDecisionService._is_plain_group_follow_up_phrase(text):
             return True
         lowered = str(text or "").lower()
-        if any(marker in lowered for marker in RANKING_MARKERS) and any(token in text for token in ("县", "区", "市", "地区", "地方")):
-            if any(token in text for token in ("预警", "异常", "关注")):
+        # Explicit top-N ranking (e.g. "前3名县区", "前5个设备")
+        if re.search(r'前\s*[0-9一二两三四五六七八九十百]+\s*(?:名|个)', text):
+            if any(token in text for token in ("县", "区", "市", "地区", "地方", "设备", "点位")):
                 return True
+        # Superlative + location grain (e.g. "最严重的县区", "最需要关注的市")
+        if any(token in text for token in ("最严重", "最需要关注")) and any(
+            token in text for token in ("县", "区", "市", "地区", "地方", "设备", "点位")
+        ):
+            return True
+        # Standard ranking markers + location grain (no warning/anomaly prerequisite)
+        if any(marker in lowered for marker in RANKING_MARKERS) and any(token in text for token in ("县", "区", "市", "地区", "地方")):
+            return True
         if "哪个县" in text or "哪个区" in text or "哪个市" in text:
             if any(token in text for token in ("预警", "异常", "关注")):
                 return True
@@ -849,12 +871,8 @@ class TurnRouteDecisionService:
         normalized = str(text or "").strip()
         if not normalized:
             return False
-        lowered = normalized.lower()
-        if any(token in normalized for token in ("风险",)) and any(marker in lowered for marker in RANKING_MARKERS):
-            return True
+        # Compound "最严重风险" phrasing (not just a ranking query)
         if "最严重" in normalized and "风险" in normalized:
-            return True
-        if "最严重" in normalized and any(token in normalized for token in ("地方", "地区", "区域", "点位", "设备", "哪里", "哪个")):
             return True
         return False
 
@@ -874,7 +892,6 @@ class TurnRouteDecisionService:
                 QueryProfileResolverService.is_count_request(text),
                 QueryProfileResolverService.is_field_request(text),
                 QueryProfileResolverService.is_compare_request(text),
-                "怎么样" in text or "情况" in text or "如何" in text,
             )
         ):
             return True
@@ -898,11 +915,28 @@ class TurnRouteDecisionService:
                 QueryProfileResolverService.is_count_request(text),
                 QueryProfileResolverService.is_field_request(text),
                 QueryProfileResolverService.is_compare_request(text),
-                "怎么样" in text or "情况" in text or "如何" in text,
             )
         ):
             return True
         if any(token in text for token in DETAIL_HINT_TOKENS):
+            return True
+        # County-scoped or advisory queries → detail (not province/city-level summaries)
+        has_county = bool(entities.get("county"))
+        if has_county and not any(
+            (
+                QueryProfileResolverService.is_latest_record_request(text),
+                QueryProfileResolverService.is_count_request(text),
+                QueryProfileResolverService.is_field_request(text),
+                QueryProfileResolverService.is_compare_request(text),
+                "有没有" in text,
+                "是否" in text,
+            )
+        ):
+            if any(token in text for token in ("怎么样", "怎么回事", "如何", "具体", "情况", "异常", "注意")):
+                return True
+        # City + warning advisory ("需要发预警吗") → detail
+        has_city = bool(entities.get("city"))
+        if (has_city or has_county) and "需要" in text and "预警" in text:
             return True
         return False
 
