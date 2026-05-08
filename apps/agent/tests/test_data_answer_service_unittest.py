@@ -553,7 +553,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["answer_kind"], "business")
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
-        self.assertIn("已按地区汇总，共 80 组", grouped["final_text"])
+        self.assertIn("- 分组：80组", grouped["final_text"])
         self.assertEqual(grouped["blocks"][0]["pagination"]["total_count"], 80)
 
     async def test_standalone_summary_question_with_new_time_window_does_not_fall_into_action_target_clarify(self) -> None:
@@ -590,6 +590,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             timezone="Asia/Shanghai",
         )
 
+        self.assertIn("- 范围：全省", result["final_text"])
         self.assertIn("- 时间：2026-04-07至2026-04-13", result["final_text"])
         self.assertIn("- 20cm平均含水量：约93.77%", result["final_text"])
         self.assertIn("- 记录：3689条", result["final_text"])
@@ -607,6 +608,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
             timezone="Asia/Shanghai",
         )
 
+        self.assertIn("- 范围：全省", result["final_text"])
         self.assertIn("- 时间：2026-03-15至2026-04-13", result["final_text"])
         self.assertIn("- 预警记录：252条", result["final_text"])
         self.assertIn("- 墒情仪：42套", result["final_text"])
@@ -632,6 +634,22 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 地区：1个", result["final_text"])
         self.assertNotIn("- 墒情仪：1套", result["final_text"])
 
+    async def test_latest_record_uses_structured_output_template(self) -> None:
+        result = await self.service.reply(
+            message="SNS00204333最新一条记录是什么",
+            session_id="latest-record-structured-template",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertIn("- 设备号：SNS00204333", result["final_text"])
+        self.assertIn("- 最新记录时间：2026-04-13 23:59:17", result["final_text"])
+        self.assertIn("- 地区：南通市如东县", result["final_text"])
+        self.assertIn("- 20cm含水量：92.43%", result["final_text"])
+        self.assertIn("- 土壤温度：13.8℃", result["final_text"])
+        self.assertNotIn("最新一条记录时间为", result["final_text"])
+
     async def test_standalone_group_query_runs_without_prior_context(self) -> None:
         grouped = await self.service.reply(
             message="最近30天按地区汇总墒情数据",
@@ -649,6 +667,11 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertGreater(grouped["blocks"][0]["pagination"]["total_count"], 0)
         self.assertLessEqual(len(grouped["blocks"][0]["rows"]), 10)
         self.assertNotIn("请先查询一轮墒情数据", grouped["final_text"])
+        self.assertIn("- 范围：全省", grouped["final_text"])
+        self.assertIn("- 时间：2026-03-15至2026-04-13", grouped["final_text"])
+        self.assertIn("- 汇总维度：地区", grouped["final_text"])
+        self.assertIn("- 分组：80组", grouped["final_text"])
+        self.assertIn("- 当前可见：", grouped["final_text"])
 
     async def test_standalone_group_query_supports_where_has_soil_data_wording(self) -> None:
         grouped = await self.service.reply(

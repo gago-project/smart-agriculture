@@ -10,7 +10,7 @@ import {
 test('real conversation library parser keeps markdown as the single source of truth', async () => {
   const cases = await listRealConversationCases();
 
-  assert.equal(cases.length, 125);
+  assert.equal(cases.length, 123);
   assert.equal(cases[0].id, 1);
   assert.equal(cases[0].turns.length, 1);
 
@@ -60,7 +60,8 @@ test('frontend app wires gago-dev auto run off login completion and clears local
   );
 
   assert.match(appSource, /useGagoDevAutoRunner/);
-  assert.match(appSource, /gago-dev 自动真实问答回归/);
+  assert.match(appSource, /aria-label=\"gago-dev 自动真实问答回归\"/);
+  assert.doesNotMatch(appSource, /<strong>gago-dev 自动真实问答回归<\/strong>/);
   assert.match(authStoreSource, /lastLoginAt/);
   assert.match(chatStoreSource, /clearChatLocalState/);
   assert.match(chatStoreSource, /doc-frontend-chat-v1/);

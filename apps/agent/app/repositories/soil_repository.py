@@ -1122,6 +1122,9 @@ class SoilRepository:
         start_time: str | None = None,
         end_time: str | None = None,
     ) -> dict[str, Any]:
+        # warning_disposal_record is imported from the soil-only disposal workbook subset
+        # (warn_type='墒情预警'), so querying this table directly preserves the true
+        # business counts even when the device ledger is temporarily incomplete.
         clauses: list[str] = ["pub_status IN (1,2,3,4)"]
         params: list[Any] = []
         for column, value in [("city", city), ("county", county)]:

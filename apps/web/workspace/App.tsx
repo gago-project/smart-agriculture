@@ -67,6 +67,12 @@ export default function App() {
     sendQuestion,
     switchSession,
   });
+  const gagoDevAutoRunBannerText = gagoDevAutoRun.currentLabel
+    ? `${gagoDevAutoRun.completedCases}/${gagoDevAutoRun.totalCases} 当前：${gagoDevAutoRun.currentLabel}`
+    : gagoDevAutoRun.message ||
+      (gagoDevAutoRun.phase === 'running' || gagoDevAutoRun.phase === 'done'
+        ? `${gagoDevAutoRun.completedCases}/${gagoDevAutoRun.totalCases}`
+        : '准备中');
 
   useEffect(() => {
     void initAuth();
@@ -161,15 +167,11 @@ export default function App() {
           <div className={`chat-workspace ${showChatEvidence ? 'with-query-evidence' : ''}`}>
             <div className="chat-column">
               {gagoDevAutoRun.enabled ? (
-                <section className={`auto-run-banner auto-run-banner--${gagoDevAutoRun.phase}`}>
-                  <strong>gago-dev 自动真实问答回归</strong>
-                  <span>
-                    {gagoDevAutoRun.phase === 'running' || gagoDevAutoRun.phase === 'done'
-                      ? `${gagoDevAutoRun.completedCases}/${gagoDevAutoRun.totalCases}`
-                      : '准备中'}
-                  </span>
-                  {gagoDevAutoRun.message ? <p>{gagoDevAutoRun.message}</p> : null}
-                  {gagoDevAutoRun.currentLabel ? <small>当前：{gagoDevAutoRun.currentLabel}</small> : null}
+                <section
+                  aria-label="gago-dev 自动真实问答回归"
+                  className={`auto-run-banner auto-run-banner--${gagoDevAutoRun.phase}`}
+                >
+                  <span>{gagoDevAutoRunBannerText}</span>
                 </section>
               ) : null}
               <ChatPanel

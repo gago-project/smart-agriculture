@@ -3452,17 +3452,13 @@ class DataAnswerService:
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
         scope = self._entity_label(resolved_entities) or "当前查询范围"
-        if time_window:
-            final_text = (
-                f"{self._scoped_range_label(scope, time_window)}范围内的最新一条记录时间为 "
-                f"{latest_record.get('create_time') or '暂无'}，"
-                f"{self._latest_record_brief(latest_record)}。"
-            )
-        else:
-            final_text = (
-                f"{scope}的最新一条记录时间为 {latest_record.get('create_time') or '暂无'}，"
-                f"{self._latest_record_brief(latest_record)}。"
-            )
+        final_text = self._render_latest_record_text(
+            scope,
+            time_window,
+            latest_record,
+            resolution_meta["entity_confidence"],
+            resolved_entities,
+        )
         return {
             "turn_id": turn_id,
             "answer_kind": "business",
@@ -4497,8 +4493,16 @@ class DataAnswerService:
             replace_history=resolution_meta["operation"] == "correct_slot",
         )
         label = self._entity_label(resolved_entities) or "当前查询范围"
-        preview = self._group_preview_text(rows, group_by=group_by)
-        top_preview = self._warning_region_preview(rows, limit=min(5, len(rows))) if warning_only else preview
+        preview_items = [
+            item.strip()
+            for item in self._group_preview_text(rows, group_by=group_by).split("、")
+            if item.strip()
+        ]
+        top_preview = (
+            self._warning_region_preview(rows, limit=min(5, len(rows)))
+            if warning_only
+            else "、".join(preview_items)
+        )
         audit_sql = self.repository.build_filter_records_audit_sql(
             **self._query_filters_from_args(resolved_args)
         )
@@ -4542,10 +4546,14 @@ class DataAnswerService:
             if top_preview:
                 final_text += f" 当前重点地区：{top_preview}。"
         else:
-            final_text = (
-                f"{label}{time_window['start_time'][:10]}至{time_window['end_time'][:10]}"
-                f"已按{self._group_label(group_by)}汇总，共 {len(rows)} 组。"
-                f"{f' 当前可见：{preview}。' if preview else ''}"
+            final_text = self._render_group_text(
+                label,
+                time_window,
+                group_by,
+                total_group_count,
+                preview_items,
+                resolution_meta["entity_confidence"],
+                resolved_entities,
             )
         return {
             "turn_id": turn_id,
@@ -7633,8 +7641,8 @@ class DataAnswerService:
         fields: list[tuple[str, str | None]] = []
         if single_device:
             fields.append(("设备号", scope))
-        elif scope not in {"当前整体墒情", "当前查询范围"}:
-            fields.append(("范围", scope))
+        else:
+            fields.append(("范围", scope if scope not in {"当前整体墒情", "当前查询范围"} else "全省"))
         if warning_only:
             preview_lines = DataAnswerService._warning_region_preview_lines(top_regions or [])
             if int(metrics.get("record_count") or 0) > 0:
@@ -7702,6 +7710,44 @@ class DataAnswerService:
         if latest_record.get("t20cm") is not None:
             parts.append(f"土壤温度 {latest_record.get('t20cm')}℃")
         return "，".join(parts) if parts else "暂无更多原始字段信息"
+
+    @staticmethod
+    def _render_latest_record_text(
+        label: str,
+        time_window: dict[str, Any],
+        latest_record: dict[str, Any],
+        entity_confidence: str,
+        resolved_entities: list[dict[str, Any]],
+    ) -> str:
+        time_label = DataAnswerService._time_window_range_label(time_window)
+        latest_time = str(latest_record.get("create_time") or "暂无")
+        location = f"{latest_record.get('city') or ''}{latest_record.get('county') or ''}".strip()
+        single_device = label.startswith("SNS")
+        fields: list[tuple[str, str | None]] = []
+        if single_device:
+            fields.append(("设备号", label))
+        else:
+            normalized_label = label if label and label not in {"当前查询范围", "当前详情"} else "全省"
+            fields.append(("范围", normalized_label))
+        fields.extend(
+            [
+                ("时间", time_label or None),
+                ("最新记录时间", latest_time),
+                ("地区", location or None),
+                (
+                    "20cm含水量",
+                    f"{latest_record.get('water20cm')}%" if latest_record.get("water20cm") is not None else None,
+                ),
+                (
+                    "土壤温度",
+                    f"{latest_record.get('t20cm')}℃" if latest_record.get("t20cm") is not None else None,
+                ),
+            ]
+        )
+        text = DataAnswerService._render_structured_answer(fields=fields)
+        if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
+            text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+        return text
 
     @staticmethod
     def _render_compare_digest(
@@ -7776,6 +7822,30 @@ class DataAnswerService:
             fields=fields,
             note=note,
         )
+        if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
+            text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+        return text
+
+    @staticmethod
+    def _render_group_text(
+        label: str,
+        time_window: dict[str, Any],
+        group_by: str,
+        group_count: int,
+        preview_items: list[str],
+        entity_confidence: str,
+        resolved_entities: list[dict[str, Any]],
+    ) -> str:
+        normalized_label = label if label and label != "当前查询范围" else "全省"
+        lines = [
+            f"- 范围：{normalized_label}",
+            f"- 时间：{DataAnswerService._time_window_range_label(time_window) or '暂无'}",
+            f"- 汇总维度：{DataAnswerService._group_label(group_by)}",
+            f"- 分组：{group_count}组",
+        ]
+        if preview_items:
+            lines.extend(["", "- 当前可见：", *DataAnswerService._render_markdown_bullets(preview_items)])
+        text = "\n".join(lines).strip()
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
             text += f"\n- 识别：当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
         return text
