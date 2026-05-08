@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { SonioxRealtimeClient } from '../services/sonioxRealtime';
 import { fetchSonioxTemporaryToken } from '../services/sonioxTokenApi';
 
+const COMPOSER_TEXTAREA_MIN_HEIGHT = 56;
+const COMPOSER_TEXTAREA_MAX_HEIGHT = 160;
+
 interface ComposerProps {
   isSending: boolean;
   onSend: (question: string) => Promise<void>;
@@ -12,6 +15,7 @@ export function Composer({ isSending, onSend }: ComposerProps) {
   const [isRecording, setIsRecording] = useState(false);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const clientRef = useRef<SonioxRealtimeClient | null>(null);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   const submit = async () => {
     if (!value.trim() || isSending || isRecording) return;
@@ -26,6 +30,18 @@ export function Composer({ isSending, onSend }: ComposerProps) {
       clientRef.current = null;
     };
   }, []);
+
+  useEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) {
+      return;
+    }
+
+    textarea.style.height = '0px';
+    const nextHeight = Math.min(textarea.scrollHeight, COMPOSER_TEXTAREA_MAX_HEIGHT);
+    textarea.style.height = `${Math.max(nextHeight, COMPOSER_TEXTAREA_MIN_HEIGHT)}px`;
+    textarea.style.overflowY = textarea.scrollHeight > COMPOSER_TEXTAREA_MAX_HEIGHT ? 'auto' : 'hidden';
+  }, [value]);
 
   const startVoiceInput = async () => {
     if (isRecording || isSending) return;
@@ -63,12 +79,16 @@ export function Composer({ isSending, onSend }: ComposerProps) {
   return (
     <div className="composer-shell">
       <div className="composer-meta">
-        <span>直接提问</span>
-        <span>{isRecording ? '录音中…再次点击结束' : isSending ? '分析中…' : 'Enter 发送 · Shift+Enter 换行'}</span>
+        <span className="composer-label">直接提问</span>
+        <span className="composer-tip">
+          {isRecording ? '录音中…再次点击结束' : isSending ? '分析中…' : 'Enter 发送 · Shift+Enter 换行'}
+        </span>
       </div>
       <div className="composer">
         <textarea
-          placeholder="例如：最近墒情怎么样？或 按模板输出 SNS00213807 最新预警"
+          ref={textareaRef}
+          rows={1}
+          placeholder="例如：最近30天，按地区汇总墒情数据；或 按模板输出 SNS00213807 最新预警"
           value={value}
           onChange={(event) => setValue(event.target.value)}
           onKeyDown={async (event) => {
@@ -78,19 +98,21 @@ export function Composer({ isSending, onSend }: ComposerProps) {
             }
           }}
         />
-        <button
-          type="button"
-          className={`voice-button${isRecording ? ' recording' : ''}`}
-          onClick={isRecording ? stopVoiceInput : () => void startVoiceInput()}
-          disabled={isSending}
-          aria-label={isRecording ? '停止语音输入' : '开始语音输入'}
-          title={isRecording ? '停止语音输入' : '开始语音输入'}
-        >
-          {isRecording ? '停止录音' : '语音输入'}
-        </button>
-        <button onClick={submit} disabled={!value.trim() || isSending || isRecording}>
-          发送
-        </button>
+        <div className="composer-actions">
+          <button
+            type="button"
+            className={`voice-button${isRecording ? ' recording' : ''}`}
+            onClick={isRecording ? stopVoiceInput : () => void startVoiceInput()}
+            disabled={isSending}
+            aria-label={isRecording ? '停止语音输入' : '开始语音输入'}
+            title={isRecording ? '停止语音输入' : '开始语音输入'}
+          >
+            {isRecording ? '停止录音' : '语音输入'}
+          </button>
+          <button className="composer-submit" onClick={submit} disabled={!value.trim() || isSending || isRecording}>
+            发送
+          </button>
+        </div>
       </div>
       {voiceError ? <div className="composer-error">{voiceError}</div> : null}
     </div>
