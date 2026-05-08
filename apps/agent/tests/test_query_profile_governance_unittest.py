@@ -672,7 +672,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["answer_kind"], "business")
         self.assertEqual(reply["capability"], "detail")
         self.assertIn("20cm含水量", reply["final_text"])
-        self.assertIn("位于", reply["final_text"])
+        self.assertIn("- 地区：南通市如东县", reply["final_text"])
         self.assertIn("土壤温度", reply["final_text"])
         self.assertNotIn("20cm温度", reply["final_text"])
 
