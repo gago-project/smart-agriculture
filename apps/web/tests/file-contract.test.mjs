@@ -216,6 +216,45 @@ test('chat panel no longer renders AI involvement badge in message list', () => 
   assert.doesNotMatch(chatPanelSource, /ai_involvement/);
 });
 
+test('composer uses a compact chat-input layout instead of a tall resizable panel', () => {
+  const composerSource = readFileSync(new URL('../workspace/components/Composer.tsx', import.meta.url), 'utf8');
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(composerSource, /rows=\{1\}/);
+  assert.match(composerSource, /className="composer-actions"/);
+  assert.match(globalsSource, /\.composer\s*\{[\s\S]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s*auto;/);
+  assert.match(globalsSource, /\.composer textarea\s*\{[\s\S]*min-height:\s*56px;/);
+  assert.match(globalsSource, /\.composer textarea\s*\{[\s\S]*max-height:\s*160px;/);
+  assert.match(globalsSource, /\.composer textarea\s*\{[\s\S]*resize:\s*none;/);
+  assert.match(globalsSource, /\.composer-actions\s*\{/);
+  assert.doesNotMatch(globalsSource, /\.composer textarea\s*\{[\s\S]*min-height:\s*84px;/);
+  assert.doesNotMatch(globalsSource, /\.composer textarea\s*\{[\s\S]*resize:\s*vertical;/);
+});
+
+test('chat layout keeps the bottom composer visible when message content grows tall', () => {
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(globalsSource, /\.chat-panel\s*\{[\s\S]*grid-template-rows:\s*minmax\(0,\s*1fr\);/);
+  assert.match(globalsSource, /\.messages\s*\{[\s\S]*min-height:\s*0;/);
+});
+
+test('chat workspace keeps a structured visual hierarchy for title and composer guidance', () => {
+  const appSource = readFileSync(new URL('../workspace/App.tsx', import.meta.url), 'utf8');
+  const composerSource = readFileSync(new URL('../workspace/components/Composer.tsx', import.meta.url), 'utf8');
+  const globalsSource = readFileSync(new URL('../app/globals.css', import.meta.url), 'utf8');
+
+  assert.match(appSource, /className="workspace-title-group"/);
+  assert.match(appSource, /className="workspace-kicker"/);
+  assert.match(appSource, /className="workspace-subtitle"/);
+  assert.match(composerSource, /className="composer-label"/);
+  assert.match(composerSource, /className="composer-tip"/);
+  assert.match(globalsSource, /\.workspace-title-group\s*\{/);
+  assert.match(globalsSource, /\.workspace-kicker\s*\{/);
+  assert.match(globalsSource, /\.workspace-subtitle\s*\{/);
+  assert.match(globalsSource, /\.composer-label\s*\{/);
+  assert.match(globalsSource, /\.composer-tip\s*\{/);
+});
+
 test('developer log filters use selects and keep the table focused on rows', () => {
   const pageSource = readFileSync(new URL('../workspace/components/AgentLogPage.tsx', import.meta.url), 'utf8');
 

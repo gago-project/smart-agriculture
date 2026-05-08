@@ -140,8 +140,10 @@ export default function App() {
       />
       <main className="main">
         <header className="workspace-header">
-          <div>
+          <div className="workspace-title-group">
+            <span className="workspace-kicker">Smart Agriculture Workspace</span>
             <h1 className="workspace-title">苏农云指挥调度智能</h1>
+            <p className="workspace-subtitle">面向墒情、预警与处置链路的本地智能工作台</p>
           </div>
           <WorkspaceUserMenu
             username={authUser.username}
