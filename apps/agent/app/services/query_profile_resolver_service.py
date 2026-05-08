@@ -259,6 +259,8 @@ class QueryProfileResolverService:
             return "warning_only"
         if "异常" in normalized and "fieldstate" not in normalized:
             return "warning_only"
+        if any(token in normalized for token in ("最严重", "风险最高", "最需要关注", "风险排行", "最突出", "最高风险")):
+            return "warning_only"
         return None
 
     @staticmethod

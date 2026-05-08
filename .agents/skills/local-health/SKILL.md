@@ -148,6 +148,5 @@ bash scripts/health/check-local.sh
 ## 提示
 
 - **步骤三（chat smoke）是真正的发布门禁**，不能只看步骤一二就算验活完成。
-- 全量 56 条正式 Case 回归为可选：需要时见 `.claude/skills/soil-moisture-qa/SKILL.md`，或仓库根目录执行 `npm run qa:soil:formal`。
 - 进程模式 agent 端口不固定，始终从 `.runtime/local-agent-port` 读取，不要硬编码 18010。
 - 不要重启 `nginx` 或 `cloudflared`，这两个服务与本项目无关。
