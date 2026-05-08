@@ -432,7 +432,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["answer_kind"], "business")
         self.assertEqual(follow_up["capability"], "group")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
-        self.assertIn("分组：80组", follow_up["final_text"])
+        self.assertIn("涉及地区：80个", follow_up["final_text"])
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["answer_mode"], "group")
 
     async def test_creative_request_is_blocked_even_with_active_data_context(self) -> None:
@@ -715,6 +715,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["answer_kind"], "business")
         self.assertEqual(follow_up["capability"], "group")
         self.assertEqual(follow_up["blocks"][0]["block_type"], "group_table")
+        self.assertIn("已切换到地区汇总表格明细。", follow_up["final_text"])
         self.assertEqual(
             follow_up["blocks"][0]["pagination"]["total_count"],
             grouped["blocks"][0]["pagination"]["total_count"],
@@ -740,6 +741,7 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["data_focus"], "warning_only")
         self.assertEqual(follow_up["turn_context"]["query_state"]["query_profile"]["group_by"], "county")
         self.assertEqual(follow_up["blocks"][0]["group_by"], "county")
+        self.assertIn("已切换到县区汇总表格明细。", follow_up["final_text"])
 
     async def test_warning_group_top1_query_describes_ranked_result_against_total_groups(self) -> None:
         reply = await self.service.reply(

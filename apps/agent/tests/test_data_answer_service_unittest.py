@@ -562,7 +562,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(grouped["answer_kind"], "business")
         self.assertEqual(grouped["capability"], "group")
         self.assertEqual(grouped["turn_context"]["query_state"]["query_profile"]["data_focus"], "all_records")
-        self.assertIn("- 分组：80组", grouped["final_text"])
+        self.assertIn("- 涉及地区：80个", grouped["final_text"])
         self.assertEqual(grouped["blocks"][0]["pagination"]["total_count"], 80)
 
     async def test_standalone_summary_question_with_new_time_window_does_not_fall_into_action_target_clarify(self) -> None:
@@ -674,6 +674,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 地区：南通市如东县", result["final_text"])
         self.assertIn("- 20cm含水量：92.43%", result["final_text"])
         self.assertIn("- 土壤温度：13.8℃", result["final_text"])
+        self.assertNotIn("监测字段参考", result["final_text"])
         self.assertNotIn("最新一条记录时间为", result["final_text"])
 
     async def test_standalone_group_query_runs_without_prior_context(self) -> None:
@@ -696,8 +697,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 范围：全省", grouped["final_text"])
         self.assertIn("- 时间：2026-03-15至2026-04-13", grouped["final_text"])
         self.assertIn("- 汇总维度：地区", grouped["final_text"])
-        self.assertIn("- 分组：80组", grouped["final_text"])
-        self.assertIn("- 当前可见：", grouped["final_text"])
+        self.assertIn("- 涉及地区：80个", grouped["final_text"])
+        self.assertIn("- 地区预览（前5项）：", grouped["final_text"])
 
     async def test_standalone_group_query_supports_where_has_soil_data_wording(self) -> None:
         grouped = await self.service.reply(
@@ -877,6 +878,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(detail["blocks"][0]["block_type"], "detail_card")
         self.assertIn("- 对象：仪征市", detail["final_text"])
         self.assertIn("- 时间：2026-04-06至2026-04-12", detail["final_text"])
+        self.assertNotIn("监测字段参考", detail["final_text"])
         self.assertNotIn("最新详情如下", detail["final_text"])
         self.assertNotIn("最近一条记录时间为", detail["final_text"])
 
@@ -2598,6 +2600,58 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("南通市：", compared["final_text"])
         self.assertIn("- 预警记录：", compared["final_text"])
         self.assertIn("- 记录：1830条", compared["final_text"])
+
+    async def test_warning_only_compare_metric_uses_warning_scoped_labels_without_duplicate_record_lines(self) -> None:
+        compared = await self.service.reply(
+            message="徐州和南通最近30天哪个预警点位更多",
+            session_id="warning-compare-warning-scoped-text",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(compared["answer_kind"], "business")
+        self.assertEqual(compared["capability"], "compare")
+        self.assertIn("按预警墒情仪数量对比", compared["final_text"])
+        self.assertIn("- 预警墒情仪数量：9 套", compared["final_text"])
+        self.assertIn("- 预警记录：87条", compared["final_text"])
+        self.assertNotIn("- 记录：", compared["final_text"])
+        self.assertNotIn("- 墒情仪：", compared["final_text"])
+
+    def test_warning_record_metric_compare_text_avoids_duplicate_warning_record_line(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        text = DataAnswerService._render_metric_compare_text(
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            metric="alert_record_count",
+            compared=[
+                {
+                    "entity": "徐州市",
+                    "record_count": 87,
+                    "device_count": 9,
+                    "avg_water20cm": 145.15,
+                    "warning_record_count": 87,
+                    "metric_value": 87,
+                },
+                {
+                    "entity": "南通市",
+                    "record_count": 0,
+                    "device_count": 0,
+                    "avg_water20cm": None,
+                    "warning_record_count": 0,
+                    "metric_value": 0,
+                },
+            ],
+            winner="徐州市",
+            warning_rule_brief="",
+            warning_only=True,
+        )
+
+        self.assertIn("按预警记录数对比", text)
+        self.assertIn("- 预警记录数：87 条", text)
+        self.assertIn("- 预警墒情仪：9套", text)
+        self.assertNotIn("- 记录：", text)
+        self.assertNotIn("- 预警记录：", text)
 
     async def test_warning_only_compare_query_log_sql_uses_warning_predicate(self) -> None:
         compared = await self.service.reply(
