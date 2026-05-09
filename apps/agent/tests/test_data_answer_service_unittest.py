@@ -1347,6 +1347,65 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["blocks"][0]["guidance_reason"], "clarification")
         self.assertIn("时间段", follow_up["final_text"])
 
+    async def test_clarification_context_resets_prior_history_before_follow_up(self) -> None:
+        summary = await self.service.reply(
+            message="最近30天全省整体墒情怎么样",
+            session_id="clarification-reset-history",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        clarification = await self.service.reply(
+            message="南通市这几天墒情怎么样",
+            session_id="clarification-reset-history",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+        follow_up = await self.service.reply(
+            message="徐州呢",
+            session_id="clarification-reset-history",
+            turn_id=3,
+            current_context=clarification["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(clarification["answer_kind"], "guidance")
+        self.assertEqual(clarification["blocks"][0]["guidance_reason"], "clarification")
+        self.assertEqual(len(clarification["turn_context"]["follow_up_targets"]), 1)
+        self.assertEqual(follow_up["answer_kind"], "guidance")
+        self.assertEqual(follow_up["capability"], "none")
+        self.assertIn("时间段", follow_up["final_text"])
+
+    async def test_closed_context_device_distribution_runs_as_standalone_query(self) -> None:
+        summary = await self.service.reply(
+            message="最近7天全省整体墒情怎么样",
+            session_id="closed-context-device-distribution",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        closing = await self.service.reply(
+            message="行，先这样吧",
+            session_id="closed-context-device-distribution",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+        follow_up = await self.service.reply(
+            message="那设备分布呢",
+            session_id="closed-context-device-distribution",
+            turn_id=3,
+            current_context=closing["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertTrue(closing["conversation_closed"])
+        self.assertEqual(follow_up["answer_kind"], "business")
+        self.assertEqual(follow_up["capability"], "device_registry_distribution")
+        self.assertEqual(follow_up["turn_context"]["topic_family"], "device_registry")
+        self.assertIn("土壤墒情仪", follow_up["final_text"])
+
     async def test_stale_context_follow_up_requires_clarification(self) -> None:
         summary = await self.service.reply(
             message="南通最近7天墒情怎么样",
