@@ -78,6 +78,28 @@ class FollowUpIntentResolverServiceTest(unittest.TestCase):
 
         self.assertEqual(result.operation, "replace_slot")
 
+    def test_closed_context_contextual_device_distribution_restarts_as_standalone(self) -> None:
+        result = self.service.resolve(
+            text="那设备分布呢",
+            current_context={**self.base_context, "closed": True},
+            extracted_entities={"province": [], "city": [], "county": [], "sn": []},
+            time_has_signal=False,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "standalone")
+
+    def test_closed_context_explicit_region_stub_restarts_as_standalone(self) -> None:
+        result = self.service.resolve(
+            text="那海安市呢",
+            current_context={**self.base_context, "closed": True},
+            extracted_entities={"province": [], "city": [], "county": ["海安市"], "sn": []},
+            time_has_signal=False,
+            turn_id=4,
+        )
+
+        self.assertEqual(result.operation, "standalone")
+
     def test_returns_correct_slot_for_negative_correction(self) -> None:
         result = self.service.resolve(
             text="不是如东县，是如皋市",

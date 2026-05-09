@@ -184,17 +184,45 @@ class TurnRouteDecisionService:
                 extra={**route_extra, "blocked_reason": blocked_reason},
             )
 
+        route = str(getattr(interpretation, "route_key", "") or "summary")
+        action = str(getattr(interpretation, "route_action", "") or getattr(interpretation, "answer_intent", "") or "summary")
+        grain = str(getattr(interpretation, "query_grain", "") or "none")
+        mode = str(
+            getattr(interpretation, "route_mode", "")
+            or TurnRouteDecisionService._mode_from_follow_up_mode(getattr(interpretation, "follow_up_mode", ""))
+        )
+        follow_up_result = getattr(interpretation, "follow_up_result", None)
+        follow_up_operation = str(getattr(follow_up_result, "operation", "") or "")
+        chosen_target = getattr(follow_up_result, "chosen_target", None) or {}
+        chosen_target_capability = str(chosen_target.get("capability") or "")
+
+        # Summary subset follow-ups such as "这些地区里只看睢宁县" should narrow the
+        # previous summary scope instead of being hijacked by region action expansion.
+        # But device-focused subset requests ("这些点位里只看如皋市") still need list routing.
+        if (
+            follow_up_operation == "subset"
+            and chosen_target_capability == "summary"
+            and not any(token in normalized_text for token in ("点位", "设备"))
+        ):
+            route = "summary"
+            action = "summary"
+            grain = "none"
+            mode = "contextual"
+            list_target = None
+            group_by = None
+            route_source = "context"
+
         return TurnRouteDecision(
-            route=str(getattr(interpretation, "route_key", "") or "summary"),
+            route=route,
             list_target=list_target,
             group_by=group_by,
             normalized_text=normalized_text,
             route_source=route_source,
             query_shape=QueryShape(
                 subject=str(getattr(interpretation, "route_subject", "") or getattr(interpretation, "subject_family", "") or "soil"),
-                action=str(getattr(interpretation, "route_action", "") or getattr(interpretation, "answer_intent", "") or "summary"),
-                grain=str(getattr(interpretation, "query_grain", "") or "none"),
-                mode=str(getattr(interpretation, "route_mode", "") or TurnRouteDecisionService._mode_from_follow_up_mode(getattr(interpretation, "follow_up_mode", ""))),
+                action=action,
+                grain=grain,
+                mode=mode,
             ),
             reason_codes=reason_codes,
             entities=entities,
@@ -225,7 +253,7 @@ class TurnRouteDecisionService:
             has_time_signal=has_time_signal,
         )
         contextual_subject = None
-        if subject == "soil":
+        if subject in {"soil", "device_registry_distribution"}:
             contextual_subject = self._contextual_follow_up_subject(
                 text=normalized_text,
                 current_context=context,
@@ -270,6 +298,7 @@ class TurnRouteDecisionService:
                 query_shape=QueryShape(subject="warning_rule", action="describe", grain="none", mode="standalone"),
                 reason_codes=("warning_rule_query",),
                 entities=extracted_entities,
+                route_source="context" if contextual_subject else "direct",
             )
         if subject == "warning_disposal":
             return self._decision(
@@ -313,13 +342,14 @@ class TurnRouteDecisionService:
                 route=route,
                 normalized_text=normalized_text,
                 normalized_changed=normalized_changed,
-                query_shape=QueryShape(subject="warning", action=action, grain="record", mode="standalone"),
+                query_shape=QueryShape(subject="warning", action=action, grain="record", mode=subject_mode),
                 reason_codes=("warning_record_query",),
                 entities=extracted_entities,
                 extra={
                     "time_start": getattr(time_evidence, "start_time", None),
                     "time_end": getattr(time_evidence, "end_time", None),
                 },
+                route_source="context" if contextual_subject else "direct",
             )
         if subject == "device_registry_county_detail":
             city = city_entities[0] if city_entities else inline_city
@@ -816,13 +846,26 @@ class TurnRouteDecisionService:
         has_time_signal = bool(getattr(time_evidence, "has_time_signal", False))
         has_soil_business_signal = any(token in text for token in ("墒情", "含水量", "记录", "详情", "明细", "汇总"))
 
+        if topic_family == "rule" and capability == "rule":
+            if self._is_warning_rule_contextual_follow_up(text=text, has_time_signal=has_time_signal):
+                return "warning_rule"
+
         if topic_family == "device_registry":
             if capability == "device_registry_count" and self._is_device_registry_distribution_follow_up(text):
                 return "device_registry_distribution"
             if capability in {"device_registry_distribution", "device_registry_county_detail"} and has_explicit_scope and not has_time_signal and not has_soil_business_signal:
                 return "device_registry_county_detail"
 
+        if topic_family == "data" and capability in {"summary", "detail"}:
+            if self._is_device_registry_distribution_follow_up(text) and not has_time_signal and not has_soil_business_signal:
+                scope_kind = self._context_scope_kind(current_context)
+                if scope_kind in {"city", "county"}:
+                    return "device_registry_county_detail"
+                return "device_registry_distribution"
+
         if topic_family == "data" and capability == "warning_group":
+            if self._is_contextual_warning_count_follow_up(text):
+                return "warning_record"
             if self._is_warning_group_contextual_follow_up(
                 text=text,
                 has_explicit_scope=has_explicit_scope,
@@ -845,6 +888,45 @@ class TurnRouteDecisionService:
         return bool(normalized) and any(token in normalized for token in ("分布在哪里", "分布情况", "分布呢", "都分布在哪", "哪里有"))
 
     @staticmethod
+    def _strip_contextual_follow_up_prefix(text: str) -> str:
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
+        for prefix in ("那就", "那边", "这边", "那么", "那", "换成", "改成", "还是"):
+            if normalized.startswith(prefix) and len(normalized) > len(prefix):
+                return normalized[len(prefix) :].strip()
+        return normalized
+
+    @classmethod
+    def _is_contextual_time_only_follow_up(cls, text: str) -> bool:
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
+        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+            return True
+        stripped = cls._strip_contextual_follow_up_prefix(normalized)
+        return any(pattern.fullmatch(stripped) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS)
+
+    @staticmethod
+    def _context_scope_kind(current_context: dict[str, Any]) -> str | None:
+        query_state = current_context.get("query_state") or {}
+        slots = query_state.get("slots") or {}
+        if slots.get("county"):
+            return "county"
+        if slots.get("city"):
+            return "city"
+        if slots.get("province"):
+            return "province"
+        for entity in current_context.get("resolved_entities") or []:
+            kind = str(entity.get("kind") or "")
+            if kind in {"county", "city", "province"}:
+                return kind
+        return None
+
+    @staticmethod
+    def _is_warning_rule_contextual_follow_up(*, text: str, has_time_signal: bool) -> bool:
+        if has_time_signal:
+            return False
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
+        return "预警" in normalized and any(token in normalized for token in ("设备故障", "重旱", "涝渍"))
+
+    @staticmethod
     def _is_warning_group_contextual_follow_up(
         *,
         text: str,
@@ -852,7 +934,7 @@ class TurnRouteDecisionService:
         has_time_signal: bool,
     ) -> bool:
         normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
-        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+        if TurnRouteDecisionService._is_contextual_time_only_follow_up(normalized):
             return True
         if has_explicit_scope and normalized.startswith("不是") and "是" in normalized:
             return True
@@ -863,6 +945,11 @@ class TurnRouteDecisionService:
         return any(token in normalized for token in ("重旱", "涝渍", "设备故障")) and not has_time_signal
 
     @staticmethod
+    def _is_contextual_warning_count_follow_up(text: str) -> bool:
+        normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
+        return any(token in normalized for token in ("多少条", "有多少条", "总共多少条", "一共多少条"))
+
+    @staticmethod
     def _is_warning_disposal_contextual_follow_up(
         *,
         text: str,
@@ -870,7 +957,7 @@ class TurnRouteDecisionService:
         has_time_signal: bool,
     ) -> bool:
         normalized = re.sub(r"[？?。！!]+$", "", str(text or "").strip())
-        if any(pattern.fullmatch(normalized) for pattern in TIME_ONLY_FOLLOW_UP_PATTERNS):
+        if TurnRouteDecisionService._is_contextual_time_only_follow_up(normalized):
             return True
         if any(token in normalized for token in _WARNING_DISPOSAL_INTENT_TOKENS):
             return True

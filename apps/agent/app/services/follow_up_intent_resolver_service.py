@@ -121,6 +121,16 @@ class FollowUpIntentResolverService:
             )
 
         if current_context.get("closed"):
+            if self._looks_like_closed_context_restart_query(
+                text=normalized,
+                has_explicit_entity=has_explicit_entity,
+                time_has_signal=time_has_signal,
+            ):
+                return FollowUpIntentResult(
+                    operation="standalone",
+                    confidence=0.96,
+                    new_slots=new_slots,
+                )
             if has_explicit_entity and time_has_signal:
                 return FollowUpIntentResult(operation="standalone")
             if self._looks_like_standalone_business_query(
@@ -249,22 +259,50 @@ class FollowUpIntentResolverService:
         return any(marker in text for marker in _PRONOUN_MARKERS)
 
     @staticmethod
+    def _strip_contextual_leading_prefix(text: str) -> str:
+        normalized = str(text or "").strip()
+        stripped = re.sub(r"^(?:那(?:边|个)?|那么|那就|换成|改成|还是)\s*", "", normalized)
+        return stripped or normalized
+
+    @staticmethod
     def _looks_like_standalone_business_query(*, text: str, has_explicit_entity: bool, time_has_signal: bool) -> bool:
-        if not text:
+        candidate = FollowUpIntentResolverService._strip_contextual_leading_prefix(text)
+        if not candidate:
             return False
-        if _TIME_ONLY_FOLLOW_UP_PATTERN.fullmatch(text):
+        if _TIME_ONLY_FOLLOW_UP_PATTERN.fullmatch(candidate):
             return False
-        if any(marker in text for marker in _SUBSET_MARKERS):
+        if any(marker in candidate for marker in _SUBSET_MARKERS):
             return False
-        if any(marker in text for marker in _PRONOUN_MARKERS):
+        if any(marker in candidate for marker in _PRONOUN_MARKERS):
             return False
-        if text.startswith(("那", "这个", "这些", "那些", "上面", "刚才")) and not has_explicit_entity:
+        if candidate.startswith(("这个", "这些", "那些", "上面", "刚才")) and not has_explicit_entity:
             return False
-        if time_has_signal and any(cue in text for cue in _STANDALONE_QUERY_CUES):
+        if time_has_signal and any(cue in candidate for cue in _STANDALONE_QUERY_CUES):
             return True
-        if has_explicit_entity and any(cue in text for cue in _STANDALONE_QUERY_CUES):
+        if has_explicit_entity and any(cue in candidate for cue in _STANDALONE_QUERY_CUES):
             return True
-        return has_explicit_entity and any(token in text for token in ("查", "看", "问", "说"))
+        return has_explicit_entity and any(token in candidate for token in ("查", "看", "问", "说"))
+
+    @classmethod
+    def _looks_like_closed_context_restart_query(
+        cls,
+        *,
+        text: str,
+        has_explicit_entity: bool,
+        time_has_signal: bool,
+    ) -> bool:
+        candidate = cls._strip_contextual_leading_prefix(text)
+        if not candidate:
+            return False
+        if cls._looks_like_standalone_business_query(
+            text=candidate,
+            has_explicit_entity=has_explicit_entity,
+            time_has_signal=time_has_signal,
+        ):
+            return True
+        if has_explicit_entity:
+            return True
+        return any(cue in candidate for cue in _STANDALONE_QUERY_CUES)
 
     def _looks_like_follow_up(self, text: str, time_has_signal: bool, has_explicit_entity: bool) -> bool:
         return self._looks_like_contextual_follow_up(text) or time_has_signal or has_explicit_entity

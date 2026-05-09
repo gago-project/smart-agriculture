@@ -124,6 +124,33 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.action, "group")
         self.assertEqual(result.query_shape.grain, "region")
 
+    def test_summary_subset_follow_up_overrides_region_action_expand_route(self) -> None:
+        interpretation = self._interpretation(
+            route_key="follow_up_action_expand",
+            subject_family="soil",
+            answer_intent="summary",
+            query_grain="region",
+            follow_up_mode="action_expand",
+            route_source="action_target",
+            group_by="region",
+        )
+        interpretation = SimpleNamespace(
+            **interpretation.__dict__,
+            follow_up_result=SimpleNamespace(
+                operation="subset",
+                chosen_target={"capability": "summary"},
+            ),
+        )
+
+        result = self.service.decide(interpretation=interpretation)
+
+        self.assertEqual(result.route, "summary")
+        self.assertIsNone(result.group_by)
+        self.assertEqual(result.route_source, "context")
+        self.assertEqual(result.query_shape.action, "summary")
+        self.assertEqual(result.query_shape.grain, "none")
+        self.assertEqual(result.query_shape.mode, "contextual")
+
     def test_standalone_group_query_returns_query_shape_and_group_by(self) -> None:
         result = self.service.decide(
             message="2026-04-13 有哪些地方有墒情数据",
@@ -763,6 +790,66 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
             action_result=FollowUpActionResult(),
         )
         self.assertEqual(result.route, "warning_disposal")
+
+    def test_warning_disposal_follow_up_time_only_with_contextual_prefix_keeps_disposal_route(self) -> None:
+        result = self.service.decide(
+            message="那最近7天呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_disposal"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_disposal")
+        self.assertEqual(result.route_source, "context")
+
+    def test_warning_group_follow_up_time_only_with_contextual_prefix_keeps_group_route(self) -> None:
+        result = self.service.decide(
+            message="那最近7天呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=True, has_signal=True),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_group")
+        self.assertEqual(result.route_source, "context")
+
+    def test_warning_group_follow_up_count_only_phrase_routes_to_warning_count(self) -> None:
+        result = self.service.decide(
+            message="有多少条呢",
+            current_context={"topic_family": "data", "query_state": {"capability": "warning_group"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_count")
+        self.assertEqual(result.route_source, "context")
+        self.assertEqual(result.query_shape.mode, "contextual")
+
+    def test_rule_follow_up_device_fault_clause_keeps_warning_rule_route(self) -> None:
+        result = self.service.decide(
+            message="那设备故障预警呢？",
+            current_context={"topic_family": "rule", "query_state": {"capability": "rule"}},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "warning_rule_description")
+        self.assertEqual(result.route_source, "context")
+
+    def test_summary_follow_up_device_distribution_inherits_city_scope(self) -> None:
+        result = self.service.decide(
+            message="那设备分布呢",
+            current_context={
+                "topic_family": "data",
+                "query_state": {"capability": "summary", "slots": {"city": "南京市"}},
+                "resolved_entities": [{"kind": "city", "canonical_name": "南京市"}],
+            },
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_county_detail")
+        self.assertEqual(result.route_source, "context")
 
     def test_is_warning_record_query_detection(self) -> None:
         from app.services.turn_route_decision_service import TurnRouteDecisionService as Svc

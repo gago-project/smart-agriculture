@@ -319,6 +319,8 @@ class DataAnswerService:
             return await self._reply_template(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "warning_rule_description":
             return await self._reply_warning_rule_description(
+                message=text,
+                route_decision=route_decision,
                 session_id=session_id,
                 turn_id=turn_id,
                 current_context=context,
@@ -529,7 +531,7 @@ class DataAnswerService:
 
     @staticmethod
     def _topic_supports_structured_follow_up(topic_family: str | None) -> bool:
-        return str(topic_family or "") in {"data", "device_registry"}
+        return str(topic_family or "") in {"data", "device_registry", "rule"}
 
     def _normalize_context(self, current_context: dict[str, Any] | None) -> dict[str, Any]:
         context = current_context if isinstance(current_context, dict) else {}
@@ -1912,6 +1914,8 @@ class DataAnswerService:
     def _clarification_resolved_entities(
         extracted: dict[str, Any],
         current_context: dict[str, Any],
+        *,
+        allow_context_fallback: bool = True,
     ) -> list[dict[str, Any]]:
         resolved_entities: list[dict[str, Any]] = []
         for item in extracted.get("resolved") or []:
@@ -1933,6 +1937,9 @@ class DataAnswerService:
 
         if resolved_entities:
             return resolved_entities
+
+        if not allow_context_fallback:
+            return []
 
         return [entity for entity in current_context.get("resolved_entities") or [] if entity.get("canonical_name")]
 
@@ -2546,6 +2553,11 @@ class DataAnswerService:
             return "device_fault"
         return None
 
+    @classmethod
+    def _effective_warning_type(cls, *, message: str, query_profile: dict[str, Any] | None) -> str | None:
+        profile = query_profile if isinstance(query_profile, dict) else {}
+        return str(profile.get("warning_type") or cls._warning_type_from_text(message) or "").strip() or None
+
     @staticmethod
     def _warning_level_label(level: str | None) -> str:
         return {
@@ -3150,6 +3162,39 @@ class DataAnswerService:
         )
         return normalized.strip(" ，,。；;：:")
 
+    @staticmethod
+    def _should_regex_recover_scope_candidate(candidate_text: str) -> bool:
+        normalized = str(candidate_text or "").strip()
+        if not normalized:
+            return False
+        if re.search(r"\d|最近|今天|昨天|前天|上周|本周|这个月|本月|上个月|今年|近\d", normalized):
+            return False
+        return not any(
+            token in normalized
+            for token in (
+                "预警",
+                "处置",
+                "情况",
+                "记录",
+                "详情",
+                "明细",
+                "分布",
+                "设备",
+                "点位",
+                "规则",
+                "对比",
+                "平均",
+                "哪些",
+                "多少",
+                "有没有",
+                "怎么样",
+                "如何",
+                "最新",
+                "整体",
+                "全省",
+            )
+        )
+
     def _apply_recovered_region_slot(
         self,
         *,
@@ -3214,6 +3259,9 @@ class DataAnswerService:
             if inline_city:
                 slots["city"] = inline_city
         if slots.get("county") or slots.get("city"):
+            return slots
+
+        if not self._should_regex_recover_scope_candidate(candidate_text):
             return slots
 
         for pattern, expected_level, source_field in (
@@ -3929,7 +3977,7 @@ class DataAnswerService:
         )
         records = await self._query_records(resolved_args)
         if not records:
-            return self._build_audited_fallback_response(
+            return self._build_audited_empty_response(
                 session_id=session_id,
                 turn_id=turn_id,
                 capability="field",
@@ -3970,7 +4018,7 @@ class DataAnswerService:
             valid = [value for value in values if value is not None]
             if not valid:
                 aggregation = str(query_profile.get("aggregation") or "avg")
-                return self._build_audited_fallback_response(
+                return self._build_audited_empty_response(
                     session_id=session_id,
                     turn_id=turn_id,
                     capability="field",
@@ -5783,7 +5831,11 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
-        resolved_entities = self._clarification_resolved_entities(route_decision.entities or {}, current_context)
+        resolved_entities = self._clarification_resolved_entities(
+            route_decision.entities or {},
+            current_context,
+            allow_context_fallback=getattr(route_decision, "route_source", "") == "context",
+        )
         slots = self._slots_from_resolved_entities(resolved_entities)
         city = slots.get("city")
         county = slots.get("county")
@@ -6026,7 +6078,11 @@ class DataAnswerService:
         turn_id: int,
         current_context: dict[str, Any],
     ) -> dict[str, Any]:
-        resolved_entities = self._clarification_resolved_entities(route_decision.entities or {}, current_context)
+        resolved_entities = self._clarification_resolved_entities(
+            route_decision.entities or {},
+            current_context,
+            allow_context_fallback=getattr(route_decision, "route_source", "") == "context",
+        )
         slots = self._slots_from_resolved_entities(resolved_entities)
         city = slots.get("city") or (route_decision.extra or {}).get("target_city")
         if not city:
@@ -6151,6 +6207,8 @@ class DataAnswerService:
     async def _reply_warning_rule_description(
         self,
         *,
+        message: str,
+        route_decision: Any,
         session_id: str,
         turn_id: int,
         current_context: dict[str, Any],
@@ -6195,6 +6253,17 @@ class DataAnswerService:
             },
         }
         block = self._apply_block_display_policy(block)
+        follow_up_mode = "inherit" if getattr(route_decision, "route_source", "") == "context" else "standalone"
+        slots = {"province": None, "city": None, "county": None, "sn": None}
+        route_metadata = self._query_profile_route_metadata(route="warning_rule_description", action="describe")
+        query_profile = self._resolve_query_profile(
+            message=message,
+            route_metadata=route_metadata,
+            current_context=current_context,
+            slots=slots,
+            time_window={},
+            follow_up_mode=follow_up_mode,
+        )
         base_context = {
             "topic_family": "rule",
             "active_topic_turn_id": turn_id,
@@ -6206,10 +6275,21 @@ class DataAnswerService:
             "compare_winner_entity": None,
             "closed": False,
         }
+        query_state = self._build_query_state(
+            turn_id=turn_id,
+            capability="rule",
+            grain="rule_read",
+            slots=slots,
+            time_window={},
+            slot_confidence={},
+            slot_source={},
+            query_profile=query_profile,
+        )
         turn_context = self._finalize_context(
             base_context=base_context,
             current_context=current_context,
             turn_id=turn_id,
+            query_state=query_state,
         )
         query_spec = {
             "spec_id": f"qs_{turn_id}_warning_rule_description",
@@ -6221,7 +6301,7 @@ class DataAnswerService:
             "filters": {"rule_code": rule_code},
             "sort": {"field": "updated_at", "direction": "desc"},
             "page": {"page": 1, "page_size": 1},
-            "provenance": {"source_turn_id": turn_id, "follow_up_mode": "standalone"},
+            "provenance": {"source_turn_id": turn_id, "follow_up_mode": follow_up_mode},
         }
         return {
             "turn_id": turn_id,
@@ -6283,7 +6363,6 @@ class DataAnswerService:
             "end_time": time_window.get("end_time") or (route_decision.extra or {}).get("time_end"),
             "source": time_window.get("source") or "explicit",
         }
-        warning_type = self._warning_type_from_text(message)
         warning_list_target = self._warning_list_target_from_text(message)
         route_metadata = self._query_profile_route_metadata(
             route="warning_list",
@@ -6302,6 +6381,7 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=follow_up_mode,
         )
+        warning_type = self._effective_warning_type(message=message, query_profile=query_profile)
         rule_row = await self.repository.warning_rule_row_async()
         if not rule_row:
             return self._build_fallback_response(
@@ -6632,7 +6712,6 @@ class DataAnswerService:
             "end_time": time_window.get("end_time") or (route_decision.extra or {}).get("time_end"),
             "source": time_window.get("source") or "explicit",
         }
-        warning_type = self._warning_type_from_text(message)
         rule_row = await self.repository.warning_rule_row_async()
         if not rule_row:
             return self._build_fallback_response(
@@ -6659,6 +6738,7 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=follow_up_mode,
         )
+        warning_type = self._effective_warning_type(message=message, query_profile=query_profile)
         query_spec = self._build_query_spec(
             capability="warning_group",
             grain="region_group",
@@ -6694,7 +6774,7 @@ class DataAnswerService:
                 query_profile=query_profile,
             )
             final_text = f"{range_label}内未查询到有效墒情预警信息。"
-            return self._build_audited_fallback_response(
+            return self._build_audited_empty_response(
                 session_id=session_id,
                 turn_id=turn_id,
                 capability="warning_group",
@@ -6951,7 +7031,6 @@ class DataAnswerService:
             "end_time": time_window.get("end_time") or (route_decision.extra or {}).get("time_end"),
             "source": time_window.get("source") or "explicit",
         }
-        warning_type = self._warning_type_from_text(message)
         route_metadata = self._query_profile_route_metadata(route="warning_count", action="count")
         follow_up_mode = self._query_profile_follow_up_mode(
             route_metadata=route_metadata,
@@ -6965,6 +7044,7 @@ class DataAnswerService:
             time_window=time_window,
             follow_up_mode=follow_up_mode,
         )
+        warning_type = self._effective_warning_type(message=message, query_profile=query_profile)
         rule_row = await self.repository.warning_rule_row_async()
         if not rule_row:
             return self._build_fallback_response(
@@ -7954,7 +8034,7 @@ class DataAnswerService:
             "query_log_entries": [],
         }
 
-    def _build_audited_fallback_response(
+    def _build_audited_empty_response(
         self,
         *,
         session_id: str,
@@ -7997,7 +8077,7 @@ class DataAnswerService:
         )
         return {
             "turn_id": turn_id,
-            "answer_kind": "fallback",
+            "answer_kind": "business",
             "capability": capability,
             "output_mode": "normal",
             "final_text": text,
