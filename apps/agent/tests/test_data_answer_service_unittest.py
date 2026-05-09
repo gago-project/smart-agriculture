@@ -602,10 +602,12 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 范围：全省", result["final_text"])
         self.assertIn("- 时间：2026-04-07至2026-04-13", result["final_text"])
         self.assertIn("- 20cm平均含水量：约93.77%", result["final_text"])
-        self.assertIn("- 记录：3689条", result["final_text"])
+        self.assertIn("- 墒情记录：3689条", result["final_text"])
+        self.assertIn("- 预警记录：44条", result["final_text"])
         self.assertIn("- 墒情仪：527套", result["final_text"])
         self.assertIn("- 地区：80个", result["final_text"])
         self.assertIn("- 最新记录时间：2026-04-13 23:59:17", result["final_text"])
+        self.assertIn("存在预警的地区（前3个）：", result["final_text"])
         self.assertIn("- 注：如需继续查看，可以直接回复：列出墒情仪详情、列出记录详情，或按地区汇总。", result["final_text"])
 
     async def test_warning_summary_uses_structured_output_template(self) -> None:
@@ -619,12 +621,15 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertIn("- 范围：全省", result["final_text"])
         self.assertIn("- 时间：2026-03-15至2026-04-13", result["final_text"])
+        self.assertIn("- 墒情记录：15810条", result["final_text"])
         self.assertIn("- 预警记录：252条", result["final_text"])
         self.assertIn("- 墒情仪：42套", result["final_text"])
         self.assertIn("- 地区：26个", result["final_text"])
         self.assertIn("- 最新预警时间：2026-04-13 23:59:17", result["final_text"])
-        self.assertIn("重点关注地区包括：", result["final_text"])
-        self.assertIn("徐州市睢宁县", result["final_text"])
+        self.assertIn("重点关注地区（前3个）：", result["final_text"])
+        self.assertIn("徐州市睢宁县（3套墒情仪，墒情记录210条，预警记录39条，最新2026-04-13 23:59:17）", result["final_text"])
+        self.assertIn("苏州市昆山市（3套墒情仪，墒情记录210条，预警记录37条，最新2026-04-13 23:59:17）", result["final_text"])
+        self.assertIn("徐州市沛县（2套墒情仪，墒情记录240条，预警记录36条，最新2026-04-13 23:59:17）", result["final_text"])
         top_regions = result["blocks"][0]["top_regions"]
         self.assertGreaterEqual(len(top_regions), 3)
         self.assertEqual(top_regions[0]["county"], "睢宁县")
@@ -2658,7 +2663,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("徐州市：", compared["final_text"])
         self.assertIn("南通市：", compared["final_text"])
         self.assertIn("- 预警记录：", compared["final_text"])
-        self.assertIn("- 记录：1830条", compared["final_text"])
+        self.assertIn("- 墒情记录：1830条", compared["final_text"])
+        self.assertNotIn("- 记录：1830条", compared["final_text"])
 
     async def test_warning_only_compare_metric_uses_warning_scoped_labels_without_duplicate_record_lines(self) -> None:
         compared = await self.service.reply(
@@ -2676,6 +2682,40 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 预警记录：87条", compared["final_text"])
         self.assertNotIn("- 记录：", compared["final_text"])
         self.assertNotIn("- 墒情仪：", compared["final_text"])
+
+    def test_non_warning_compare_metric_uses_soil_record_label(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        text = DataAnswerService._render_metric_compare_text(
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            metric="avg_water20cm",
+            compared=[
+                {
+                    "entity": "徐州市",
+                    "record_count": 1830,
+                    "device_count": 61,
+                    "avg_water20cm": 106.09,
+                    "warning_record_count": 87,
+                    "metric_value": 106.09,
+                },
+                {
+                    "entity": "南通市",
+                    "record_count": 1110,
+                    "device_count": 37,
+                    "avg_water20cm": 98.59,
+                    "warning_record_count": 0,
+                    "metric_value": 98.59,
+                },
+            ],
+            winner="徐州市",
+            warning_rule_brief="",
+            warning_only=False,
+        )
+
+        self.assertIn("- 墒情记录：1830条", text)
+        self.assertIn("- 墒情记录：1110条", text)
+        self.assertNotIn("- 记录：1830条", text)
+        self.assertNotIn("- 记录：1110条", text)
 
     def test_warning_record_metric_compare_text_avoids_duplicate_warning_record_line(self) -> None:
         from app.services.data_answer_service import DataAnswerService
