@@ -74,6 +74,7 @@ class QueryProfileResolverService:
     def resolve(
         self,
         *,
+        interpretation: Any | None = None,
         message: str,
         route_decision: Any,
         current_context: dict[str, Any],
@@ -81,6 +82,14 @@ class QueryProfileResolverService:
         time_window: dict[str, Any] | None = None,
         follow_up_mode: str = "standalone",
     ) -> QueryProfile:
+        if interpretation is not None:
+            return self._resolve_from_interpretation(
+                interpretation=interpretation,
+                current_context=current_context,
+                slots=slots,
+                time_window=time_window,
+                follow_up_mode=follow_up_mode,
+            )
         text = str(message or "").strip()
         prior_profile = self._prior_profile(current_context)
         route = str(getattr(route_decision, "route", "") or "")
@@ -202,6 +211,120 @@ class QueryProfileResolverService:
             warning_type=warning_type,
             status_focus=status_focus,
         )
+
+    def _resolve_from_interpretation(
+        self,
+        *,
+        interpretation: Any,
+        current_context: dict[str, Any],
+        slots: dict[str, Any] | None = None,
+        time_window: dict[str, Any] | None = None,
+        follow_up_mode: str = "standalone",
+    ) -> QueryProfile:
+        prior_profile = self._prior_profile(current_context)
+        route = str(getattr(interpretation, "route_key", "") or "")
+        interpretation_follow_up_mode = str(getattr(interpretation, "follow_up_mode", "") or follow_up_mode or "standalone")
+        data_focus = str(getattr(interpretation, "data_focus", "") or "") or self._inherit_data_focus(
+            route=route,
+            follow_up_mode=interpretation_follow_up_mode,
+            prior_profile=prior_profile,
+        )
+        profile_answer_mode = str(getattr(interpretation, "profile_answer_mode", "") or "") or self._answer_mode_from_interpretation(
+            interpretation
+        )
+        measure = getattr(interpretation, "measure", None)
+        if measure is None and profile_answer_mode in {"count", "group", "compare"}:
+            measure = self._inherited_measure(
+                route=route,
+                follow_up_mode=interpretation_follow_up_mode,
+                prior_profile=prior_profile,
+            )
+        compare_mode = getattr(interpretation, "compare_mode", None)
+        if compare_mode is None and route == "compare":
+            inherited_compare_mode = str(prior_profile.get("compare_mode") or "")
+            compare_mode = inherited_compare_mode or None
+        warning_type = getattr(interpretation, "warning_type", None) or self._inherited_warning_type(
+            route=route,
+            follow_up_mode=interpretation_follow_up_mode,
+            prior_profile=prior_profile,
+        )
+        status_focus = getattr(interpretation, "status_focus", None) or self._inherited_status_focus(
+            route=route,
+            follow_up_mode=interpretation_follow_up_mode,
+            prior_profile=prior_profile,
+        )
+        list_target = getattr(interpretation, "list_target", None)
+        if not list_target and profile_answer_mode == "list":
+            inherited_list_target = str(prior_profile.get("list_target") or "")
+            list_target = inherited_list_target or None
+        group_by = getattr(interpretation, "group_by", None)
+        if group_by is None and profile_answer_mode == "group":
+            inherited_group_by = str(prior_profile.get("group_by") or "")
+            group_by = inherited_group_by or None
+        profile_result_grain = str(getattr(interpretation, "profile_result_grain", "") or "") or self._result_grain_from_interpretation(
+            interpretation,
+            answer_mode=profile_answer_mode,
+            measure=measure,
+            list_target=list_target,
+        )
+
+        return QueryProfile(
+            subject="soil",
+            data_focus=data_focus,
+            answer_mode=profile_answer_mode,
+            result_grain=profile_result_grain,
+            measure=measure,
+            projection=list(getattr(interpretation, "fields", []) or []),
+            compare_mode=compare_mode,
+            time_window=dict(time_window or {}),
+            slots=dict(slots or {}),
+            follow_up_mode=interpretation_follow_up_mode,
+            latest_only=bool(getattr(interpretation, "latest_only", False)),
+            aggregation=getattr(interpretation, "aggregation", None),
+            field=getattr(interpretation, "field", None),
+            fields=list(getattr(interpretation, "fields", []) or []),
+            list_target=list_target,
+            group_by=group_by,
+            top_n=getattr(interpretation, "top_n", None),
+            warning_type=warning_type,
+            status_focus=status_focus,
+        )
+
+    @staticmethod
+    def _answer_mode_from_interpretation(interpretation: Any) -> str:
+        route = str(getattr(interpretation, "route_key", "") or "")
+        answer_intent = str(getattr(interpretation, "answer_intent", "") or "")
+        if route == "latest_record":
+            return "latest_record"
+        if answer_intent in {"count", "field", "compare", "list", "group", "detail"}:
+            return answer_intent
+        return "summary"
+
+    @classmethod
+    def _result_grain_from_interpretation(
+        cls,
+        interpretation: Any,
+        *,
+        answer_mode: str,
+        measure: str | None,
+        list_target: str | None,
+    ) -> str:
+        if answer_mode == "latest_record":
+            return "entity_detail"
+        if answer_mode == "count":
+            return cls._grain_from_measure(measure)
+        if answer_mode == "field":
+            field_name = str(getattr(interpretation, "field", "") or "")
+            return "device_list" if field_name in FIELDSTATE_FIELDS else "entity_detail"
+        if answer_mode == "compare":
+            return "entity_compare"
+        if answer_mode == "list":
+            return "record_list" if list_target == "records" else "device_list"
+        if answer_mode == "group":
+            return "region_group"
+        if answer_mode == "detail":
+            return "entity_detail"
+        return "aggregate"
 
     @staticmethod
     def _prior_profile(current_context: dict[str, Any]) -> dict[str, Any]:
@@ -377,7 +500,9 @@ class QueryProfileResolverService:
         follow_up_mode: str,
         prior_profile: dict[str, Any],
     ) -> str | None:
-        if follow_up_mode == "standalone" and route not in {"count", "compare"}:
+        if route == "compare" and follow_up_mode == "standalone":
+            return None
+        if follow_up_mode == "standalone" and route != "count":
             return None
         inherited = str(prior_profile.get("measure") or "")
         return inherited or None

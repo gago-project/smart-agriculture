@@ -205,7 +205,8 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(reply["capability"], "detail")
         self.assertEqual(reply["blocks"][0]["block_type"], "detail_card")
         self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["answer_mode"], "detail")
-        self.assertIn("记录：7条", reply["final_text"])
+        self.assertIn("墒情记录：7条", reply["final_text"])
+        self.assertNotIn("- 记录：7条", reply["final_text"])
         self.assertIn("SNS00204333", reply["final_text"])
         self.assertIn("2026-04-07至2026-04-13", reply["final_text"])
 
@@ -545,6 +546,30 @@ class QueryProfileGovernanceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("2026-03-31至2026-04-06", reply["final_text"])
         self.assertIn("20cm平均相对含水量", reply["final_text"])
         self.assertRegex(reply["final_text"], r"(上升|下降|持平)")
+
+    async def test_generic_compare_after_warning_compare_clears_requested_measure(self) -> None:
+        warning_reply = await self.service.reply(
+            message="徐州和南通最近30天哪个预警点位更多",
+            session_id="qp-generic-compare-clears-warning-measure",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        reply = await self.service.reply(
+            message="徐州和南通最近30天对比一下",
+            session_id="qp-generic-compare-clears-warning-measure",
+            turn_id=2,
+            current_context=warning_reply["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(reply["answer_kind"], "business")
+        self.assertEqual(reply["capability"], "compare")
+        self.assertIsNone(reply["blocks"][0]["metric"])
+        self.assertEqual(reply["blocks"][0]["execution_metric"], "record_count")
+        self.assertIsNone(reply["turn_context"]["query_state"]["query_profile"]["measure"])
+        self.assertEqual(reply["turn_context"]["query_state"]["query_profile"]["compare_mode"], "entity_compare")
 
     async def test_field_aggregate_query_returns_numeric_aggregate_value(self) -> None:
         reply = await self.service.reply(
@@ -914,6 +939,112 @@ class QueryProfileResolverServiceTest(unittest.TestCase):
         self.assertEqual(profile.result_grain, "region_group")
         self.assertEqual(profile.group_by, "county")
         self.assertEqual(profile.follow_up_mode, "inherit")
+
+    def test_interpretation_warning_group_can_resolve_without_raw_text_heuristics(self) -> None:
+        interpretation = SimpleNamespace(
+            subject_family="warning",
+            data_focus="warning_only",
+            answer_intent="group",
+            measure="alert_device_count",
+            compare_mode=None,
+            warning_type=None,
+            status_focus=None,
+            list_target=None,
+            group_by="region",
+            follow_up_mode="standalone",
+            route_key="warning_group",
+            latest_only=False,
+            aggregation=None,
+            field=None,
+            fields=[],
+            top_n=None,
+        )
+
+        profile = self.service.resolve(
+            interpretation=interpretation,
+            message="",
+            route_decision=SimpleNamespace(route="warning_group", action="group", group_by="region"),
+            current_context={},
+            slots={},
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            follow_up_mode="standalone",
+        )
+
+        self.assertEqual(profile.data_focus, "warning_only")
+        self.assertEqual(profile.answer_mode, "group")
+        self.assertEqual(profile.result_grain, "region_group")
+        self.assertEqual(profile.measure, "alert_device_count")
+        self.assertEqual(profile.group_by, "region")
+
+    def test_interpretation_generic_compare_after_warning_compare_does_not_inherit_warning_measure(self) -> None:
+        interpretation = SimpleNamespace(
+            subject_family="soil",
+            data_focus="all_records",
+            answer_intent="compare",
+            measure=None,
+            compare_mode="entity_compare",
+            warning_type=None,
+            status_focus=None,
+            list_target=None,
+            group_by=None,
+            follow_up_mode="standalone",
+            route_key="compare",
+            latest_only=False,
+            aggregation=None,
+            field=None,
+            fields=[],
+            top_n=None,
+        )
+
+        profile = self.service.resolve(
+            interpretation=interpretation,
+            message="",
+            route_decision=SimpleNamespace(route="compare", action="compare"),
+            current_context={"query_state": {"query_profile": {"data_focus": "warning_only", "measure": "alert_device_count"}}},
+            slots={},
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            follow_up_mode="standalone",
+        )
+
+        self.assertEqual(profile.data_focus, "all_records")
+        self.assertEqual(profile.answer_mode, "compare")
+        self.assertEqual(profile.compare_mode, "entity_compare")
+        self.assertIsNone(profile.measure)
+
+    def test_interpretation_warning_disposal_follow_up_can_inherit_only_status_focus(self) -> None:
+        interpretation = SimpleNamespace(
+            subject_family="warning",
+            data_focus="all_records",
+            answer_intent="disposal",
+            measure=None,
+            compare_mode=None,
+            warning_type=None,
+            status_focus=None,
+            list_target=None,
+            group_by=None,
+            follow_up_mode="inherit",
+            route_key="warning_disposal",
+            latest_only=False,
+            aggregation=None,
+            field=None,
+            fields=[],
+            top_n=None,
+        )
+
+        profile = self.service.resolve(
+            interpretation=interpretation,
+            message="",
+            route_decision=SimpleNamespace(route="warning_disposal", action="disposal"),
+            current_context={"query_state": {"query_profile": {"data_focus": "warning_only", "status_focus": "done", "measure": "alert_device_count"}}},
+            slots={},
+            time_window={"start_time": "2026-03-15 00:00:00", "end_time": "2026-04-13 23:59:59"},
+            follow_up_mode="inherit",
+        )
+
+        self.assertEqual(profile.answer_mode, "summary")
+        self.assertEqual(profile.status_focus, "done")
+        self.assertEqual(profile.data_focus, "all_records")
+        self.assertIsNone(profile.measure)
 
 
 if __name__ == "__main__":

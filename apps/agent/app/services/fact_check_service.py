@@ -11,15 +11,17 @@ import logging
 import re
 from dataclasses import dataclass, field
 
+from app.services.metric_label_registry import field_metric_label, metric_unit
+
 logger = logging.getLogger(__name__)
 
 _NUMBER_RE = re.compile(r"\d+(?:\.\d+)?")
 
 # Metric key → (Chinese label in text, unit suffix)
 _METRIC_CHECKS: list[tuple[str, str, str]] = [
-    ("record_count", "记录", "条"),
-    ("device_count", "墒情仪", "套"),
-    ("region_count", "地区", "个"),
+    ("record_count", field_metric_label("record_count"), metric_unit("record_count")),
+    ("device_count", field_metric_label("device_count"), metric_unit("device_count")),
+    ("region_count", field_metric_label("region_count"), metric_unit("region_count")),
 ]
 
 # Positive-existence phrases that should not appear when record_count == 0

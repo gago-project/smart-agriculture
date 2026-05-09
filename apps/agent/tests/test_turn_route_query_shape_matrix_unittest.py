@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
 
 from app.services.follow_up_action_resolver_service import FollowUpActionResult
@@ -42,6 +43,86 @@ class TurnRouteQueryShapeMatrixTest(unittest.TestCase):
         from app.services.turn_route_decision_service import TurnRouteDecisionService
 
         self.service = TurnRouteDecisionService()
+
+    @staticmethod
+    def _interpretation(
+        *,
+        route_key: str,
+        subject_family: str,
+        answer_intent: str,
+        query_grain: str,
+        follow_up_mode: str = "standalone",
+        route_source: str = "direct",
+        list_target: str | None = None,
+        group_by: str | None = None,
+        blocked_reason: str | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            route_key=route_key,
+            subject_family=subject_family,
+            answer_intent=answer_intent,
+            query_grain=query_grain,
+            follow_up_mode=follow_up_mode,
+            route_source=route_source,
+            list_target=list_target,
+            group_by=group_by,
+            blocked_reason=blocked_reason,
+            normalized_text="",
+            reason_codes=(),
+            entities=_entities(),
+            route_extra={},
+        )
+
+    def test_interpretation_route_shape_matrix(self) -> None:
+        matrix = [
+            {
+                "label": "guidance-blocked",
+                "interpretation": self._interpretation(
+                    route_key="summary",
+                    subject_family="device_registry",
+                    answer_intent="distribution",
+                    query_grain="city",
+                    follow_up_mode="blocked",
+                    route_source="context",
+                    blocked_reason="closed_context",
+                ),
+                "route": "guidance",
+                "action": "guidance",
+                "grain": "none",
+            },
+            {
+                "label": "device-registry-distribution",
+                "interpretation": self._interpretation(
+                    route_key="device_registry_distribution",
+                    subject_family="device_registry",
+                    answer_intent="distribution",
+                    query_grain="city",
+                ),
+                "route": "device_registry_distribution",
+                "action": "distribution",
+                "grain": "city",
+            },
+            {
+                "label": "warning-group",
+                "interpretation": self._interpretation(
+                    route_key="warning_group",
+                    subject_family="warning",
+                    answer_intent="group",
+                    query_grain="region",
+                    group_by="region",
+                ),
+                "route": "warning_group",
+                "action": "group",
+                "grain": "region",
+            },
+        ]
+
+        for case in matrix:
+            with self.subTest(case["label"]):
+                result = self.service.decide(interpretation=case["interpretation"])
+                self.assertEqual(result.route, case["route"])
+                self.assertEqual(result.query_shape.action, case["action"])
+                self.assertEqual(result.query_shape.grain, case["grain"])
 
     def test_query_shape_matrix(self) -> None:
         matrix = [

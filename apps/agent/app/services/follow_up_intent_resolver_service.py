@@ -38,9 +38,6 @@ _STANDALONE_QUERY_CUES = (
     "点位",
     "设备",
     "记录",
-    "地区",
-    "县",
-    "市",
     "规则",
     "模板",
     "模版",
@@ -253,15 +250,19 @@ class FollowUpIntentResolverService:
 
     @staticmethod
     def _looks_like_standalone_business_query(*, text: str, has_explicit_entity: bool, time_has_signal: bool) -> bool:
-        if not text or not time_has_signal:
+        if not text:
             return False
         if _TIME_ONLY_FOLLOW_UP_PATTERN.fullmatch(text):
+            return False
+        if any(marker in text for marker in _SUBSET_MARKERS):
             return False
         if any(marker in text for marker in _PRONOUN_MARKERS):
             return False
         if text.startswith(("那", "这个", "这些", "那些", "上面", "刚才")) and not has_explicit_entity:
             return False
-        if any(cue in text for cue in _STANDALONE_QUERY_CUES):
+        if time_has_signal and any(cue in text for cue in _STANDALONE_QUERY_CUES):
+            return True
+        if has_explicit_entity and any(cue in text for cue in _STANDALONE_QUERY_CUES):
             return True
         return has_explicit_entity and any(token in text for token in ("查", "看", "问", "说"))
 

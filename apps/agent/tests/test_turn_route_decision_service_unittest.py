@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
 
 from app.services.follow_up_action_resolver_service import FollowUpActionResult
@@ -33,6 +34,95 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         from app.services.turn_route_decision_service import TurnRouteDecisionService
 
         self.service = TurnRouteDecisionService()
+
+    @staticmethod
+    def _interpretation(
+        *,
+        route_key: str,
+        subject_family: str,
+        answer_intent: str,
+        query_grain: str = "none",
+        follow_up_mode: str = "standalone",
+        blocked_reason: str | None = None,
+        list_target: str | None = None,
+        group_by: str | None = None,
+        route_source: str = "direct",
+        normalized_text: str = "",
+        reason_codes: tuple[str, ...] = (),
+        entities: dict | None = None,
+        route_extra: dict | None = None,
+    ) -> SimpleNamespace:
+        return SimpleNamespace(
+            route_key=route_key,
+            subject_family=subject_family,
+            answer_intent=answer_intent,
+            query_grain=query_grain,
+            follow_up_mode=follow_up_mode,
+            blocked_reason=blocked_reason,
+            list_target=list_target,
+            group_by=group_by,
+            route_source=route_source,
+            normalized_text=normalized_text,
+            reason_codes=reason_codes,
+            entities=entities or _entities(),
+            route_extra=route_extra or {},
+        )
+
+    def test_blocked_interpretation_returns_guidance_route(self) -> None:
+        interpretation = self._interpretation(
+            route_key="summary",
+            subject_family="device_registry",
+            answer_intent="distribution",
+            query_grain="city",
+            follow_up_mode="blocked",
+            blocked_reason="closed_context",
+            route_source="context",
+            normalized_text="那设备分布呢",
+            reason_codes=("closed_context",),
+        )
+
+        result = self.service.decide(interpretation=interpretation)
+
+        self.assertEqual(result.route, "guidance")
+        self.assertEqual(result.query_shape.action, "guidance")
+        self.assertEqual(result.query_shape.mode, "blocked")
+        self.assertEqual(result.route_source, "context")
+
+    def test_device_registry_distribution_interpretation_maps_without_reparsing_text(self) -> None:
+        interpretation = self._interpretation(
+            route_key="device_registry_distribution",
+            subject_family="device_registry",
+            answer_intent="distribution",
+            query_grain="city",
+            normalized_text="江苏设备分布呢",
+            reason_codes=("device_registry_distribution",),
+        )
+
+        result = self.service.decide(interpretation=interpretation)
+
+        self.assertEqual(result.route, "device_registry_distribution")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.action, "distribution")
+        self.assertEqual(result.query_shape.grain, "city")
+
+    def test_warning_group_interpretation_maps_without_reparsing_text(self) -> None:
+        interpretation = self._interpretation(
+            route_key="warning_group",
+            subject_family="warning",
+            answer_intent="group",
+            query_grain="region",
+            group_by="region",
+            normalized_text="最近30天有没有需要重点关注的地区",
+            reason_codes=("warning_group_query",),
+        )
+
+        result = self.service.decide(interpretation=interpretation)
+
+        self.assertEqual(result.route, "warning_group")
+        self.assertEqual(result.group_by, "region")
+        self.assertEqual(result.query_shape.subject, "warning")
+        self.assertEqual(result.query_shape.action, "group")
+        self.assertEqual(result.query_shape.grain, "region")
 
     def test_standalone_group_query_returns_query_shape_and_group_by(self) -> None:
         result = self.service.decide(

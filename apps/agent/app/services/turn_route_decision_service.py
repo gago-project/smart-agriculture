@@ -138,6 +138,72 @@ class TurnRouteDecisionService:
     def decide(
         self,
         *,
+        interpretation: Any | None = None,
+        message: str = "",
+        current_context: dict[str, Any] | None = None,
+        entities: dict[str, Any] | None = None,
+        time_evidence: Any | None = None,
+        action_result: Any | None = None,
+    ) -> TurnRouteDecision:
+        if interpretation is not None:
+            return self._decision_from_interpretation(interpretation)
+        return self._decide_from_raw(
+            message=message,
+            current_context=current_context,
+            entities=entities,
+            time_evidence=time_evidence,
+            action_result=action_result,
+        )
+
+    @staticmethod
+    def _decision_from_interpretation(interpretation: Any) -> TurnRouteDecision:
+        blocked_reason = str(getattr(interpretation, "blocked_reason", "") or "")
+        route_source = str(getattr(interpretation, "route_source", "") or "direct")
+        normalized_text = str(getattr(interpretation, "normalized_text", "") or "")
+        entities = getattr(interpretation, "entities", None)
+        list_target = getattr(interpretation, "list_target", None)
+        group_by = getattr(interpretation, "group_by", None)
+        reason_codes = tuple(getattr(interpretation, "reason_codes", ()) or ())
+        route_extra = getattr(interpretation, "route_extra", None) or {}
+
+        if blocked_reason:
+            return TurnRouteDecision(
+                route="guidance",
+                list_target=list_target,
+                group_by=group_by,
+                normalized_text=normalized_text,
+                route_source=route_source,
+                query_shape=QueryShape(
+                    subject=str(getattr(interpretation, "route_subject", "") or getattr(interpretation, "subject_family", "") or "soil"),
+                    action="guidance",
+                    grain="none",
+                    mode="blocked",
+                ),
+                reason_codes=reason_codes or (blocked_reason,),
+                entities=entities,
+                extra={**route_extra, "blocked_reason": blocked_reason},
+            )
+
+        return TurnRouteDecision(
+            route=str(getattr(interpretation, "route_key", "") or "summary"),
+            list_target=list_target,
+            group_by=group_by,
+            normalized_text=normalized_text,
+            route_source=route_source,
+            query_shape=QueryShape(
+                subject=str(getattr(interpretation, "route_subject", "") or getattr(interpretation, "subject_family", "") or "soil"),
+                action=str(getattr(interpretation, "route_action", "") or getattr(interpretation, "answer_intent", "") or "summary"),
+                grain=str(getattr(interpretation, "query_grain", "") or "none"),
+                mode=str(getattr(interpretation, "route_mode", "") or TurnRouteDecisionService._mode_from_follow_up_mode(getattr(interpretation, "follow_up_mode", ""))),
+            ),
+            reason_codes=reason_codes,
+            entities=entities,
+            extra=route_extra,
+        )
+
+    def _decide_from_raw(
+        self,
+        *,
         message: str,
         current_context: dict[str, Any] | None,
         entities: dict[str, Any] | None,
@@ -530,6 +596,17 @@ class TurnRouteDecisionService:
             reason_codes=("summary_default",),
             entities=extracted_entities,
         )
+
+    @staticmethod
+    def _mode_from_follow_up_mode(follow_up_mode: Any) -> str:
+        normalized = str(follow_up_mode or "")
+        if normalized == "action_expand":
+            return "action_target"
+        if normalized in {"inherit", "subset"}:
+            return "contextual"
+        if normalized == "blocked":
+            return "blocked"
+        return "standalone"
 
     @staticmethod
     def _decision(

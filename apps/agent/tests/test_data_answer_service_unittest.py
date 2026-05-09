@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 import unittest
 
 from tests.support_repositories import SeedSoilRepository
@@ -650,6 +651,95 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
 
         self._assert_warning_filter_applied_in_where(self, result["query_log_entries"][0]["executed_sql_text"])
 
+    async def test_summary_executed_result_metrics_match_repository_truth(self) -> None:
+        result = await self.service.reply(
+            message="最近7天全省整体墒情怎么样",
+            session_id="summary-executed-result-truth",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        metrics = result["query_log_entries"][0]["executed_result_json"]["metrics"]
+        records = self.repository.filter_records(
+            start_time="2026-04-07 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        warning_records = self.repository.filter_warning_records(
+            start_time="2026-04-07 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        region_keys = {
+            (record.get("city"), record.get("county"))
+            for record in records
+            if record.get("city") or record.get("county")
+        }
+        device_keys = {
+            str(record.get("sn") or "").strip()
+            for record in records
+            if str(record.get("sn") or "").strip()
+        }
+
+        self.assertEqual(metrics["record_count"], len(records))
+        self.assertEqual(metrics["soil_record_count"], len(records))
+        self.assertEqual(metrics["warning_record_count"], len(warning_records))
+        self.assertEqual(metrics["device_count"], len(device_keys))
+        self.assertEqual(metrics["region_count"], len(region_keys))
+
+    async def test_warning_summary_executed_result_matches_repository_truth_and_preview_is_partial(self) -> None:
+        result = await self.service.reply(
+            message="最近30天有没有需要重点关注的地区",
+            session_id="warning-summary-executed-result-truth",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        executed = result["query_log_entries"][0]["executed_result_json"]
+        metrics = executed["metrics"]
+        preview_rows = executed["top_regions"]
+        soil_records = self.repository.filter_records(
+            start_time="2026-03-15 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        warning_records = self.repository.filter_warning_records(
+            start_time="2026-03-15 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        preview_warning_total = sum(int(row.get("alert_record_count") or 0) for row in preview_rows[:3])
+
+        self.assertEqual(metrics["soil_record_count"], len(soil_records))
+        self.assertEqual(metrics["warning_record_count"], len(warning_records))
+        self.assertIn("重点关注地区（前3个）：", result["final_text"])
+        self.assertLess(preview_warning_total, metrics["warning_record_count"])
+
+    async def test_generic_compare_query_log_exposes_requested_and_execution_metric_consistently(self) -> None:
+        result = await self.service.reply(
+            message="徐州和南通最近30天对比一下",
+            session_id="generic-compare-executed-result-truth",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        executed = result["query_log_entries"][0]["executed_result_json"]
+        rows = executed["rows"]
+        xuzhou_records = self.repository.filter_records(
+            city="徐州市",
+            start_time="2026-03-15 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+        nantong_records = self.repository.filter_records(
+            city="南通市",
+            start_time="2026-03-15 00:00:00",
+            end_time="2026-04-13 23:59:59",
+        )
+
+        self.assertIsNone(executed["metric"])
+        self.assertEqual(executed["execution_metric"], "record_count")
+        self.assertEqual(rows[0]["record_count"], len(xuzhou_records))
+        self.assertEqual(rows[1]["record_count"], len(nantong_records))
+
     async def test_single_device_omits_redundant_device_count_line(self) -> None:
         result = await self.service.reply(
             message="SNS00204333最近7天怎么样",
@@ -662,7 +752,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 设备号：SNS00204333", result["final_text"])
         self.assertIn("- 时间：2026-04-07至2026-04-13", result["final_text"])
         self.assertIn("- 20cm平均含水量：约93.99%", result["final_text"])
-        self.assertIn("- 记录：7条", result["final_text"])
+        self.assertIn("- 墒情记录：7条", result["final_text"])
+        self.assertNotIn("- 记录：7条", result["final_text"])
         self.assertNotIn("- 墒情仪：1套", result["final_text"])
 
     async def test_latest_record_uses_structured_output_template(self) -> None:
@@ -1349,8 +1440,8 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closing["conversation_closed"])
         self.assertTrue(closing["turn_context"]["closed"])
         self.assertEqual(follow_up["answer_kind"], "guidance")
-        self.assertEqual(follow_up["blocks"][0]["guidance_reason"], "clarification")
-        self.assertIn("时间段", follow_up["final_text"])
+        self.assertEqual(follow_up["blocks"][0]["guidance_reason"], "closed_context")
+        self.assertIn("重新描述完整问题", follow_up["final_text"])
 
     async def test_clarification_context_resets_prior_history_before_follow_up(self) -> None:
         summary = await self.service.reply(
@@ -1382,7 +1473,7 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(follow_up["capability"], "none")
         self.assertIn("时间段", follow_up["final_text"])
 
-    async def test_closed_context_device_distribution_runs_as_standalone_query(self) -> None:
+    async def test_closed_context_contextual_device_distribution_requires_restart(self) -> None:
         summary = await self.service.reply(
             message="最近7天全省整体墒情怎么样",
             session_id="closed-context-device-distribution",
@@ -1406,10 +1497,75 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         )
 
         self.assertTrue(closing["conversation_closed"])
-        self.assertEqual(follow_up["answer_kind"], "business")
-        self.assertEqual(follow_up["capability"], "device_registry_distribution")
-        self.assertEqual(follow_up["turn_context"]["topic_family"], "device_registry")
-        self.assertIn("土壤墒情仪", follow_up["final_text"])
+        self.assertEqual(follow_up["answer_kind"], "guidance")
+        self.assertEqual(follow_up["capability"], "none")
+        self.assertTrue(follow_up["turn_context"]["closed"])
+        self.assertIn("重新描述完整问题", follow_up["final_text"])
+
+    async def test_closed_context_explicit_device_distribution_can_restart_standalone(self) -> None:
+        summary = await self.service.reply(
+            message="最近7天全省整体墒情怎么样",
+            session_id="closed-context-explicit-device-distribution",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+        closing = await self.service.reply(
+            message="行，先这样吧",
+            session_id="closed-context-explicit-device-distribution",
+            turn_id=2,
+            current_context=summary["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+        restarted = await self.service.reply(
+            message="江苏设备分布呢",
+            session_id="closed-context-explicit-device-distribution",
+            turn_id=3,
+            current_context=closing["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertTrue(closing["conversation_closed"])
+        self.assertEqual(restarted["answer_kind"], "business")
+        self.assertEqual(restarted["capability"], "device_registry_distribution")
+        self.assertEqual(restarted["turn_context"]["topic_family"], "device_registry")
+        self.assertIn("土壤墒情仪", restarted["final_text"])
+
+    async def test_uses_turn_interpretation_service_for_closed_context_blocking(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        class FakeTurnInterpretationService:
+            def __init__(self) -> None:
+                self.calls: list[dict[str, object]] = []
+
+            async def resolve(self, **kwargs):
+                self.calls.append(kwargs)
+                return SimpleNamespace(
+                    blocked_reason="closed_context",
+                    action_result=None,
+                    route_decision=None,
+                )
+
+        fake_interpretation = FakeTurnInterpretationService()
+        service = DataAnswerService(
+            repository=self.repository,
+            llm_input_guard=self.guard,
+            llm_follow_up_resolver=self.follow_up_guard,
+            turn_interpretation_service=fake_interpretation,
+        )
+
+        reply = await service.reply(
+            message="那设备分布呢",
+            session_id="turn-interpretation-closed-context",
+            turn_id=3,
+            current_context={"closed": True, "last_closed_turn_id": 2},
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(len(fake_interpretation.calls), 1)
+        self.assertEqual(reply["answer_kind"], "guidance")
+        self.assertEqual(reply["blocks"][0]["guidance_reason"], "closed_context")
+        self.assertIn("重新描述完整问题", reply["final_text"])
 
     async def test_stale_context_follow_up_requires_clarification(self) -> None:
         summary = await self.service.reply(
@@ -2683,6 +2839,33 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("- 记录：", compared["final_text"])
         self.assertNotIn("- 墒情仪：", compared["final_text"])
 
+    async def test_generic_compare_after_warning_compare_does_not_inherit_warning_metric(self) -> None:
+        warning_compared = await self.service.reply(
+            message="徐州和南通最近30天哪个预警点位更多",
+            session_id="compare-should-not-inherit-warning-metric",
+            turn_id=1,
+            current_context=None,
+            timezone="Asia/Shanghai",
+        )
+
+        compared = await self.service.reply(
+            message="徐州和南通最近30天对比一下",
+            session_id="compare-should-not-inherit-warning-metric",
+            turn_id=2,
+            current_context=warning_compared["turn_context"],
+            timezone="Asia/Shanghai",
+        )
+
+        self.assertEqual(compared["answer_kind"], "business")
+        self.assertEqual(compared["capability"], "compare")
+        self.assertIn("徐州市：", compared["final_text"])
+        self.assertIn("南通市：", compared["final_text"])
+        self.assertIn("- 墒情记录：1830条", compared["final_text"])
+        self.assertIn("- 预警记录：87条", compared["final_text"])
+        self.assertNotIn("按预警记录数对比", compared["final_text"])
+        self.assertIsNone(compared["blocks"][0]["metric"])
+        self.assertIsNone(compared["turn_context"]["query_state"]["query_profile"]["measure"])
+
     def test_non_warning_compare_metric_uses_soil_record_label(self) -> None:
         from app.services.data_answer_service import DataAnswerService
 
@@ -2751,6 +2934,30 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("- 预警墒情仪：9套", text)
         self.assertNotIn("- 记录：", text)
         self.assertNotIn("- 预警记录：", text)
+
+    def test_count_measure_phrase_uses_soil_record_label(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        text = DataAnswerService._count_measure_phrase(
+            measure="record_count",
+            count_value=7,
+        )
+
+        self.assertEqual(text, "7条墒情记录")
+
+    def test_warning_region_preview_fallback_uses_warning_record_label(self) -> None:
+        from app.services.data_answer_service import DataAnswerService
+
+        details = DataAnswerService._warning_region_preview_details(
+            {
+                "alert_device_count": 3,
+                "alert_record_count": 39,
+                "latest_alert_time": "2026-04-13 23:59:17",
+            }
+        )
+
+        self.assertIn("预警记录39条", details)
+        self.assertNotIn("39条记录", details)
 
     async def test_warning_only_compare_query_log_sql_uses_warning_predicate(self) -> None:
         compared = await self.service.reply(
