@@ -670,7 +670,9 @@ class TurnRouteDecisionService:
     @staticmethod
     def _is_device_registry_distribution_request(text: str) -> bool:
         has_distribution = any(token in text for token in _DEVICE_REGISTRY_DISTRIBUTION_TOKENS)
-        has_device = any(token in text for token in _DEVICE_REGISTRY_COUNT_TOKENS)
+        if any(token in text for token in _NON_SOIL_DEVICE_TOKENS):
+            return False
+        has_device = any(token in text for token in _DEVICE_REGISTRY_COUNT_TOKENS) or "设备" in text
         return has_distribution and has_device
 
     @staticmethod

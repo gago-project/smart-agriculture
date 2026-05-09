@@ -1476,11 +1476,12 @@ class DataAnswerService:
         )
         turn_context = self._finalize_context(
             base_context=base_context,
-            current_context=current_context,
+            current_context=self._empty_turn_context(),
             turn_id=turn_id,
             query_state=query_state,
-            parent_target_key=(self._latest_follow_up_target(current_context) or {}).get("target_key"),
+            parent_target_key=None,
             result_refs=[],
+            replace_history=True,
         )
         return self._build_guidance_response(
             turn_id=turn_id,

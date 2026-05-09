@@ -386,6 +386,18 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertEqual(result.query_shape.subject, "device_registry")
         self.assertEqual(result.query_shape.grain, "city")
 
+    def test_device_registry_distribution_accepts_generic_device_phrase(self) -> None:
+        result = self.service.decide(
+            message="设备分布呢",
+            current_context={},
+            entities=_entities(),
+            time_evidence=_time_window(matched=False, has_signal=False),
+            action_result=FollowUpActionResult(),
+        )
+        self.assertEqual(result.route, "device_registry_distribution")
+        self.assertEqual(result.query_shape.subject, "device_registry")
+        self.assertEqual(result.query_shape.action, "distribution")
+
     def test_device_registry_county_detail_routes_when_city_entity_present(self) -> None:
         result = self.service.decide(
             message="南通市土壤墒情仪分布情况",
