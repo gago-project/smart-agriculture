@@ -2429,6 +2429,38 @@ class DataAnswerService:
         return result[:5]
 
     @staticmethod
+    def _attach_soil_record_counts_to_regions(
+        rows: list[dict[str, Any]],
+        soil_records: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        soil_counts: dict[tuple[str | None, str | None], int] = {}
+        city_level_counts: dict[str, int] = {}
+        for record in soil_records:
+            city = str(record.get("city") or "").strip() or None
+            county = str(record.get("county") or "").strip() or None
+            if not city and not county:
+                continue
+            key = (city, county)
+            soil_counts[key] = soil_counts.get(key, 0) + 1
+            if city:
+                city_level_counts[city] = city_level_counts.get(city, 0) + 1
+
+        enriched_rows: list[dict[str, Any]] = []
+        for row in rows:
+            city = str(row.get("city") or "").strip() or None
+            county = str(row.get("county") or "").strip() or None
+            soil_record_count = soil_counts.get((city, county))
+            if soil_record_count is None and city and county is None:
+                soil_record_count = city_level_counts.get(city)
+            enriched_rows.append(
+                {
+                    **row,
+                    **({"soil_record_count": int(soil_record_count)} if soil_record_count is not None else {}),
+                }
+            )
+        return enriched_rows
+
+    @staticmethod
     def _warning_rule_brief(rule_row: dict[str, Any] | None) -> str:
         if not rule_row:
             return "当前预警规则不可用"
@@ -2566,12 +2598,19 @@ class DataAnswerService:
                 continue
             device_count = row.get("alert_device_count")
             record_count = row.get("alert_record_count")
+            soil_record_count = row.get("soil_record_count")
             latest_time = str(row.get("latest_alert_time") or "").strip()
             details: list[str] = []
             if device_count is not None:
                 details.append(cls._soil_device_count_text(int(device_count)))
+            if soil_record_count is not None:
+                details.append(f"墒情记录{int(soil_record_count)}条")
             if record_count is not None:
-                details.append(f"{int(record_count)}条记录")
+                details.append(
+                    f"预警记录{int(record_count)}条"
+                    if soil_record_count is not None
+                    else f"{int(record_count)}条记录"
+                )
             if latest_time:
                 details.append(f"最新{latest_time}")
             preview.append(f"{label}（{'，'.join(details)}）" if details else label)
@@ -2848,7 +2887,7 @@ class DataAnswerService:
             else:
                 lines.extend(
                     [
-                        f"记录：{cls._count_text(entity_row.get('record_count'), '条')}",
+                        f"墒情记录：{cls._count_text(entity_row.get('record_count'), '条')}",
                         f"墒情仪：{cls._count_text(entity_row.get('device_count'), '套')}",
                     ]
                 )
@@ -3305,9 +3344,16 @@ class DataAnswerService:
         # For normal (non-warning) summaries, compute top alert regions for disclosure
         alert_top_regions: list[dict[str, Any]] = []
         if not warning_only:
-            alert_records_in_data = [r for r in records if r.get("soil_status") and r.get("soil_status") != "not_triggered"]
+            alert_records_in_data, _ = await self._warning_filtered_records(records)
+            metrics["soil_record_count"] = metrics.get("record_count")
+            metrics["warning_record_count"] = len(alert_records_in_data)
             if alert_records_in_data:
                 alert_top_regions = self._top_regions_from_focus_rows(alert_records_in_data, warning_only=True)
+                alert_top_regions = self._attach_soil_record_counts_to_regions(alert_top_regions, records)
+        else:
+            metrics["soil_record_count"] = len(base_records)
+            metrics["warning_record_count"] = len(records)
+            top_regions = self._attach_soil_record_counts_to_regions(top_regions, base_records)
         output_mode = self._compute_output_mode(
             message=message,
             capability="summary",
@@ -8202,9 +8248,16 @@ class DataAnswerService:
             device_count = row.get("alert_device_count")
             if device_count is not None:
                 details.append(f"{int(device_count)}套墒情仪")
+            soil_record_count = row.get("soil_record_count")
+            if soil_record_count is not None:
+                details.append(f"墒情记录{int(soil_record_count)}条")
             record_count = row.get("alert_record_count")
             if record_count is not None:
-                details.append(f"{int(record_count)}条记录")
+                details.append(
+                    f"预警记录{int(record_count)}条"
+                    if soil_record_count is not None
+                    else f"{int(record_count)}条记录"
+                )
             latest_time = str(row.get("latest_alert_time") or "").strip()
             if latest_time:
                 details.append(f"最新{latest_time}")
@@ -8272,11 +8325,12 @@ class DataAnswerService:
             fields.append(("范围", scope if scope not in {"当前整体墒情", "当前查询范围"} else "全省"))
         if warning_only:
             preview_lines = DataAnswerService._warning_region_preview_lines(top_regions or [])
-            if int(metrics.get("record_count") or 0) > 0:
+            if int(metrics.get("warning_record_count", metrics.get("record_count")) or 0) > 0:
                 fields.extend(
                     [
                         ("时间", time_label),
-                        ("预警记录", DataAnswerService._count_text(metrics.get("record_count"), "条")),
+                        ("墒情记录", DataAnswerService._count_text(metrics.get("soil_record_count", metrics.get("record_count")), "条")),
+                        ("预警记录", DataAnswerService._count_text(metrics.get("warning_record_count", metrics.get("record_count")), "条")),
                         ("墒情仪", DataAnswerService._count_text(metrics.get("device_count"), "套")),
                         ("地区", DataAnswerService._count_text(metrics.get("region_count"), "个")),
                         ("最新预警时间", latest_time),
@@ -8293,7 +8347,7 @@ class DataAnswerService:
                     fields.append(("代表性预警记录", f"{sn}（{'，'.join(parts)}）" if sn and parts else sn or None))
                 text = DataAnswerService._render_structured_answer(
                     fields=fields,
-                    sections=[("重点关注地区包括：", preview_lines)] if preview_lines else None,
+                    sections=[("重点关注地区（前3个）：", preview_lines)] if preview_lines else None,
                     note=DataAnswerService._summary_follow_up_note(),
                 )
             else:
@@ -8301,6 +8355,7 @@ class DataAnswerService:
                 empty_fields.extend(
                     [
                         ("时间", time_label),
+                        ("墒情记录", DataAnswerService._count_text(metrics.get("soil_record_count", 0), "条")),
                         ("预警记录", "0条"),
                         ("墒情仪", "0套"),
                         ("地区", "0个"),
@@ -8316,7 +8371,8 @@ class DataAnswerService:
                 [
                     ("时间", time_label),
                     ("20cm平均含水量", avg_text),
-                    ("记录", DataAnswerService._count_text(metrics.get("record_count"), "条")),
+                    ("墒情记录", DataAnswerService._count_text(metrics.get("soil_record_count", metrics.get("record_count")), "条")),
+                    ("预警记录", DataAnswerService._count_text(metrics.get("warning_record_count", 0), "条")),
                 ]
             )
             if not single_device:
@@ -8332,7 +8388,7 @@ class DataAnswerService:
                 fields.append(("状态", "总体平稳，暂无预警记录"))
             text = DataAnswerService._render_structured_answer(
                 fields=fields,
-                sections=[("存在预警的地区包括：", alert_preview_lines)] if alert_preview_lines else None,
+                sections=[("存在预警的地区（前3个）：", alert_preview_lines)] if alert_preview_lines else None,
                 note=DataAnswerService._summary_follow_up_note(),
             )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
@@ -8397,7 +8453,7 @@ class DataAnswerService:
                 ]
             else:
                 section_lines = [
-                    f"记录：{DataAnswerService._count_text(row.get('record_count'), '条')}",
+                    f"墒情记录：{DataAnswerService._count_text(row.get('record_count'), '条')}",
                     f"墒情仪：{DataAnswerService._count_text(row.get('device_count'), '套')}",
                     f"20cm平均含水量：{avg_text}",
                 ]
