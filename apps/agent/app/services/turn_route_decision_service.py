@@ -76,7 +76,7 @@ _WARNING_RECORD_INTENT_TOKENS = (
     "预警情况",
     "预警数据",
 )
-_WARNING_DISPOSAL_SUBJECT_TOKENS = ("处置", "处理情况", "处置情况", "处置进度", "处置状态")
+_WARNING_DISPOSAL_COMPOUND_TOKENS = ("处理情况", "处置情况", "处置进度", "处置状态")
 _WARNING_DISPOSAL_INTENT_TOKENS = ("已处理", "待处理", "超时", "处置了多少", "处理了多少", "进度")
 REGION_GROUP_REQUEST_PATTERNS = (
     re.compile(r"(覆盖|涉及).*(地方|地区|区域)"),
@@ -553,16 +553,27 @@ class TurnRouteDecisionService:
     def _is_warning_disposal_query(text: str) -> bool:
         """
         预警处置查询：用户关心的是预警是否被处理/处置进度，而非预警事件本身。
-        必须含处置主题词，或含预警词 + 处置意图词。
         规则相关问题优先返回 False（由 warning_rule 路由处理）。
+
+        判定优先级：
+        1. 精确复合词（处置情况/处置进度/处置状态/处理情况）→ 直接判定
+        2. 预警词 + 处置意图词（已处理/待处理/超时/进度等）→ 判定
+        3. 裸"处置"：仅当不含强记录列举意图时才判定，避免与 warning_record 路由冲突。
+           例如"有哪些预警记录被处置了"含"预警记录"，应走 warning_record 路由。
         """
-        has_disposal_subject = any(token in text for token in _WARNING_DISPOSAL_SUBJECT_TOKENS)
+        if any(token in text for token in _WARNING_RULE_QUERY_TOKENS):
+            return False
+        if any(token in text for token in _WARNING_DISPOSAL_COMPOUND_TOKENS):
+            return True
         has_warning_word = any(token in text for token in _WARNING_RECORD_QUERY_TOKENS)
         has_disposal_intent = any(token in text for token in _WARNING_DISPOSAL_INTENT_TOKENS)
-        has_rule_word = any(token in text for token in _WARNING_RULE_QUERY_TOKENS)
-        if has_rule_word:
-            return False
-        return has_disposal_subject or (has_warning_word and has_disposal_intent)
+        if has_warning_word and has_disposal_intent:
+            return True
+        # 裸"处置"：若同时含"预警记录"/"预警数据"等明确记录列举词，交由 warning_record 处理
+        if "处置" in text:
+            _RECORD_CONFLICT_TOKENS = ("预警记录", "预警数据")
+            return not any(token in text for token in _RECORD_CONFLICT_TOKENS)
+        return False
 
     @staticmethod
     def _is_device_registry_distribution_request(text: str) -> bool:
@@ -709,19 +720,9 @@ class TurnRouteDecisionService:
 
     @staticmethod
     def _is_detail_request(text: str, entities: dict[str, Any]) -> bool:
-        if SN_PATTERN.search(text) and not any(
-            (
-                QueryProfileResolverService.is_latest_record_request(text),
-                QueryProfileResolverService.is_count_request(text),
-                QueryProfileResolverService.is_field_request(text),
-                QueryProfileResolverService.is_compare_request(text),
-                "怎么样" in text or "情况" in text or "如何" in text,
-            )
-        ):
-            return True
-        if any(token in text for token in DETAIL_HINT_TOKENS):
-            return True
-        return False
+        # SN-based detail is fully covered by _has_explicit_detail which runs earlier in decide();
+        # this method only needs to handle DETAIL_HINT_TOKENS (详情/明细) without an SN.
+        return any(token in text for token in DETAIL_HINT_TOKENS)
 
     @staticmethod
     def _count_grain(text: str) -> str:

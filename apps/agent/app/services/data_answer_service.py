@@ -1384,6 +1384,15 @@ class DataAnswerService:
         session_id: str,
         turn_id: int,
     ) -> dict[str, Any] | None:
+        """二次 LLM 门禁（第二道关卡）。
+
+        设计背景：本项目所有回答必须来自数据库，不允许 LLM 自由发挥。
+        第一道门是 InputGuardService（规则分类，速度快）。但规则无法覆盖所有边界场景，
+        尤其是"表面像业务问题、实则超出系统能力"的输入（如问天气、问农药推荐等）。
+        此方法在路由决策之后、数据查询之前运行，作为最后一道兜底，
+        仅对没有明确业务信号（SN/域内词/已有数据上下文）的输入触发。
+        两道门分工：InputGuard 快速拦截高置信非业务输入；LLM Guard 兜底处理模糊边界。
+        """
         if not self.llm_input_guard:
             return None
         if not await self._should_use_llm_input_guard(text, context):
@@ -1774,6 +1783,7 @@ class DataAnswerService:
         entity_confidence = CONFIDENCE_HIGH
         time_confidence = ""
         time_source = ""
+        _warning_trace: list[str] = []
         if require_time or getattr(time_evidence, "has_time_signal", False) or inherited_time_window is not None:
             resolved = await self.parameter_resolver.resolve(
                 tool_name=tool_name,
@@ -1790,6 +1800,7 @@ class DataAnswerService:
             entity_confidence = resolved.entity_confidence
             time_confidence = resolved.time_confidence
             time_source = str(resolved.time_source or "")
+            _warning_trace = list(resolved.warning_trace)
         else:
             alias_index = await self.parameter_resolver._load_alias_index()
             entity_resolution = await self.parameter_resolver._resolve_entities(raw_args, alias_index)
@@ -1797,6 +1808,7 @@ class DataAnswerService:
                 raise ValueError(entity_resolution.clarify_message or "当前查询条件还不够明确，请补充后再试。")
             resolved_args = dict(entity_resolution.resolved_args)
             entity_confidence = entity_resolution.confidence
+            _warning_trace = list(entity_resolution.warnings)
 
         time_window = {}
         if resolved_args.get("start_time") and resolved_args.get("end_time"):
@@ -1827,6 +1839,7 @@ class DataAnswerService:
             "slots": slots,
             "entity_confidence": entity_confidence,
             "time_confidence": time_confidence,
+            "warning_trace": _warning_trace,
             "slot_source": self._slot_source_map(
                 slots=slots,
                 explicit_slots=explicit_slots,
@@ -6509,7 +6522,7 @@ class DataAnswerService:
                 f"覆盖 {metrics['region_count']} 个地区，最新记录时间为 {latest_time}。"
             )
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
-            text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+            text += f" 注：您输入的地区已被自动匹配为「{resolved_entities[-1]['canonical_name']}」，如识别有误请重新说明。"
         text += " 如需继续查看，可以直接回复：列出点位详情、列出记录详情，或按地区汇总。"
         return text
 
@@ -6580,7 +6593,7 @@ class DataAnswerService:
         if latest_brief and latest_brief != "暂无更多原始字段信息":
             text += f" 可参考监测字段：{latest_brief}。"
         if entity_confidence == CONFIDENCE_MEDIUM and resolved_entities:
-            text += f" 当前按近似匹配识别为 {resolved_entities[-1]['canonical_name']}，置信度中。"
+            text += f" 注：您输入的地区已被自动匹配为「{resolved_entities[-1]['canonical_name']}」，如识别有误请重新说明。"
         return text
 
     @staticmethod
