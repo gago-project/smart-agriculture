@@ -27,8 +27,10 @@ from app.services.input_guard_service import (
     INVALID_ANSWER,
     InputGuardService,
 )
+from app.services.llm_entity_extractor_service import LlmEntityExtractorService
 from app.services.llm_follow_up_resolver_service import LlmFollowUpResolution, LlmFollowUpResolverService
 from app.services.llm_input_guard_service import LlmInputGuardService
+from app.services.llm_route_classifier_service import LlmRouteClassifierService, LlmRouteClassification
 from app.services.parameter_resolver_service import (
     CONFIDENCE_HIGH,
     CONFIDENCE_MEDIUM,
@@ -154,6 +156,8 @@ class DataAnswerService:
         input_guard: InputGuardService | None = None,
         llm_input_guard: LlmInputGuardService | Any | None = None,
         llm_follow_up_resolver: LlmFollowUpResolverService | Any | None = None,
+        llm_entity_extractor: LlmEntityExtractorService | Any | None = None,
+        llm_route_classifier: LlmRouteClassifierService | Any | None = None,
         follow_up_action_resolver: FollowUpActionResolverService | None = None,
         time_window_service: TimeWindowService | None = None,
         parameter_resolver: ParameterResolverService | None = None,
@@ -167,6 +171,8 @@ class DataAnswerService:
         self.input_guard = input_guard or InputGuardService()
         self.llm_input_guard = llm_input_guard
         self.llm_follow_up_resolver = llm_follow_up_resolver
+        self.llm_entity_extractor = llm_entity_extractor
+        self.llm_route_classifier = llm_route_classifier
         self.follow_up_action_resolver = follow_up_action_resolver or FollowUpActionResolverService()
         self.time_window_service = time_window_service or TimeWindowService()
         self.parameter_resolver = parameter_resolver or ParameterResolverService(self.repository)
@@ -234,6 +240,18 @@ class DataAnswerService:
             route_decision.query_shape.mode,
             action_result.operation,
         )
+
+        if route_decision.route in {"safe_hint", "summary"} and self.llm_route_classifier:
+            upgraded = await self._maybe_upgrade_route_with_llm(text, route_decision)
+            if upgraded is not None:
+                route_decision = upgraded
+                logger.info(
+                    "LLM route classifier upgraded route=%s confidence=%.2f session_id=%s turn_id=%s",
+                    upgraded.route,
+                    upgraded.extra.get("llm_confidence", 0.0) if upgraded.extra else 0.0,
+                    session_id,
+                    turn_id,
+                )
 
         if route_decision.route == "rule":
             return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
@@ -1376,6 +1394,35 @@ class DataAnswerService:
             return True
         return any(token in normalized for token in ("整体", "全省", "整个", "全部"))
 
+    async def _maybe_upgrade_route_with_llm(
+        self,
+        text: str,
+        current_decision: Any,
+    ) -> Any | None:
+        """Promote a weak safe_hint/summary route to a specific route via LLM classifier.
+
+        The LLM classifier picks from a bounded set of routes (no follow-up routes,
+        no routes that require extra fields like list_target/group_by). Returns a
+        new TurnRouteDecision on success, None if LLM is unavailable or not confident.
+        """
+        if not self.llm_route_classifier:
+            return None
+        result = await self.llm_route_classifier.classify(text)
+        if result is None:
+            return None
+        # Don't upgrade to the same weak route — that's a no-op
+        if result.route in {"safe_hint", "summary"}:
+            return None
+        from app.services.turn_route_decision_service import TurnRouteDecision, QueryShape
+        return TurnRouteDecision(
+            route=result.route,
+            normalized_text=str(getattr(current_decision, "normalized_text", text)),
+            route_source="llm_classifier",
+            query_shape=QueryShape(subject="soil", action=result.route, grain="none", mode="standalone"),
+            reason_codes=("llm_route_classifier",),
+            extra={"llm_confidence": result.confidence},
+        )
+
     async def _maybe_run_llm_input_guard(
         self,
         *,
@@ -1522,6 +1569,17 @@ class DataAnswerService:
         counties = [item["alias_name"] for item in deduped if item["region_level"] == "county"]
         provinces = [item["canonical_name"] for item in deduped if item["region_level"] == "province"]
         sns = [match.group(0).upper() for match in SN_PATTERN.finditer(text)]
+
+        # LLM entity fallback: try when alias matching found nothing and text has domain signal
+        if not cities and not counties and not sns and self.llm_entity_extractor:
+            if any(token in text for token in LLM_GUARD_DOMAIN_TOKENS):
+                llm_extra = await self._try_llm_entity_extract(text, alias_rows)
+                if llm_extra:
+                    cities.extend(llm_extra.get("city", []))
+                    counties.extend(llm_extra.get("county", []))
+                    sns.extend(llm_extra.get("sn", []))
+                    deduped.extend(llm_extra.get("resolved", []))
+
         return {
             "province": provinces,
             "city": cities,
@@ -1529,6 +1587,62 @@ class DataAnswerService:
             "sn": sns,
             "resolved": deduped,
         }
+
+    async def _try_llm_entity_extract(
+        self,
+        text: str,
+        alias_rows: list[dict[str, Any]],
+    ) -> dict[str, Any] | None:
+        """Call LLM extractor and validate results against the alias table.
+
+        LLM output is discarded if the name cannot be found as alias_name or
+        canonical_name in alias_rows, preventing hallucinated region names from
+        entering the query pipeline.
+        """
+        result = await self.llm_entity_extractor.extract(text)
+        if result is None:
+            return None
+
+        extra: dict[str, Any] = {"city": [], "county": [], "sn": [], "resolved": []}
+
+        def _find_row(name: str, level: str) -> dict[str, Any] | None:
+            name_stripped = name.rstrip("市县区省乡镇")
+            for row in alias_rows:
+                if str(row.get("region_level") or "") != level:
+                    continue
+                alias = str(row.get("alias_name") or "")
+                canonical = str(row.get("canonical_name") or "")
+                if name in (alias, canonical) or name_stripped in (
+                    alias.rstrip("市县区省乡镇"),
+                    canonical.rstrip("市县区省乡镇"),
+                ):
+                    return row
+            return None
+
+        if result.city:
+            row = _find_row(result.city, "city")
+            if row:
+                extra["city"].append(row["alias_name"])
+                extra["resolved"].append({**row, "match_start": 0, "match_length": len(result.city)})
+                logger.info("LLM entity extractor matched city=%s → %s", result.city, row["canonical_name"])
+            else:
+                logger.debug("LLM entity extractor city=%r not in alias table; discarding", result.city)
+
+        if result.county:
+            row = _find_row(result.county, "county")
+            if row:
+                extra["county"].append(row["alias_name"])
+                extra["resolved"].append({**row, "match_start": 0, "match_length": len(result.county)})
+                logger.info("LLM entity extractor matched county=%s → %s", result.county, row["canonical_name"])
+            else:
+                logger.debug("LLM entity extractor county=%r not in alias table; discarding", result.county)
+
+        import re as _re
+        if result.sn and _re.match(r"^SNS\d{8}$", result.sn, _re.IGNORECASE):
+            extra["sn"].append(result.sn.upper())
+            logger.info("LLM entity extractor matched sn=%s", result.sn)
+
+        return extra if any(extra[k] for k in ("city", "county", "sn")) else None
 
     @staticmethod
     def _clarification_resolved_entities(

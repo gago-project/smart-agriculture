@@ -8,8 +8,10 @@ import os
 
 from app.llm.qwen_client import QwenClient
 from app.services.data_answer_service import DataAnswerService
+from app.services.llm_entity_extractor_service import LlmEntityExtractorService
 from app.services.llm_follow_up_resolver_service import LlmFollowUpResolverService
 from app.services.llm_input_guard_service import LlmInputGuardService
+from app.services.llm_route_classifier_service import LlmRouteClassifierService
 
 
 @lru_cache(maxsize=1)
@@ -24,4 +26,6 @@ def get_data_answer_service() -> DataAnswerService:
     return DataAnswerService(
         llm_input_guard=LlmInputGuardService(guard_client, timeout_seconds=3.0),
         llm_follow_up_resolver=LlmFollowUpResolverService(guard_client, timeout_seconds=3.0),
+        llm_entity_extractor=LlmEntityExtractorService(guard_client, timeout_seconds=2.0),
+        llm_route_classifier=LlmRouteClassifierService(guard_client, timeout_seconds=3.0),
     )
