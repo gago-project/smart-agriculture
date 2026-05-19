@@ -32,6 +32,7 @@ load_secret_from_keychain() {
 
 load_secret_from_keychain "QWEN_API_KEY"
 load_secret_from_keychain "SONIOX_API_KEY"
+load_secret_from_keychain "REDIS_PASSWORD"
 
 if [ ! -f "${ENV_FILE}" ]; then
   return 0
@@ -68,3 +69,11 @@ for raw_line in env_file.read_text(encoding="utf-8").splitlines():
     print(f'if [ -z "${{{key}:-}}" ]; then export {key}={shlex.quote(value)}; fi')
 PY
 )
+
+# Construct REDIS_URL from components if not already set and REDIS_PASSWORD is available
+if [ -z "${REDIS_URL:-}" ] && [ -n "${REDIS_PASSWORD:-}" ]; then
+  _redis_host="${REDIS_HOST:-127.0.0.1}"
+  _redis_port="${REDIS_PORT:-6379}"
+  export REDIS_URL="redis://:${REDIS_PASSWORD}@${_redis_host}:${_redis_port}/0"
+  unset _redis_host _redis_port
+fi
