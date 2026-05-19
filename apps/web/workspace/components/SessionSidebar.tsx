@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import pkg from '../../package.json';
 import type { KeyboardEvent, MouseEvent as ReactMouseEvent } from 'react';
 import type { Session } from '../types/chat';
 
@@ -121,7 +122,7 @@ export function SessionSidebar({
     <aside className="sidebar" ref={sidebarRef}>
       <div className="sidebar-brand">
         <div className="sidebar-brand-copy">
-          <strong>苏农云指挥调度智能</strong>
+          <strong>苏农云指挥调度智能<span className="sidebar-version">v{pkg.version}</span></strong>
           <p>本地会话</p>
         </div>
       </div>

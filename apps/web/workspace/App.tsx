@@ -13,6 +13,7 @@ import { WorkspaceUserMenu } from './components/WorkspaceUserMenu';
 import { useChatActions } from './hooks/useChatActions';
 import { useGagoDevAutoRunner } from './hooks/useGagoDevAutoRunner';
 import { useAuthStore } from './store/authStore';
+import pkg from '../package.json';
 
 const SHOW_ADMIN_QUERY_EVIDENCE = false;
 
@@ -147,7 +148,7 @@ export default function App() {
       <main className="main">
         <header className="workspace-header">
           <div className="workspace-title-group">
-            <h1 className="workspace-title">苏农云指挥调度智能</h1>
+            <h1 className="workspace-title">苏农云指挥调度智能<span className="workspace-version">v{pkg.version}</span></h1>
             <p className="workspace-subtitle">面向墒情、预警与处置链路的本地智能工作台</p>
           </div>
           <WorkspaceUserMenu

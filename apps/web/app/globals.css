@@ -178,6 +178,13 @@ body,
   font-size: 13px;
 }
 
+.sidebar-version {
+  margin-left: 6px;
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--muted);
+}
+
 .new-chat {
   width: 100%;
   border: 0;
@@ -419,6 +426,14 @@ body,
   font-size: 24px;
   line-height: 1.08;
   font-weight: 800;
+}
+
+.workspace-version {
+  margin-left: 8px;
+  font-size: 13px;
+  font-weight: 400;
+  color: var(--muted);
+  vertical-align: middle;
 }
 
 .workspace-subtitle {
