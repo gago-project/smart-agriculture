@@ -36,7 +36,36 @@ Never stop `cloudflared`, `nginx`, or unrelated containers.
 - If dependencies changed:
   - Web: `npm --prefix apps/web install`
   - Agent: `npm run setup:agent`
-- Rebuild web before restart: `npm run build:web`
+
+**Bump version (patch) — both files must stay in sync:**
+
+```bash
+# Read current version, increment patch, write to both apps
+CURRENT=$(node -p "require('./apps/web/package.json').version")
+NEW_VERSION=$(node -p "
+  const [maj, min, pat] = '$CURRENT'.split('.').map(Number);
+  \`\${maj}.\${min}.\${pat + 1}\`
+")
+echo "Bumping $CURRENT → $NEW_VERSION"
+
+# apps/web/package.json
+node -e "
+  const fs = require('fs');
+  const p = './apps/web/package.json';
+  const pkg = JSON.parse(fs.readFileSync(p));
+  pkg.version = '$NEW_VERSION';
+  fs.writeFileSync(p, JSON.stringify(pkg, null, 2) + '\n');
+"
+
+# apps/agent/pyproject.toml (replace version = "x.y.z" line)
+sed -i '' "s/^version = \".*\"/version = \"$NEW_VERSION\"/" apps/agent/pyproject.toml
+
+# Commit version bump before building
+git add apps/web/package.json apps/agent/pyproject.toml
+git commit -m "chore: bump version to $NEW_VERSION"
+```
+
+- Rebuild web after version bump: `npm run build:web`
 
 ### 4. Restart process-mode services
 
@@ -53,31 +82,44 @@ Never stop `cloudflared`, `nginx`, or unrelated containers.
 
 ### 5. 验活（本地 → 域名，完整三步）
 
-完整验活逻辑见 `.claude/skills/local-health/SKILL.md`，此处内联标准流程：
-
 ```bash
 cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
 source scripts/dev/load-root-env.sh
 
-# 进程模式：从 .runtime/local-agent-port 读端口
 LOCAL_AGENT_PORT=$(cat .runtime/local-agent-port 2>/dev/null || echo "18010")
-BASE_WEB_LOCAL="http://localhost:3000"
-BASE_AGENT_LOCAL="http://localhost:${LOCAL_AGENT_PORT}"
-# 烟雾测试专用账号 gago-admin，凭据来自 .env（HEALTH_PASSWORD 已由上方 load-root-env.sh 加载）
 HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
 if [ -z "${HEALTH_PASSWORD:-}" ]; then
   echo "❌ HEALTH_PASSWORD 未加载，请确认 .env 中已配置"; exit 1
 fi
 
+EXPECTED_VERSION=$(node -p "require('./apps/web/package.json').version")
+
 smoke_test() {
   local base_web=$1 base_agent=$2 label=$3
   echo ""; echo "══ 验活：${label} ══"
 
-  echo "[1/3] web health"
-  curl -fsS "$base_web/api/health" | python3 -m json.tool
+  echo "[1/3] web health + version"
+  WEB_HEALTH=$(curl -fsS "$base_web/api/health")
+  echo "$WEB_HEALTH" | python3 -m json.tool
+  WEB_VERSION=$(echo "$WEB_HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))')
+  if [ "$WEB_VERSION" != "$EXPECTED_VERSION" ]; then
+    echo "❌ 版本不符：期望 $EXPECTED_VERSION，实际 $WEB_VERSION"; return 1
+  fi
+  echo "  ✓ web version $WEB_VERSION"
 
-  echo "[2/3] agent health"
-  curl -fsS "$base_agent/health" | python3 -m json.tool
+  # agent health：仅本地可直接访问，域名验活跳过此步
+  if [ "$base_agent" != "skip" ]; then
+    echo "[2/3] agent health + version"
+    AGENT_HEALTH=$(curl -fsS "$base_agent/health")
+    echo "$AGENT_HEALTH" | python3 -m json.tool
+    AGENT_VERSION=$(echo "$AGENT_HEALTH" | python3 -c 'import json,sys; print(json.load(sys.stdin).get("version",""))')
+    if [ "$AGENT_VERSION" != "$EXPECTED_VERSION" ]; then
+      echo "❌ 版本不符：期望 $EXPECTED_VERSION，实际 $AGENT_VERSION"; return 1
+    fi
+    echo "  ✓ agent version $AGENT_VERSION"
+  else
+    echo "[2/3] agent health — skipped (not exposed at domain level)"
+  fi
 
   echo "[3/3] chat smoke"
   AUTH_TOKEN=$(curl -fsS -X POST "$base_web/api/auth/login" \
@@ -85,24 +127,22 @@ smoke_test() {
     -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
   [ -z "$AUTH_TOKEN" ] && echo "❌ 登录失败" && return 1
-  SESSION_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
-  CLIENT_MESSAGE_ID=$(uuidgen | tr '[:upper:]' '[:lower:]')
   curl -fsS -X POST "$base_web/api/agent/chat" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $AUTH_TOKEN" \
-    -d "{\"session_id\":\"$SESSION_ID\",\"turn_id\":1,\"client_message_id\":\"$CLIENT_MESSAGE_ID\",\"message\":\"最近墒情怎么样\"}" \
+    -d '{"question":"最近墒情怎么样","thread_id":"health-check","history":[]}' \
     | python3 -m json.tool
-  echo "  ✓ ${label} 验活通过"
+  echo "  ✓ ${label} 验活通过 (version: $EXPECTED_VERSION)"
 }
 
-# 本地验活
-smoke_test "$BASE_WEB_LOCAL" "$BASE_AGENT_LOCAL" "localhost"
+# 本地验活（agent 直接访问）
+smoke_test "http://localhost:3000" "http://localhost:${LOCAL_AGENT_PORT}" "localhost"
 
-# 域名验活（agent 经由 web BFF 代理，不直接暴露）
-smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.com"
+# 域名验活 — web version 必须等于 EXPECTED_VERSION 才算发布成功
+smoke_test "https://ai.luyaxiang.com" "skip" "ai.luyaxiang.com"
 ```
 
-> **chat smoke 是基础发布门禁**，不能只看 `/api/health` 就算完成。
+> **chat smoke + version 是发布门禁**，域名返回的 version 必须与本次发布版本一致才算完成。
 
 
 ## Quick Reference
