@@ -28,3 +28,7 @@ outputs/
 
 testdata/agent/soil-moisture/outputs/*
 !testdata/agent/soil-moisture/outputs/.gitkeep
+
+# Playwright browser profile cache and MCP artifacts
+.playwright-mcp/
+output/playwright/
