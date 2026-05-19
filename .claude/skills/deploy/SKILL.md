@@ -130,7 +130,7 @@ smoke_test() {
   curl -fsS -X POST "$base_web/api/agent/chat" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $AUTH_TOKEN" \
-    -d '{"question":"最近墒情怎么样","thread_id":"health-check","history":[]}' \
+    -d '{"message":"最近墒情怎么样","session_id":"health-check","turn_id":1,"client_message_id":"hc-1"}' \
     | python3 -m json.tool
   echo "  ✓ ${label} 验活通过 (version: $EXPECTED_VERSION)"
 }
