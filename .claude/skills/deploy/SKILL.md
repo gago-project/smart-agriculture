@@ -16,6 +16,7 @@ Read [`references/current-runtime.md`](./references/current-runtime.md) before t
 ### 1. Inspect the current state
 
 - Run `git status`, `lsof -nP -iTCP -sTCP:LISTEN`, `ps auxww`, and `docker ps`.
+- Run `pgrep -f cloudflared` to confirm the tunnel is active — domain smoke test requires it. If not running, warn before proceeding.
 - Note any Docker containers for this project that may conflict.
 - Note which process-mode services are already running.
 
@@ -40,6 +41,12 @@ Never stop `cloudflared`, `nginx`, or unrelated containers.
 **Bump version (patch) — both files must stay in sync:**
 
 ```bash
+# Guard: working tree must be clean before version bump
+if [ -n "$(git status --porcelain)" ]; then
+  echo "❌ working tree 不干净，请先 commit 或 stash 再发布"
+  exit 1
+fi
+
 # Read current version, increment patch, write to both apps
 CURRENT=$(node -p "require('./apps/web/package.json').version")
 NEW_VERSION=$(node -p "
@@ -84,7 +91,11 @@ git commit -m "chore: bump version to $NEW_VERSION"
 
 ```bash
 cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
-source scripts/dev/load-root-env.sh
+# load-root-env.sh has a BASH_SOURCE guard that breaks in non-interactive subshells;
+# use set -a / source .env directly, then pull keychain secrets explicitly.
+set -a && source .env && set +a
+[ -z "${QWEN_API_KEY:-}" ] && QWEN_API_KEY=$(security find-generic-password -s "smart-agriculture-local" -a "QWEN_API_KEY" -w 2>/dev/null || true)
+[ -z "${REDIS_PASSWORD:-}" ] && REDIS_PASSWORD=$(security find-generic-password -s "smart-agriculture-local" -a "REDIS_PASSWORD" -w 2>/dev/null || true)
 
 LOCAL_AGENT_PORT=$(cat .runtime/local-agent-port 2>/dev/null || echo "18010")
 HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
@@ -127,11 +138,13 @@ smoke_test() {
     -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
   [ -z "$AUTH_TOKEN" ] && echo "❌ 登录失败" && return 1
-  curl -fsS -X POST "$base_web/api/agent/chat" \
+  CHAT_RESP=$(curl -fsS -X POST "$base_web/api/agent/chat" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $AUTH_TOKEN" \
-    -d '{"message":"最近墒情怎么样","session_id":"health-check","turn_id":1,"client_message_id":"hc-1"}' \
-    | python3 -m json.tool
+    -d '{"message":"最近墒情怎么样","session_id":"health-check","turn_id":1,"client_message_id":"hc-1"}')
+  echo "$CHAT_RESP" | python3 -m json.tool
+  HAS_ANSWER=$(echo "$CHAT_RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("ok" if d.get("final_text") or d.get("answer") else "")' 2>/dev/null || true)
+  [ -z "$HAS_ANSWER" ] && echo "❌ chat 无有效响应: $CHAT_RESP" && return 1
   echo "  ✓ ${label} 验活通过 (version: $EXPECTED_VERSION)"
 }
 
