@@ -138,13 +138,21 @@ smoke_test() {
     -d "{\"username\":\"$HEALTH_USERNAME\",\"password\":\"$HEALTH_PASSWORD\"}" \
     | python3 -c 'import json,sys; print(json.load(sys.stdin).get("token",""))')
   [ -z "$AUTH_TOKEN" ] && echo "❌ 登录失败" && return 1
-  CHAT_RESP=$(curl -fsS -X POST "$base_web/api/agent/chat" \
+  # Pipe directly to Python (avoid storing JSON in bash var — json.load(sys.stdin)
+  # fails on responses that contain actual newlines inside string values).
+  curl -fsS -X POST "$base_web/api/agent/chat" \
     -H 'Content-Type: application/json' \
     -H "Authorization: Bearer $AUTH_TOKEN" \
-    -d '{"message":"最近墒情怎么样","session_id":"health-check","turn_id":1,"client_message_id":"hc-1"}')
-  echo "$CHAT_RESP" | python3 -m json.tool
-  HAS_ANSWER=$(echo "$CHAT_RESP" | python3 -c 'import json,sys; d=json.load(sys.stdin); print("ok" if d.get("final_text") or d.get("answer") else "")' 2>/dev/null || true)
-  [ -z "$HAS_ANSWER" ] && echo "❌ chat 无有效响应: $CHAT_RESP" && return 1
+    -d '{"message":"最近墒情怎么样","session_id":"health-check","turn_id":1,"client_message_id":"hc-1"}' \
+    | python3 -c '
+import json, sys
+raw = sys.stdin.buffer.read()
+d = json.loads(raw)
+if not (d.get("final_text") or d.get("answer")):
+    print("❌ chat 无有效响应:", raw.decode("utf-8","replace")[:200])
+    sys.exit(1)
+print("  ✓ chat ok, final_text len:", len(d.get("final_text") or d.get("answer","")))
+' || return 1
   echo "  ✓ ${label} 验活通过 (version: $EXPECTED_VERSION)"
 }
 
