@@ -5,17 +5,29 @@ interface SonioxRealtimeCallbacks {
   onError: (message: string) => void;
 }
 
-function transcriptFromPayload(payload: unknown): string {
+interface TokensResult {
+  text: string;
+  allFinal: boolean;
+}
+
+function parseTokens(payload: unknown): TokensResult {
   if (!payload || typeof payload !== 'object' || !('tokens' in payload) || !Array.isArray(payload.tokens)) {
-    return '';
+    return { text: '', allFinal: false };
   }
-  return payload.tokens
-    .map((token) => {
-      if (!token || typeof token !== 'object') return '';
-      const value = 'text' in token ? token.text : '';
-      return typeof value === 'string' ? value : '';
-    })
-    .join('');
+  if (payload.tokens.length === 0) {
+    return { text: '', allFinal: false };
+  }
+  let text = '';
+  let allFinal = true;
+  for (const token of payload.tokens) {
+    if (!token || typeof token !== 'object') continue;
+    const t = 'text' in token && typeof token.text === 'string' ? token.text : '';
+    text += t;
+    if (!('is_final' in token) || !token.is_final) {
+      allFinal = false;
+    }
+  }
+  return { text, allFinal };
 }
 
 export class SonioxRealtimeClient {
@@ -24,6 +36,9 @@ export class SonioxRealtimeClient {
   private socket: WebSocket | null = null;
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
+  private committedText = '';
+  private lastMsgAllFinal = false;
+  private lastMsgText = '';
 
   constructor({ onTranscript, onError }: SonioxRealtimeCallbacks) {
     this.onTranscript = onTranscript;
@@ -31,6 +46,10 @@ export class SonioxRealtimeClient {
   }
 
   async start(token: SonioxTemporaryToken): Promise<void> {
+    this.committedText = '';
+    this.lastMsgAllFinal = false;
+    this.lastMsgText = '';
+
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
     } catch (err) {
@@ -54,7 +73,8 @@ export class SonioxRealtimeClient {
           JSON.stringify({
             api_key: token.api_key,
             model: token.model,
-            audio_format: 'auto'
+            audio_format: 'auto',
+            language_hints: ['zh']
           })
         );
 
@@ -75,9 +95,21 @@ export class SonioxRealtimeClient {
       socket.onmessage = (event) => {
         try {
           const payload = JSON.parse(String(event.data));
-          const transcript = transcriptFromPayload(payload);
-          if (transcript) {
-            this.onTranscript(transcript);
+          const { text, allFinal } = parseTokens(payload);
+
+          if (text) {
+            // Detect new utterance: previous msg was all-final and new text doesn't continue it
+            if (this.lastMsgAllFinal && this.lastMsgText && !text.startsWith(this.lastMsgText)) {
+              this.committedText += this.lastMsgText;
+            }
+            this.lastMsgText = text;
+            this.lastMsgAllFinal = allFinal;
+            this.onTranscript(this.committedText + text);
+          } else if (this.lastMsgAllFinal && this.lastMsgText) {
+            // Empty tokens after a finalized utterance = utterance boundary, commit it
+            this.committedText += this.lastMsgText;
+            this.lastMsgText = '';
+            this.lastMsgAllFinal = false;
           }
         } catch {
           this.onError('语音识别响应格式异常');
