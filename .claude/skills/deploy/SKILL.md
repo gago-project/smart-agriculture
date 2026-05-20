@@ -94,8 +94,6 @@ cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
 # load-root-env.sh has a BASH_SOURCE guard that breaks in non-interactive subshells;
 # use set -a / source .env directly, then pull keychain secrets explicitly.
 set -a && source .env && set +a
-[ -z "${QWEN_API_KEY:-}" ] && QWEN_API_KEY=$(security find-generic-password -s "smart-agriculture-local" -a "QWEN_API_KEY" -w 2>/dev/null || true)
-[ -z "${REDIS_PASSWORD:-}" ] && REDIS_PASSWORD=$(security find-generic-password -s "smart-agriculture-local" -a "REDIS_PASSWORD" -w 2>/dev/null || true)
 
 LOCAL_AGENT_PORT=$(cat .runtime/local-agent-port 2>/dev/null || echo "18010")
 HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
