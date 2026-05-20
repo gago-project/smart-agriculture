@@ -33,7 +33,14 @@ export class SonioxRealtimeClient {
   async start(token: SonioxTemporaryToken): Promise<void> {
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-    } catch {
+    } catch (err) {
+      const name = err instanceof Error ? err.name : '';
+      if (name === 'NotAllowedError' || name === 'PermissionDeniedError') {
+        throw new Error('麦克风权限被拒绝，请点击地址栏左侧的锁图标 → 允许麦克风，然后重试');
+      }
+      if (name === 'NotFoundError') {
+        throw new Error('未找到麦克风设备，请检查是否已连接');
+      }
       throw new Error('无法访问麦克风，请检查浏览器权限');
     }
 
