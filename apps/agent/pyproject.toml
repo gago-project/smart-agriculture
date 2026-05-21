@@ -1,6 +1,6 @@
 [project]
 name = "soil-moisture-agent"
-version = "0.1.10"
+version = "0.1.11"
 description = "Smart Agriculture soil moisture agent"
 requires-python = ">=3.11"
 dependencies = [
