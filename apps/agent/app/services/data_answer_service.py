@@ -7043,7 +7043,7 @@ class DataAnswerService:
     ) -> dict[str, Any]:
         min_days = self._extract_consecutive_days(message)
         warning_type = self._extract_warning_type_for_consecutive(message)
-        window_days = 60
+        window_days = 30
         warning_label = "涝渍" if warning_type == "waterlogging" else "重旱"
 
         rows = await asyncio.to_thread(
