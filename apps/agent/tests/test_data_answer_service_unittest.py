@@ -3257,3 +3257,58 @@ class DataAnswerServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("create_time <= '2026-04-13 23:59:59'", sql_parts[0])
         self.assertIn("create_time >= '2026-03-31 00:00:00'", sql_parts[1])
         self.assertIn("create_time <= '2026-04-06 23:59:59'", sql_parts[1])
+
+
+class ConsecutiveDroughtAnswerTest(unittest.IsolatedAsyncioTestCase):
+    """DataAnswerService._reply_consecutive_drought produces correct responses."""
+
+    def _make_service(self, drought_rows):
+        from app.services.data_answer_service import DataAnswerService
+
+        class FakeDroughtService:
+            def __init__(self, rows):
+                self._rows = rows
+            def query(self, **_kwargs):
+                return self._rows
+
+        return DataAnswerService(
+            repository=SeedSoilRepository(),
+            consecutive_drought_service=FakeDroughtService(drought_rows),
+        )
+
+    async def test_empty_result_text(self):
+        svc = self._make_service([])
+        result = await svc.reply(
+            message="哪些地区连续3天以上出现重旱预警",
+            session_id="s1", turn_id=1, current_context=None,
+        )
+        self.assertIn("未发现", result["final_text"])
+        self.assertEqual(result["answer_kind"], "data")
+
+    async def test_with_results_text(self):
+        from datetime import date
+        svc = self._make_service([
+            {"city": "常州市", "county": "溧阳市",
+             "streak_start": date(2026, 4, 11), "streak_end": date(2026, 4, 13),
+             "consecutive_days": 3},
+        ])
+        result = await svc.reply(
+            message="哪些地区连续3天以上出现重旱预警",
+            session_id="s1", turn_id=1, current_context=None,
+        )
+        self.assertIn("常州市", result["final_text"])
+        self.assertIn("3 天", result["final_text"])
+        self.assertEqual(result["capability"], "consecutive_drought")
+
+    async def test_min_days_extracted_from_message(self):
+        from datetime import date
+        svc = self._make_service([
+            {"city": "南京市", "county": "六合区",
+             "streak_start": date(2026, 4, 1), "streak_end": date(2026, 4, 5),
+             "consecutive_days": 5},
+        ])
+        result = await svc.reply(
+            message="连续5天干旱的地区",
+            session_id="s1", turn_id=1, current_context=None,
+        )
+        self.assertIn("5 天", result["final_text"])

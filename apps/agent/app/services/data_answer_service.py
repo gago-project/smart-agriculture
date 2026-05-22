@@ -184,6 +184,7 @@ class DataAnswerService:
         warning_predicate_service: WarningPredicateService | None = None,
         fact_check_service: FactCheckService | None = None,
         turn_interpretation_service: TurnInterpretationService | Any | None = None,
+        consecutive_drought_service: Any | None = None,
     ) -> None:
         self.repository = repository or SoilRepository.from_env()
         self.snapshot_repository = snapshot_repository or ResultSnapshotRepository(self.repository)
@@ -207,6 +208,13 @@ class DataAnswerService:
             query_profile_resolver=self.query_profile_resolver,
             llm_follow_up_resolver=self.llm_follow_up_resolver,
         )
+        if consecutive_drought_service is not None:
+            self.consecutive_drought_service = consecutive_drought_service
+        else:
+            from app.services.consecutive_drought_service import ConsecutiveDroughtService
+            self.consecutive_drought_service = ConsecutiveDroughtService(
+                soil_repository=self.repository
+            )
         self._business_time_cache: str | None = None
         self._business_time_cache_at: float = 0.0
 
@@ -313,6 +321,13 @@ class DataAnswerService:
                     turn_id,
                 )
 
+        if route_decision.route == "consecutive_drought":
+            return await self._reply_consecutive_drought(
+                message=text,
+                session_id=session_id,
+                turn_id=turn_id,
+                current_context=context,
+            )
         if route_decision.route == "rule":
             return await self._reply_rule(message=text, session_id=session_id, turn_id=turn_id, current_context=context)
         if route_decision.route == "template":
@@ -1553,6 +1568,21 @@ class DataAnswerService:
     @staticmethod
     def _current_list_grain(context: dict[str, Any]) -> str:
         return str((context.get("primary_query_spec") or {}).get("grain") or "")
+
+    @staticmethod
+    def _extract_consecutive_days(text: str) -> int:
+        """Extract minimum consecutive days from text; default 3."""
+        match = re.search(r"(\d+)\s*天", text)
+        if match:
+            n = int(match.group(1))
+            return max(1, min(n, 90))
+        return 3
+
+    @staticmethod
+    def _extract_warning_type_for_consecutive(text: str) -> str | None:
+        if "涝渍" in text:
+            return "waterlogging"
+        return "heavy_drought"
 
     @staticmethod
     def _is_unsupported_derived_analysis_request(text: str) -> bool:
@@ -6998,6 +7028,77 @@ class DataAnswerService:
                     },
                 )
             ],
+        }
+
+    async def _reply_consecutive_drought(
+        self,
+        *,
+        message: str,
+        session_id: str,
+        turn_id: int,
+        current_context: dict[str, Any],
+    ) -> dict[str, Any]:
+        min_days = self._extract_consecutive_days(message)
+        warning_type = self._extract_warning_type_for_consecutive(message)
+        window_days = 30
+        warning_label = "涝渍" if warning_type == "waterlogging" else "重旱"
+
+        rows = await asyncio.to_thread(
+            self.consecutive_drought_service.query,
+            min_consecutive_days=min_days,
+            window_days=window_days,
+            warning_type=warning_type,
+        )
+
+        query_id = f"cd_{session_id}_{turn_id}"
+
+        if not rows:
+            final_text = f"近{window_days}天内，未发现连续{min_days}天以上出现{warning_label}的地区。"
+            return {
+                "turn_id": turn_id,
+                "answer_kind": "data",
+                "capability": "consecutive_drought",
+                "output_mode": "normal",
+                "final_text": final_text,
+                "blocks": [{"block_id": f"block_{query_id}", "block_type": "text", "text": final_text}],
+                "topic": self._topic_payload(current_context),
+                "turn_context": current_context,
+                "query_ref": {"has_query": False, "snapshot_ids": []},
+                "conversation_closed": False,
+                "session_reset": False,
+                "query_log_entries": [],
+            }
+
+        lines = []
+        for row in rows:
+            start = str(row.get("streak_start") or "")[:10]
+            end = str(row.get("streak_end") or "")[:10]
+            days = row.get("consecutive_days", 0)
+            city = row.get("city", "")
+            county = row.get("county", "")
+            region = f"{city}{county}" if county and county not in city else city
+            lines.append(f"- {region}：连续 {days} 天（{start} 至 {end}）")
+
+        max_days = max(int(r.get("consecutive_days") or 0) for r in rows)
+        summary = (
+            f"近{window_days}天内，共 {len(rows)} 个地区出现连续{min_days}天以上{warning_label}，"
+            f"最长连续 {max_days} 天："
+        )
+        final_text = summary + "\n" + "\n".join(lines)
+
+        return {
+            "turn_id": turn_id,
+            "answer_kind": "data",
+            "capability": "consecutive_drought",
+            "output_mode": "normal",
+            "final_text": final_text,
+            "blocks": [{"block_id": f"block_{query_id}", "block_type": "text", "text": final_text}],
+            "topic": self._topic_payload(current_context),
+            "turn_context": current_context,
+            "query_ref": {"has_query": False, "snapshot_ids": []},
+            "conversation_closed": False,
+            "session_reset": False,
+            "query_log_entries": [],
         }
 
     async def _reply_warning_count(
