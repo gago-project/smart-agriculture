@@ -1573,8 +1573,9 @@ class DataAnswerService:
 
     @staticmethod
     def _extract_consecutive_days(text: str) -> int:
-        """Extract minimum consecutive days from text; default 3."""
-        match = re.search(r"(\d+)\s*天", text)
+        match = re.search(r"(?:连续|持续)\s*(\d+)\s*天", text)
+        if not match:
+            match = re.search(r"(\d+)\s*天(?:以上|以内)?.*(?:干旱|重旱|涝渍|预警)", text)
         if match:
             n = int(match.group(1))
             return max(1, min(n, 90))
@@ -7042,7 +7043,7 @@ class DataAnswerService:
     ) -> dict[str, Any]:
         min_days = self._extract_consecutive_days(message)
         warning_type = self._extract_warning_type_for_consecutive(message)
-        window_days = 30
+        window_days = 60
         warning_label = "涝渍" if warning_type == "waterlogging" else "重旱"
 
         rows = await asyncio.to_thread(
