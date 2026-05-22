@@ -489,6 +489,18 @@ class SoilRepository:
         records = await self.filter_records_async(limit=1)
         return str(records[0].get("create_time")) if records else "暂无"
 
+    def query_raw(self, sql: str, params: tuple) -> list[dict[str, Any]]:
+        """Execute a raw SELECT and return rows as dicts."""
+        connection = self._connect()
+        if not connection:
+            return []
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute(sql, params)
+                return list(cursor.fetchall())
+        finally:
+            connection.close()
+
     def region_alias_rows(self) -> list[dict[str, Any]]:
         """Return enabled region alias mappings for parser normalization."""
         connection = self._connect()
