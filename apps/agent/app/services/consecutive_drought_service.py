@@ -36,18 +36,14 @@ class ConsecutiveDroughtService:
         warning_type: str | None = "heavy_drought",
         city_filter: str | None = None,
     ) -> list[dict[str, Any]]:
-        region_filter = f"AND city = '{city_filter}'" if city_filter else ""
         sql = self._build_sql(
             min_consecutive_days=min_consecutive_days,
             window_days=window_days,
             warning_type=warning_type,
-            region_filter=region_filter,
+            has_city_filter=city_filter is not None,
         )
-        rows = self._repo.query_raw(sql, ())
-        return [
-            r for r in rows
-            if int(r.get("consecutive_days") or 0) >= min_consecutive_days
-        ]
+        params = (city_filter,) if city_filter else ()
+        return self._repo.query_raw(sql, params)
 
     @staticmethod
     def _build_sql(
@@ -55,9 +51,10 @@ class ConsecutiveDroughtService:
         min_consecutive_days: int,
         window_days: int,
         warning_type: str | None,
-        region_filter: str,
+        has_city_filter: bool,
     ) -> str:
         predicate = _warning_predicate(warning_type)
+        city_clause = "AND city = %s" if has_city_filter else ""
         return f"""
 WITH daily_drought AS (
   SELECT
@@ -67,7 +64,7 @@ WITH daily_drought AS (
     SUM(CASE WHEN {predicate} THEN 1 ELSE 0 END) AS drought_device_count
   FROM fact_soil_moisture
   WHERE create_time >= DATE_SUB(CURDATE(), INTERVAL {window_days} DAY)
-    {region_filter}
+    {city_clause}
   GROUP BY city, county, DATE(create_time)
   HAVING drought_device_count > 0
 ),
@@ -93,3 +90,6 @@ FROM streaks
 WHERE consecutive_days >= {min_consecutive_days}
 ORDER BY consecutive_days DESC, streak_end DESC
 """
+
+
+__all__ = ["ConsecutiveDroughtService"]

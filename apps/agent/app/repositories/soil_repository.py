@@ -490,7 +490,6 @@ class SoilRepository:
         return str(records[0].get("create_time")) if records else "暂无"
 
     def query_raw(self, sql: str, params: tuple) -> list[dict[str, Any]]:
-        """Execute a raw SELECT and return rows as dicts."""
         connection = self._connect()
         if not connection:
             return []
@@ -498,6 +497,8 @@ class SoilRepository:
             with connection.cursor() as cursor:
                 cursor.execute(sql, params)
                 return list(cursor.fetchall())
+        except Exception as exc:
+            raise DatabaseQueryError(f"query_raw 执行失败：{exc}") from exc
         finally:
             connection.close()
 

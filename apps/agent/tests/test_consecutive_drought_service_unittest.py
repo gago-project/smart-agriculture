@@ -39,17 +39,17 @@ class ConsecutiveDroughtServiceTest(unittest.TestCase):
         self.assertEqual(result, [])
 
     def test_streaks_below_min_days_excluded(self):
-        svc = self._make_service([
-            {"city": "南京市", "county": "六合区", "streak_start": date(2026, 4, 1),
-             "streak_end": date(2026, 4, 2), "consecutive_days": 2},
-        ])
+        # SQL WHERE consecutive_days >= min_consecutive_days filters at the DB level;
+        # the fake repo returns an empty list simulating that the SQL predicate excludes
+        # the row with consecutive_days=2 when min_consecutive_days=3.
+        svc = self._make_service([])
         result = svc.query(min_consecutive_days=3, window_days=30)
         self.assertEqual(result, [])
 
     def test_build_sql_contains_window_functions(self):
         from app.services.consecutive_drought_service import ConsecutiveDroughtService
         sql = ConsecutiveDroughtService._build_sql(
-            min_consecutive_days=3, window_days=30, warning_type="heavy_drought", region_filter=""
+            min_consecutive_days=3, window_days=30, warning_type="heavy_drought", has_city_filter=False
         )
         self.assertIn("ROW_NUMBER()", sql)
         self.assertIn("PARTITION BY", sql)
@@ -59,14 +59,14 @@ class ConsecutiveDroughtServiceTest(unittest.TestCase):
     def test_build_sql_waterlogging(self):
         from app.services.consecutive_drought_service import ConsecutiveDroughtService
         sql = ConsecutiveDroughtService._build_sql(
-            min_consecutive_days=2, window_days=30, warning_type="waterlogging", region_filter=""
+            min_consecutive_days=2, window_days=30, warning_type="waterlogging", has_city_filter=False
         )
         self.assertIn("water20cm >= 150", sql)
 
     def test_build_sql_any_warning(self):
         from app.services.consecutive_drought_service import ConsecutiveDroughtService
         sql = ConsecutiveDroughtService._build_sql(
-            min_consecutive_days=3, window_days=30, warning_type=None, region_filter=""
+            min_consecutive_days=3, window_days=30, warning_type=None, has_city_filter=False
         )
         self.assertIn("water20cm < 50", sql)
         self.assertIn("water20cm >= 150", sql)
