@@ -861,5 +861,34 @@ class TurnRouteDecisionServiceTest(unittest.TestCase):
         self.assertFalse(Svc._is_warning_record_query("预警阈值", has_time_signal=False))
 
 
+class ConsecutiveDroughtRouteTest(unittest.TestCase):
+    """TurnRouteDecisionService must route consecutive drought queries correctly."""
+
+    def setUp(self):
+        from app.services.turn_route_decision_service import TurnRouteDecisionService
+        self.svc = TurnRouteDecisionService()
+
+    def _route(self, text):
+        result = self.svc.decide(message=text)
+        return result.route
+
+    def test_consecutive_drought_basic(self):
+        self.assertEqual(self._route("哪些地区连续3天以上出现重旱预警"), "consecutive_drought")
+
+    def test_consecutive_drought_without_number(self):
+        self.assertEqual(self._route("哪些地区连续出现干旱"), "consecutive_drought")
+
+    def test_consecutive_drought_chixu(self):
+        self.assertEqual(self._route("持续3天干旱的地区有哪些"), "consecutive_drought")
+
+    def test_normal_warning_not_routed_to_consecutive(self):
+        route = self._route("最近有哪些预警记录")
+        self.assertNotEqual(route, "consecutive_drought")
+
+    def test_summary_not_routed_to_consecutive(self):
+        route = self._route("南京最近墒情怎么样")
+        self.assertNotEqual(route, "consecutive_drought")
+
+
 if __name__ == "__main__":
     unittest.main()

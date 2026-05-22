@@ -281,6 +281,20 @@ class TurnRouteDecisionService:
                 reason_codes=("template_request",),
                 entities=extracted_entities,
             )
+        if subject == "consecutive_drought":
+            return self._decision(
+                route="consecutive_drought",
+                normalized_text=normalized_text,
+                normalized_changed=normalized_changed,
+                query_shape=QueryShape(subject="soil", action="consecutive_drought", grain="region", mode="standalone"),
+                reason_codes=("consecutive_drought_query",),
+                entities=extracted_entities,
+                extra={
+                    "time_start": getattr(time_evidence, "start_time", None),
+                    "time_end": getattr(time_evidence, "end_time", None),
+                },
+                route_source="direct",
+            )
         if subject == "unsupported_derived":
             return self._decision(
                 route="unsupported_derived",
@@ -679,6 +693,8 @@ class TurnRouteDecisionService:
     def _classify_subject(text: str, has_city_entity: bool = False, has_time_signal: bool = False) -> str:
         if any(token in text for token in TEMPLATE_TOKENS):
             return "template"
+        if TurnRouteDecisionService._is_consecutive_drought_query(text):
+            return "consecutive_drought"
         if TurnRouteDecisionService._is_warning_rule_query(text):
             return "warning_rule"
         if TurnRouteDecisionService._is_warning_disposal_query(text):
@@ -765,6 +781,15 @@ class TurnRouteDecisionService:
             _RECORD_CONFLICT_TOKENS = ("预警记录", "预警数据")
             return not any(token in text for token in _RECORD_CONFLICT_TOKENS)
         return False
+
+    @staticmethod
+    def _is_consecutive_drought_query(text: str) -> bool:
+        has_consecutive = "连续" in text or "持续" in text
+        has_warning_context = any(
+            token in text
+            for token in ("干旱", "重旱", "涝渍", "预警", "异常")
+        )
+        return has_consecutive and has_warning_context
 
     @staticmethod
     def _is_warning_group_query(text: str, has_time_signal: bool) -> bool:
