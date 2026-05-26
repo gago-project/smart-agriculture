@@ -703,7 +703,7 @@ body,
   overflow: hidden;
   display: grid;
   grid-template-rows: minmax(0, 1fr);
-  background: #ffffff;
+  background: var(--panel);
 }
 
 .chat-panel.empty {
@@ -778,6 +778,7 @@ body,
   max-width: 768px;
   margin: 0 auto;
   padding: 8px 0;
+  align-items: start;
 }
 
 .message-row.user {
@@ -803,7 +804,6 @@ body,
   font-weight: 700;
   color: #6b7280;
   background: #f3f4f6;
-  flex-shrink: 0;
 }
 
 .message-avatar.assistant {
@@ -830,7 +830,6 @@ body,
 .message.user {
   background: var(--user-bubble);
   max-width: min(520px, 100%);
-  border-radius: 14px;
 }
 
 .message.assistant.selectable {
@@ -840,7 +839,7 @@ body,
 
 .message.assistant.selectable:hover,
 .message.assistant.selectable:focus-visible {
-  background: #f9fafb;
+  background: var(--panel-soft);
   outline: none;
 }
 
