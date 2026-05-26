@@ -16,6 +16,7 @@ export function Composer({ isSending, onSend }: ComposerProps) {
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const clientRef = useRef<SonioxRealtimeClient | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
+  const voicePrefixRef = useRef('');
 
   const submit = async () => {
     if (!value.trim() || isSending || isRecording) return;
@@ -47,9 +48,13 @@ export function Composer({ isSending, onSend }: ComposerProps) {
     if (isRecording || isSending) return;
     setVoiceError(null);
 
+    voicePrefixRef.current = value;
+
     const client = new SonioxRealtimeClient({
       onTranscript: (text) => {
-        setValue(text);
+        const prefix = voicePrefixRef.current;
+        const sep = prefix && !prefix.endsWith(' ') && !prefix.endsWith('\n') ? ' ' : '';
+        setValue(prefix + sep + text);
       },
       onError: (message) => {
         setVoiceError(message);
