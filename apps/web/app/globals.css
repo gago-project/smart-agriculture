@@ -533,36 +533,36 @@ body,
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 4px 0;
-  border-radius: 22px;
-  background: transparent;
-  border: 0;
+  padding: 16px 24px;
+  border-bottom: 1px solid var(--border);
+  background: #ffffff;
 }
 
 .workspace-title-group {
   display: grid;
-  gap: 6px;
+  gap: 2px;
 }
 
 .workspace-title {
   margin: 0;
-  font-size: 24px;
-  line-height: 1.08;
-  font-weight: 800;
+  font-size: 16px;
+  line-height: 1.3;
+  font-weight: 700;
+  color: var(--text);
 }
 
 .workspace-version {
   margin-left: 8px;
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 400;
-  color: var(--muted);
+  color: #9ca3af;
   vertical-align: middle;
 }
 
 .workspace-subtitle {
   margin: 0;
   color: var(--muted);
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.5;
 }
 
@@ -572,53 +572,63 @@ body,
 
 .workspace-menu-trigger {
   border: 1px solid var(--border);
-  border-radius: 999px;
-  padding: 10px 14px;
-  background: rgba(255, 255, 255, 0.82);
+  border-radius: 8px;
+  padding: 8px 12px;
+  background: #ffffff;
   color: var(--text);
   font: inherit;
-  font-weight: 600;
-  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.04);
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.workspace-menu-trigger:hover {
+  background: #f9fafb;
+  border-color: #d1d5db;
 }
 
 .workspace-menu-panel {
   position: absolute;
-  top: calc(100% + 10px);
+  top: calc(100% + 6px);
   right: 0;
-  min-width: 176px;
-  padding: 8px;
+  min-width: 168px;
+  padding: 4px;
   border: 1px solid var(--border);
-  border-radius: 16px;
-  background: var(--panel);
-  box-shadow: var(--shadow);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
   display: grid;
-  gap: 4px;
+  gap: 2px;
   z-index: 10;
 }
 
 .workspace-menu-item {
   width: 100%;
   border: 0;
-  border-radius: 12px;
-  padding: 10px 12px;
+  border-radius: 6px;
+  padding: 8px 10px;
   background: transparent;
   color: var(--text);
   text-align: left;
   font: inherit;
+  font-size: 13px;
+  cursor: pointer;
 }
 
 .workspace-menu-item:hover {
-  background: var(--panel-soft);
+  background: #f3f4f6;
 }
 
 .workspace-menu-item[aria-current='page'] {
   background: var(--accent-soft);
-  color: #047857;
-  font-weight: 700;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .workspace-menu-item-meta {
   color: var(--muted);
+  font-size: 12px;
   cursor: default;
 }
 
@@ -627,25 +637,29 @@ body,
 }
 
 .workspace-menu-item-danger {
-  color: #b91c1c;
+  color: #dc2626;
+}
+
+.workspace-menu-item-danger:hover {
+  background: #fef2f2;
 }
 
 .chat-workspace {
   min-height: 0;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
+  gap: 0;
+  overflow: hidden;
 }
 
 .chat-workspace.with-query-evidence {
-  grid-template-columns: minmax(0, 1fr) 420px;
+  grid-template-columns: minmax(0, 1fr) 400px;
 }
 
 .chat-column {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 16px;
 }
 
 .chat-column > .chat-panel {
@@ -654,12 +668,15 @@ body,
 }
 
 .auto-run-banner {
-  display: grid;
-  gap: 6px;
-  padding: 14px 16px;
-  border-radius: 16px;
-  border: 1px solid var(--border);
-  background: linear-gradient(135deg, rgba(16, 163, 127, 0.08), rgba(15, 23, 42, 0.02));
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 24px;
+  border-bottom: 1px solid var(--border);
+  background: #f9fafb;
+  font-size: 13px;
+  color: var(--muted);
+  flex-shrink: 0;
 }
 
 .auto-run-banner strong,
@@ -669,30 +686,16 @@ body,
   margin: 0;
 }
 
-.auto-run-banner strong {
-  font-size: 14px;
-}
-
-.auto-run-banner span,
-.auto-run-banner small {
-  color: var(--muted);
-  font-size: 13px;
-}
-
-.auto-run-banner p {
-  color: var(--text);
-  font-size: 13px;
-  line-height: 1.5;
-}
-
 .auto-run-banner--error {
-  border-color: rgba(239, 68, 68, 0.18);
-  background: rgba(239, 68, 68, 0.08);
+  background: #fef2f2;
+  border-bottom-color: #fecaca;
+  color: #dc2626;
 }
 
 .auto-run-banner--done {
-  border-color: rgba(16, 163, 127, 0.18);
-  background: rgba(16, 163, 127, 0.08);
+  background: #f0fdf4;
+  border-bottom-color: #bbf7d0;
+  color: #15803d;
 }
 
 .chat-panel {
