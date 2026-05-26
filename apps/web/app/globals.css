@@ -899,7 +899,7 @@ body,
   padding: 12px 14px;
   border-radius: 10px;
   border: 1px solid var(--border);
-  background: #f9fafb;
+  background: var(--panel-soft);
   min-width: 0;
 }
 
@@ -960,7 +960,7 @@ body,
 }
 
 .turn-block-table th {
-  background: #f9fafb;
+  background: var(--panel-soft);
   font-weight: 600;
   color: var(--text);
 }
@@ -993,7 +993,7 @@ body,
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #f9fafb;
+  background: var(--panel-soft);
   color: var(--muted);
   font-size: 13px;
 }
@@ -1009,7 +1009,7 @@ body,
   padding: 10px 12px;
   border-radius: 8px;
   border: 1px solid var(--border);
-  background: #f9fafb;
+  background: var(--panel-soft);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   font-size: 13px;
@@ -1403,7 +1403,7 @@ body,
 }
 
 .error-tip {
-  margin: 8px 24px;
+  margin: 8px 0 0;
   color: #dc2626;
   font-size: 13px;
 }
@@ -1559,7 +1559,7 @@ body,
 .admin-card button:hover,
 .admin-table-toolbar button:hover,
 .edit-inline button:hover {
-  background: #f9fafb;
+  background: var(--panel-soft);
 }
 
 .danger-outline {
@@ -1614,14 +1614,14 @@ body,
 .admin-table th {
   position: sticky;
   top: 0;
-  background: #f9fafb;
+  background: var(--panel-soft);
   z-index: 1;
   font-weight: 600;
   color: var(--text);
 }
 
 .admin-table tbody tr:hover {
-  background: #f9fafb;
+  background: var(--panel-soft);
 }
 
 .admin-table tbody tr.selected {
@@ -1661,7 +1661,7 @@ body,
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f9fafb;
+  background: var(--panel-soft);
 }
 
 .admin-progress-card progress {
@@ -1771,7 +1771,7 @@ body,
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: #f9fafb;
+  background: var(--panel-soft);
   font-size: 13px;
 }
 
@@ -1852,7 +1852,7 @@ body,
   margin: 4px 0 0;
   padding: 10px;
   border-radius: 8px;
-  background: #f9fafb;
+  background: var(--panel-soft);
   border: 1px solid var(--border);
   min-height: 140px;
   overflow: auto;
