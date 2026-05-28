@@ -98,15 +98,15 @@ export class SonioxRealtimeClient {
           const { text, allFinal } = parseTokens(payload);
 
           if (text) {
-            // Detect new utterance: previous msg was all-final and new text doesn't continue it
-            if (this.lastMsgAllFinal && this.lastMsgText && !text.startsWith(this.lastMsgText)) {
+            // New utterance started when text doesn't extend the previous text
+            if (this.lastMsgText && !text.startsWith(this.lastMsgText)) {
               this.committedText += this.lastMsgText;
             }
             this.lastMsgText = text;
             this.lastMsgAllFinal = allFinal;
             this.onTranscript(this.committedText + text);
-          } else if (this.lastMsgAllFinal && this.lastMsgText) {
-            // Empty tokens after a finalized utterance = utterance boundary, commit it
+          } else if (this.lastMsgText) {
+            // Empty tokens = utterance boundary, commit whatever we have
             this.committedText += this.lastMsgText;
             this.lastMsgText = '';
             this.lastMsgAllFinal = false;
