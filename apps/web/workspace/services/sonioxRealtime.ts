@@ -6,28 +6,26 @@ interface SonioxRealtimeCallbacks {
 }
 
 interface TokensResult {
-  text: string;
-  allFinal: boolean;
+  finalText: string;
+  partialText: string;
 }
 
 function parseTokens(payload: unknown): TokensResult {
   if (!payload || typeof payload !== 'object' || !('tokens' in payload) || !Array.isArray(payload.tokens)) {
-    return { text: '', allFinal: false };
+    return { finalText: '', partialText: '' };
   }
-  if (payload.tokens.length === 0) {
-    return { text: '', allFinal: false };
-  }
-  let text = '';
-  let allFinal = true;
+  let finalText = '';
+  let partialText = '';
   for (const token of payload.tokens) {
     if (!token || typeof token !== 'object') continue;
     const t = 'text' in token && typeof token.text === 'string' ? token.text : '';
-    text += t;
-    if (!('is_final' in token) || !token.is_final) {
-      allFinal = false;
+    if ('is_final' in token && token.is_final) {
+      finalText += t;
+    } else {
+      partialText += t;
     }
   }
-  return { text, allFinal };
+  return { finalText, partialText };
 }
 
 export class SonioxRealtimeClient {
@@ -37,8 +35,7 @@ export class SonioxRealtimeClient {
   private recorder: MediaRecorder | null = null;
   private stream: MediaStream | null = null;
   private committedText = '';
-  private lastMsgAllFinal = false;
-  private lastMsgText = '';
+  private lastFinalText = '';
 
   constructor({ onTranscript, onError }: SonioxRealtimeCallbacks) {
     this.onTranscript = onTranscript;
@@ -47,8 +44,7 @@ export class SonioxRealtimeClient {
 
   async start(token: SonioxTemporaryToken): Promise<void> {
     this.committedText = '';
-    this.lastMsgAllFinal = false;
-    this.lastMsgText = '';
+    this.lastFinalText = '';
 
     try {
       this.stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -95,21 +91,22 @@ export class SonioxRealtimeClient {
       socket.onmessage = (event) => {
         try {
           const payload = JSON.parse(String(event.data));
-          const { text, allFinal } = parseTokens(payload);
+          const { finalText, partialText } = parseTokens(payload);
 
-          if (text) {
-            // New utterance started when text doesn't extend the previous text
-            if (this.lastMsgText && !text.startsWith(this.lastMsgText)) {
-              this.committedText += this.lastMsgText;
+          if (finalText || partialText) {
+            // Use only is_final tokens for boundary detection:
+            // finalText within one utterance grows monotonically and never changes,
+            // so a non-startsWith means a new utterance has begun.
+            if (this.lastFinalText && !finalText.startsWith(this.lastFinalText)) {
+              this.committedText += this.lastFinalText;
             }
-            this.lastMsgText = text;
-            this.lastMsgAllFinal = allFinal;
-            this.onTranscript(this.committedText + text);
-          } else if (this.lastMsgText) {
-            // Empty tokens = utterance boundary, commit whatever we have
-            this.committedText += this.lastMsgText;
-            this.lastMsgText = '';
-            this.lastMsgAllFinal = false;
+            this.lastFinalText = finalText;
+            // partialText is live/interim — shown in real time but never committed directly.
+            this.onTranscript(this.committedText + finalText + partialText);
+          } else if (this.lastFinalText) {
+            // Empty message = utterance boundary
+            this.committedText += this.lastFinalText;
+            this.lastFinalText = '';
           }
         } catch {
           this.onError('语音识别响应格式异常');
