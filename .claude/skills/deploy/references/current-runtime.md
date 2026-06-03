@@ -36,6 +36,6 @@ servers; they never bump the version (version bumps happen only in the deploy st
 - Check actual listeners before restarting anything:
   - Web: port `18030`
   - Frontdoor nginx: port `5173`
-  - Agent: `.runtime/local-agent-port`, usually `18010`
+  - Agent: fixed `18010` (also written to `.runtime/local-agent-port`; no auto-increment — a conflict makes the agent refuse to start)
 - `scripts/health/check-local.sh` prefers `.runtime/local-agent-port`. Host-facing ports are unified across process/Docker modes: web `18030`, agent `18010` (in Docker the containers bind `3000`/`8000` internally but are published on `18030`/`18010`).
 - A green `/api/health` on the domain only proves the web layer is healthy. Always run a login + chat smoke test to verify the full chain.

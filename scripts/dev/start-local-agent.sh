@@ -13,27 +13,30 @@ if [ ! -x ".venv/bin/python" ]; then
   exit 1
 fi
 
-find_free_port() {
-  for candidate in 18010 18011 18012 18013 18014; do
-    if ! lsof -nP -iTCP:"${candidate}" -sTCP:LISTEN >/dev/null 2>&1; then
-      echo "${candidate}"
-      return 0
-    fi
-  done
-  return 1
-}
+# Deterministic, fixed port — no auto-increment. The agent always binds 18010.
+# A conflict is surfaced as an error, never silently dodged.
+AGENT_PORT="${AGENT_PORT:-18010}"
 
-AGENT_PORT=${AGENT_PORT:-$(find_free_port)}
-
-if [ -z "${AGENT_PORT}" ]; then
-  echo "未找到可用的本地 agent 端口。"
+# On a pm2 restart the old instance may take a moment to release the socket, so
+# wait briefly for OUR own previous process to let go. If something *foreign*
+# still holds the port after that, refuse to start (do not move to another port).
+for attempt in 1 2 3 4 5; do
+  holder=$(lsof -nP -iTCP:"${AGENT_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1)
+  [ -z "${holder}" ] && break
+  echo "[agent] 端口 ${AGENT_PORT} 被 pid ${holder} 占用，等待释放 (${attempt}/5)…" >&2
+  sleep 1
+done
+holder=$(lsof -nP -iTCP:"${AGENT_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1)
+if [ -n "${holder}" ]; then
+  echo "❌ 端口 ${AGENT_PORT} 已被 pid ${holder} 占用，agent 拒绝启动（端口固定，不再自动顺延）。" >&2
+  echo "   排查：lsof -nP -iTCP:${AGENT_PORT} -sTCP:LISTEN" >&2
   exit 1
 fi
 
 mkdir -p .runtime
 printf '%s\n' "${AGENT_PORT}" > .runtime/local-agent-port
 
-echo "本地 agent 启动端口: ${AGENT_PORT}"
+echo "本地 agent 启动端口: ${AGENT_PORT} (固定)"
 
 # Avoid inheriting desktop SOCKS proxy settings into httpx, which would
 # otherwise require the optional socksio extra just to reach DashScope.

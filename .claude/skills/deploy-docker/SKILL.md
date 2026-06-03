@@ -25,7 +25,7 @@ Stop any process-mode services owned by this repo before starting Docker.
 
 - Web: find the `next-server` / `.next/standalone/server.js` process on port `18030`.
   - Kill only the process owned by this repo.
-- Agent: find the `uvicorn app.main:app` process on `.runtime/local-agent-port` (default `18010`).
+- Agent: find the `uvicorn app.main:app` process on the fixed port `18010`.
   - Kill only the process owned by this repo.
 - Never kill `cloudflared`, `nginx`, or unrelated processes.
 

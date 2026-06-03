@@ -180,7 +180,7 @@ smoke_test "https://ai.luyaxiang.com" "skip" "ai.luyaxiang.com"
 ## Quick Reference
 
 - Repo root: `/Users/mac/Desktop/gago-cloud/code/smart-agriculture`
-- Agent port: `.runtime/local-agent-port`, default `18010`
+- Agent port: fixed `18010` (no auto-increment; mirrored to `.runtime/local-agent-port`)
 - pm2 config: `ecosystem.config.cjs` (apps `sa-agent`, `sa-web`)
 - Reload after deploy: `pm2 reload ecosystem.config.cjs && pm2 save`
 - First-time start: `pm2 start ecosystem.config.cjs && pm2 save`
