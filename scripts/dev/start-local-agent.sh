@@ -20,13 +20,15 @@ AGENT_PORT="${AGENT_PORT:-18010}"
 # On a pm2 restart the old instance may take a moment to release the socket, so
 # wait briefly for OUR own previous process to let go. If something *foreign*
 # still holds the port after that, refuse to start (do not move to another port).
+# Note: lsof exits non-zero when nothing matches; `|| true` keeps `set -e` from
+# aborting the script in the (normal) free-port case.
 for attempt in 1 2 3 4 5; do
-  holder=$(lsof -nP -iTCP:"${AGENT_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1)
+  holder=$(lsof -nP -iTCP:"${AGENT_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)
   [ -z "${holder}" ] && break
   echo "[agent] 端口 ${AGENT_PORT} 被 pid ${holder} 占用，等待释放 (${attempt}/5)…" >&2
   sleep 1
 done
-holder=$(lsof -nP -iTCP:"${AGENT_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1)
+holder=$(lsof -nP -iTCP:"${AGENT_PORT}" -sTCP:LISTEN -t 2>/dev/null | head -1 || true)
 if [ -n "${holder}" ]; then
   echo "❌ 端口 ${AGENT_PORT} 已被 pid ${holder} 占用，agent 拒绝启动（端口固定，不再自动顺延）。" >&2
   echo "   排查：lsof -nP -iTCP:${AGENT_PORT} -sTCP:LISTEN" >&2
