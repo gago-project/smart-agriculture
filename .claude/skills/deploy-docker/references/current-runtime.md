@@ -12,25 +12,31 @@ Use this reference when running the Smart Agriculture stack in Docker mode on th
 
 ## Port Map in Docker Mode
 
-| Service | Port | Notes |
-|---------|------|-------|
-| Next web | 3000 | Same as process mode |
-| Python Agent | 8000 | Different from process mode (18010) |
-| Frontdoor nginx | 5173 | Shared, do not restart |
+| Service | Host port | Container-internal | Notes |
+|---------|-----------|--------------------|-------|
+| Next web | 18030 | 3000 | Same host port as process mode |
+| Python Agent | 18010 | 8000 | Same host port as process mode |
+| MySQL | 3306 | 3306 | Shared container |
+| Redis | 6379 | 6379 | Shared container |
+| Frontdoor nginx | 5173 | — | Shared, do not restart |
+
+> Host-facing ports are unified across both modes: **web `18030`, agent `18010`**.
+> Inside the containers the servers still bind `3000`/`8000`; docker-compose publishes
+> them on `18030`/`18010`.
 
 ## Domain Chain
 
 1. `cloudflared`
-2. `nginx` on `127.0.0.1:5173`
-3. Docker web container on `127.0.0.1:3000`
-4. Docker agent container on `127.0.0.1:8000`
+2. `nginx` on `127.0.0.1:5173` → `proxy_pass 127.0.0.1:18030`
+3. Docker web container published on host `127.0.0.1:18030` (internal `3000`)
+4. Docker agent container published on host `127.0.0.1:18010` (internal `8000`)
 
 ## Key Differences from Process Mode
 
-- Agent listens on `8000`, not `18010`.
-- `check-local.sh` needs `BASE_AGENT=http://localhost:8000` when Docker is active.
+- Host ports are identical to process mode (web `18030`, agent `18010`); only the
+  container-internal ports differ (`3000`/`8000`).
+- From the host, smoke-test the published ports `18030`/`18010` — not `3000`/`8000`.
 - Dependencies are built inside containers — no manual `npm install` or `pip install`.
-- `.runtime/local-agent-port` still points to `18010`; ignore it in Docker mode.
 
 ## Important Notes
 

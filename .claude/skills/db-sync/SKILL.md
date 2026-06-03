@@ -17,8 +17,8 @@ description: >
 ```
 MySQL  → smart-agriculture-mysql  → 127.0.0.1:3306  (volume: mysql-data/)
 Redis  → smart-agriculture-redis  → 127.0.0.1:6379  (volume: redis-data/)
-agent  → 进程模式(18010) 或 Docker(8000)
-web    → 进程模式(3000)  或 Docker(3000)
+agent  → host 18010（两种模式一致；Docker 容器内为 8000）
+web    → host 18030（两种模式一致；Docker 容器内为 3000）
 ```
 
 **核心陷阱：** Docker MySQL 卷中已有数据时，容器重启**不会**重新执行 `docker-entrypoint-initdb.d/` 下的初始化脚本，开发中对 SQL 文件的修改不会自动生效。

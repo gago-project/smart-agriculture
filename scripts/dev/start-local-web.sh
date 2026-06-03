@@ -15,6 +15,6 @@ else
 fi
 
 export AGENT_BASE_URL="${AGENT_BASE_URL:-http://localhost:${LOCAL_AGENT_PORT}}"
-export NEXT_PUBLIC_BASE_URL="${NEXT_PUBLIC_BASE_URL:-http://localhost:3000}"
+export NEXT_PUBLIC_BASE_URL="${NEXT_PUBLIC_BASE_URL:-http://localhost:18030}"
 
 exec npm --prefix apps/web run start

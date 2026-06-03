@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-BASE_WEB=${BASE_WEB:-http://localhost:3000}
+BASE_WEB=${BASE_WEB:-http://localhost:18030}
 HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
 HEALTH_PASSWORD=${HEALTH_PASSWORD:-}
 

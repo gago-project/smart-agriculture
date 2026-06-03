@@ -3,10 +3,10 @@
   "version": "0.1.20",
   "private": true,
   "scripts": {
-    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "dev": "next dev -H 0.0.0.0 -p 18030",
     "build": "next build",
     "copy:standalone-assets": "mkdir -p .next/standalone/.next && rm -rf .next/standalone/.next/static && cp -R .next/static .next/standalone/.next/static && if [ -d public ]; then rm -rf .next/standalone/public && cp -R public .next/standalone/public; fi",
-    "start": "npm run copy:standalone-assets && HOSTNAME=0.0.0.0 PORT=3000 node .next/standalone/server.js",
+    "start": "npm run copy:standalone-assets && HOSTNAME=0.0.0.0 PORT=18030 node .next/standalone/server.js",
     "test": "node --test tests/*.test.mjs"
   },
   "dependencies": {

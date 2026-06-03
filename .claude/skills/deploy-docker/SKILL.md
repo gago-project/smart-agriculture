@@ -16,14 +16,14 @@ Read [`references/current-runtime.md`](./references/current-runtime.md) before t
 ### 1. Inspect the current state
 
 - Run `git status`, `lsof -nP -iTCP -sTCP:LISTEN`, `ps auxww`, and `docker ps`.
-- Note which process-mode services are running (node on 3000, uvicorn on 18010).
+- Note which process-mode services are running (node on 18030, uvicorn on 18010).
 - Note any Docker containers already running for this project.
 
 ### 2. Stop process-mode services
 
 Stop any process-mode services owned by this repo before starting Docker.
 
-- Web: find the `next-server` / `.next/standalone/server.js` process on port `3000`.
+- Web: find the `next-server` / `.next/standalone/server.js` process on port `18030`.
   - Kill only the process owned by this repo.
 - Agent: find the `uvicorn app.main:app` process on `.runtime/local-agent-port` (default `18010`).
   - Kill only the process owned by this repo.
@@ -123,7 +123,7 @@ docker compose --env-file .env -f infra/docker/docker-compose.yml up -d --build 
 docker compose --env-file .env -f infra/docker/docker-compose.yml ps
 ```
 
-- In Docker mode, the agent is on port `8000`, not `18010`.
+- Host-facing ports are the same as process mode: web `18030`, agent `18010`. The containers listen internally on `3000`/`8000`, but docker-compose publishes them on host `18030`/`18010`.
 
 ### 5. 验活（本地 → 域名，完整三步）
 
@@ -133,9 +133,9 @@ docker compose --env-file .env -f infra/docker/docker-compose.yml ps
 cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
 source scripts/dev/load-root-env.sh
 
-# Docker 模式：agent 固定在 8000
-BASE_WEB_LOCAL="http://localhost:3000"
-BASE_AGENT_LOCAL="http://localhost:8000"
+# Docker 模式：host 端口与进程模式一致（容器内仍是 3000/8000）
+BASE_WEB_LOCAL="http://localhost:18030"
+BASE_AGENT_LOCAL="http://localhost:18010"
 # 烟雾测试专用账号 gago-admin，凭据来自 .env（HEALTH_PASSWORD 已由上方 load-root-env.sh 加载）
 HEALTH_USERNAME=${HEALTH_USERNAME:-gago-admin}
 if [ -z "${HEALTH_PASSWORD:-}" ]; then
@@ -179,13 +179,13 @@ smoke_test "https://ai.luyaxiang.com" "https://ai.luyaxiang.com" "ai.luyaxiang.c
 
 - Repo root: `/Users/mac/Desktop/gago-cloud/code/smart-agriculture`
 - Docker compose file: `infra/docker/docker-compose.yml`
-- Docker agent port: `8000`
-- Docker web port: `3000`
-- Health check script (Docker): `BASE_AGENT=http://localhost:8000 bash scripts/health/check-local.sh`
+- Docker agent: host `18010` (container-internal `8000`)
+- Docker web: host `18030` (container-internal `3000`)
+- Health check script (Docker): `BASE_WEB=http://localhost:18030 BASE_AGENT=http://localhost:18010 bash scripts/health/check-local.sh`
 
 ## Common Mistakes
 
-- Forgetting to stop process-mode services before starting Docker (port conflicts on `3000`).
-- Using `.runtime/local-agent-port` (18010) instead of `8000` when Docker is active.
+- Forgetting to stop process-mode services before starting Docker (port conflicts on `18030`/`18010`).
+- Smoke-testing container-internal ports `3000`/`8000` from the host — from the host you must use the published ports `18030`/`18010`.
 - Only checking `/api/health` without running login + chat smoke.
 - Restarting `nginx` or `cloudflared` — these are shared and must not be touched.

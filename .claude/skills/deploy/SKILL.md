@@ -94,7 +94,7 @@ pm2 ls                 # confirm both online, sane restart counts
 
 - **First-time / fresh machine** (pm2 not yet managing these apps — `pm2 ls` shows
   nothing): use `pm2 start ecosystem.config.cjs && pm2 save` instead of reload. If a
-  stale manual process still holds `3000`/`18010`, kill that one first so pm2 can bind.
+  stale manual process still holds `18030`/`18010`, kill that one first so pm2 can bind.
 - **Boot persistence:** run `pm2 startup` once and execute the `sudo` line it prints
   (registers a launchd entry); `pm2 save` captures the current list for resurrect.
 - Logs: `pm2 logs sa-agent` / `pm2 logs sa-web` (also at `.runtime/logs/`).
@@ -168,7 +168,7 @@ print("  ✓ chat ok, final_text len:", len(d.get("final_text") or d.get("answer
 }
 
 # 本地验活（agent 直接访问）
-smoke_test "http://localhost:3000" "http://localhost:${LOCAL_AGENT_PORT}" "localhost"
+smoke_test "http://localhost:18030" "http://localhost:${LOCAL_AGENT_PORT}" "localhost"
 
 # 域名验活 — web version 必须等于 EXPECTED_VERSION 才算发布成功
 smoke_test "https://ai.luyaxiang.com" "skip" "ai.luyaxiang.com"
@@ -187,13 +187,13 @@ smoke_test "https://ai.luyaxiang.com" "skip" "ai.luyaxiang.com"
 - Status / logs: `pm2 ls`, `pm2 logs sa-agent`, `pm2 logs sa-web`
 - Start agent (raw, normally pm2-managed): `bash scripts/dev/start-local-agent.sh`
 - Start web (raw, normally pm2-managed): `bash scripts/dev/start-local-web.sh`
-- Local web health: `http://localhost:3000/api/health`
+- Local web health: `http://localhost:18030/api/health`
 - Live web health: `https://ai.luyaxiang.com/api/health`
 
 ## Common Mistakes
 
 - Assuming `ai.yaxianglu.com` is the correct domain. Use `ai.luyaxiang.com`.
 - Hand-killing the uvicorn/node process — pm2 instantly restarts the OLD build and re-grabs the port. Use `pm2 reload` instead.
-- Forgetting to stop Docker containers before starting process mode (port conflicts on `3000`).
+- Forgetting to stop Docker containers before starting process mode (port conflicts on `18030`).
 - Trusting `/api/health` without running login + chat smoke.
-- Restarting `nginx` or `cloudflared` when only `3000` or `18010` needs refresh.
+- Restarting `nginx` or `cloudflared` when only `18030` or `18010` needs refresh.

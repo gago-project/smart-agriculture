@@ -14,7 +14,7 @@ The current production-style chain on this machine is:
 
 1. `cloudflared`
 2. `nginx` on `127.0.0.1:5173`
-3. Next web on `127.0.0.1:3000`
+3. Next web on `127.0.0.1:18030`
 4. Python Agent on `127.0.0.1:18010` by default
 
 `ai.luyaxiang.com` is the correct domain. Treat `ai.yaxianglu.com` as a typo unless the user explicitly says otherwise.
@@ -34,8 +34,8 @@ servers; they never bump the version (version bumps happen only in the deploy st
 
 - Do not assume Docker is live just because `infra/docker/docker-compose.yml` exists.
 - Check actual listeners before restarting anything:
-  - Web: port `3000`
+  - Web: port `18030`
   - Frontdoor nginx: port `5173`
   - Agent: `.runtime/local-agent-port`, usually `18010`
-- `scripts/health/check-local.sh` prefers `.runtime/local-agent-port`. If the user is intentionally running Docker and the agent is on `8000`, set `BASE_AGENT=http://localhost:8000`.
+- `scripts/health/check-local.sh` prefers `.runtime/local-agent-port`. Host-facing ports are unified across process/Docker modes: web `18030`, agent `18010` (in Docker the containers bind `3000`/`8000` internally but are published on `18030`/`18010`).
 - A green `/api/health` on the domain only proves the web layer is healthy. Always run a login + chat smoke test to verify the full chain.
