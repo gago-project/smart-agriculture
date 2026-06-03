@@ -15,10 +15,10 @@ Read [`references/current-runtime.md`](./references/current-runtime.md) before t
 
 ### 1. Inspect the current state
 
-- Run `git status`, `lsof -nP -iTCP -sTCP:LISTEN`, `ps auxww`, and `docker ps`.
+- Run `git status`, `lsof -nP -iTCP -sTCP:LISTEN`, `ps auxww`, `docker ps`, and `pm2 ls`.
 - Run `pgrep -f cloudflared` to confirm the tunnel is active — domain smoke test requires it. If not running, warn before proceeding.
 - Note any Docker containers for this project that may conflict.
-- Note which process-mode services are already running.
+- Note whether the `sa-agent` / `sa-web` pm2 apps are already running (they should be — pm2 supervises them). If they exist, deploy = `pm2 reload` (step 4). If pm2 has nothing, this is a first-time setup.
 
 ### 2. Stop Docker containers if running
 
@@ -74,18 +74,31 @@ git commit -m "chore: bump version to $NEW_VERSION"
 
 - Rebuild web after version bump: `npm run build:web`
 
-### 4. Restart process-mode services
+### 4. Reload process-mode services via pm2
 
-- Agent:
-  - Read `.runtime/local-agent-port` to confirm the target port (default `18010`).
-  - Find the existing `uvicorn app.main:app` process owned by this repo.
-  - Kill only that process.
-  - Restart with `bash scripts/dev/start-local-agent.sh`
-- Web:
-  - Find the existing `next-server` / `.next/standalone/server.js` process on port `3000`.
-  - Kill only that process.
-  - Restart with `bash scripts/dev/start-local-web.sh`
-- Never kill `cloudflared`, `nginx`, or unrelated Python services on other ports.
+Services run under **pm2** (process supervisor — auto-restarts on crash/reboot). The
+pm2 apps `sa-agent` and `sa-web` wrap `start-local-agent.sh` / `start-local-web.sh`,
+defined in `ecosystem.config.cjs` at the repo root. **Do not hand-kill the uvicorn /
+node processes** — pm2 would immediately restart the old build and fight you for the
+port. Always go through pm2.
+
+```bash
+cd /Users/mac/Desktop/gago-cloud/code/smart-agriculture
+
+# Reload picks up the freshly built code (web: new .next/standalone; agent: new app code).
+# Restarts (crash or reload) NEVER bump the version — that only happens in step 3.
+pm2 reload ecosystem.config.cjs
+pm2 save               # persist updated process list
+pm2 ls                 # confirm both online, sane restart counts
+```
+
+- **First-time / fresh machine** (pm2 not yet managing these apps — `pm2 ls` shows
+  nothing): use `pm2 start ecosystem.config.cjs && pm2 save` instead of reload. If a
+  stale manual process still holds `3000`/`18010`, kill that one first so pm2 can bind.
+- **Boot persistence:** run `pm2 startup` once and execute the `sudo` line it prints
+  (registers a launchd entry); `pm2 save` captures the current list for resurrect.
+- Logs: `pm2 logs sa-agent` / `pm2 logs sa-web` (also at `.runtime/logs/`).
+- Never `pm2 delete`/kill `cloudflared`, `nginx`, or unrelated services.
 
 ### 5. 验活（本地 → 域名，完整三步）
 
@@ -168,14 +181,19 @@ smoke_test "https://ai.luyaxiang.com" "skip" "ai.luyaxiang.com"
 
 - Repo root: `/Users/mac/Desktop/gago-cloud/code/smart-agriculture`
 - Agent port: `.runtime/local-agent-port`, default `18010`
-- Start agent: `bash scripts/dev/start-local-agent.sh`
-- Start web: `bash scripts/dev/start-local-web.sh`
+- pm2 config: `ecosystem.config.cjs` (apps `sa-agent`, `sa-web`)
+- Reload after deploy: `pm2 reload ecosystem.config.cjs && pm2 save`
+- First-time start: `pm2 start ecosystem.config.cjs && pm2 save`
+- Status / logs: `pm2 ls`, `pm2 logs sa-agent`, `pm2 logs sa-web`
+- Start agent (raw, normally pm2-managed): `bash scripts/dev/start-local-agent.sh`
+- Start web (raw, normally pm2-managed): `bash scripts/dev/start-local-web.sh`
 - Local web health: `http://localhost:3000/api/health`
 - Live web health: `https://ai.luyaxiang.com/api/health`
 
 ## Common Mistakes
 
 - Assuming `ai.yaxianglu.com` is the correct domain. Use `ai.luyaxiang.com`.
+- Hand-killing the uvicorn/node process — pm2 instantly restarts the OLD build and re-grabs the port. Use `pm2 reload` instead.
 - Forgetting to stop Docker containers before starting process mode (port conflicts on `3000`).
 - Trusting `/api/health` without running login + chat smoke.
 - Restarting `nginx` or `cloudflared` when only `3000` or `18010` needs refresh.

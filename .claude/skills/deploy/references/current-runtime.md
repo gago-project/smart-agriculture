@@ -19,6 +19,17 @@ The current production-style chain on this machine is:
 
 `ai.luyaxiang.com` is the correct domain. Treat `ai.yaxianglu.com` as a typo unless the user explicitly says otherwise.
 
+## Process Supervision (pm2)
+
+The web and agent run under **pm2** as apps `sa-web` and `sa-agent` (config:
+`ecosystem.config.cjs` at repo root). pm2 auto-restarts them on crash and — once
+`pm2 startup` is registered — after reboot. Restarts only re-launch the already-built
+servers; they never bump the version (version bumps happen only in the deploy step).
+
+- Status: `pm2 ls` · Logs: `pm2 logs sa-web` / `pm2 logs sa-agent` (also `.runtime/logs/`)
+- Redeploy: `pm2 reload ecosystem.config.cjs && pm2 save`
+- Do NOT hand-kill the uvicorn/node process — pm2 will restart the old build and re-grab the port. Go through pm2.
+
 ## Important Runtime Notes
 
 - Do not assume Docker is live just because `infra/docker/docker-compose.yml` exists.
