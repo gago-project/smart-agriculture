@@ -2,8 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireAdminRequestUser } from '../../../../../../lib/server/auth.mjs';
 import { patchSoilRecord, removeSoilRecords } from '../../../../../../lib/server/soilAdminRepository.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../../lib/backendProxy.mjs';
 
 export async function PATCH(request: NextRequest, context: { params: Promise<{ recordId: string }> }) {
+  if (isBackendProxyEnabled()) {
+    const { recordId } = await context.params;
+    return proxyToBackend(request, `admin/soil/records/${encodeURIComponent(recordId)}`);
+  }
   try {
     await requireAdminRequestUser(request);
     const payload = await request.json();
@@ -19,6 +24,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ r
 }
 
 export async function DELETE(request: NextRequest, context: { params: Promise<{ recordId: string }> }) {
+  if (isBackendProxyEnabled()) {
+    const { recordId } = await context.params;
+    return proxyToBackend(request, `admin/soil/records/${encodeURIComponent(recordId)}`);
+  }
   try {
     await requireAdminRequestUser(request);
     const params = await context.params;

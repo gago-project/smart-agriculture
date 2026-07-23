@@ -2,8 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireRequestUser } from '../../../../lib/server/auth.mjs';
 import { getChatBlockPageBySnapshot } from '../../../../lib/server/chatBlockRepository.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../lib/backendProxy.mjs';
 
 export async function GET(request: NextRequest) {
+  // Phase 1 前后端分离: forward to the local NestJS backend when configured
+  // (Vercel has no MYSQL_*). Original MySQL-direct logic below is the fallback.
+  if (isBackendProxyEnabled()) {
+    return proxyToBackend(request, 'agent/chat-block');
+  }
+
   try {
     const session = await requireRequestUser(request);
     if (!session) {

@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireRoleRequestUser } from '../../../../../lib/server/auth.mjs';
 import { listAgentQueryLogs } from '../../../../../lib/server/agentLogRepository.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../lib/backendProxy.mjs';
 
 export async function GET(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'developer/agent/query-logs');
   try {
     await requireRoleRequestUser(request, ['admin', 'developer']);
     const searchParams = request.nextUrl.searchParams;

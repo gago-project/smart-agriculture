@@ -3,10 +3,18 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AuthRequestError, requireRequestUser } from '../../../../lib/server/auth.mjs';
 
 import { runAgentChatTurn } from '../../../../lib/server/agentChatRuntime.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../lib/backendProxy.mjs';
 
 const AGENT_BASE_URL = process.env.AGENT_BASE_URL || 'http://agent:8000';
 
 export async function POST(request: NextRequest) {
+  // Phase 1 前后端分离: when a backend is configured (e.g. Vercel, where MYSQL_*
+  // is deliberately not injected), forward to the local NestJS backend instead
+  // of hitting MySQL directly. Original logic below stays as fallback/rollback.
+  if (isBackendProxyEnabled()) {
+    return proxyToBackend(request, 'agent/chat');
+  }
+
   try {
     const session = await requireRequestUser(request);
     if (!session) {

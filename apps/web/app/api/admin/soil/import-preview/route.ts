@@ -3,8 +3,10 @@ import { NextRequest, NextResponse } from 'next/server';
 import { AuthRequestError, requireAdminRequestUser } from '../../../../../lib/server/auth.mjs';
 import { SoilImportPreviewCacheError } from '../../../../../lib/server/soilImportPreviewCache.mjs';
 import { createSoilImportPreview } from '../../../../../lib/server/soilImportPreviewService.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../lib/backendProxy.mjs';
 
 export async function POST(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'admin/soil/import-preview');
   try {
     await requireAdminRequestUser(request);
     const payload = await request.json();

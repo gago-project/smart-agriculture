@@ -2,10 +2,12 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireRequestUser } from '../../../../../lib/server/auth.mjs';
 import { listRealConversationCases } from '../../../../../lib/server/realConversationLibrary.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../lib/backendProxy.mjs';
 
 const ALLOWED_USERNAME = 'gago-dev';
 
 export async function GET(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'developer/soil/real-conversation-library');
   try {
     const session = await requireRequestUser(request);
     if (!session) {

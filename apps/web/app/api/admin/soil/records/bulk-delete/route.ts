@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireAdminRequestUser } from '../../../../../../lib/server/auth.mjs';
 import { removeSoilRecords } from '../../../../../../lib/server/soilAdminRepository.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../../lib/backendProxy.mjs';
 
 export async function POST(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'admin/soil/records/bulk-delete');
   try {
     await requireAdminRequestUser(request);
     const payload = await request.json();

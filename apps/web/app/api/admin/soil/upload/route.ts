@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireAdminRequestUser } from '../../../../../lib/server/auth.mjs';
 import { importSoilWorkbook } from '../../../../../lib/server/soilAdminRepository.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../lib/backendProxy.mjs';
 
 export async function POST(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'admin/soil/upload');
   try {
     await requireAdminRequestUser(request);
     const payload = await request.json();

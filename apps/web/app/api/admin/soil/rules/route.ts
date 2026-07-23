@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { AuthRequestError, requireAdminRequestUser } from '../../../../../lib/server/auth.mjs';
 import { listRuleConfig, patchRuleConfig } from '../../../../../lib/server/soilAdminRepository.mjs';
+import { isBackendProxyEnabled, proxyToBackend } from '../../../../../lib/backendProxy.mjs';
 
 export async function GET(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'admin/soil/rules');
   try {
     await requireAdminRequestUser(request);
     const result = await listRuleConfig();
@@ -17,6 +19,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
+  if (isBackendProxyEnabled()) return proxyToBackend(request, 'admin/soil/rules');
   try {
     await requireAdminRequestUser(request);
     const payload = await request.json();
